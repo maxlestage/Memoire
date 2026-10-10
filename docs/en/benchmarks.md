@@ -16,6 +16,8 @@ They are compiled with the `bench` profile of the workspace (`lto = "thin"`, `co
 | `memory` | `find_by_pk_10k` | `User::find` by primary key in a table of 10,000 rows |
 | `memory` | `filter_order_limit_10k` | Filter (`between` and `gt`), sort and `limit(20)` over 10,000 rows |
 | `memory` | `count_where_10k` | `count` with a filter over 10,000 rows |
+| `memory` | `filter_indexed_eq_10k` | Equality filter on an `#[memoire(index)]` column (an index lookup) over 10,000 rows |
+| `memory` | `update_where_10k` | `update_many` with a filter and an `increment` over 10,000 rows |
 | `memory` | `insert_one` | Insert one row |
 | `memory` | `insert_many_1000` | `insert_many` of 1,000 rows into an empty table |
 | `sqlite` | `find_by_pk/...` | Find one row by primary key in 10,000 rows |

@@ -38,10 +38,10 @@ Como el constructor produce el mismo texto SQL para las consultas con la misma f
 
 `MemoryDb` no analiza SQL en absoluto: ejecuta directamente las estructuras de consulta.
 
-- Índices hash sobre la clave primaria y las columnas `unique`: las búsquedas por clave tardan un tiempo constante.
-- Los filtros se compilan una vez por consulta (posiciones de columna resueltas, listas `IN` largas convertidas en conjuntos hash, patrones `LIKE` analizados previamente) antes de recorrer las filas.
+- Índices hash sobre la clave primaria y las columnas `unique` e `index`, que solo guardan posiciones de filas: las búsquedas tardan un tiempo constante y las claves nunca se copian.
+- Los filtros están vectorizados: se dividen en sus términos `AND` y cada uno se aplica con un bucle especializado para su columna y su constante. Las columnas numéricas se leen de copias tipadas contiguas, a unos 1 ns por fila. Las demás condiciones (`OR`, `LIKE`, funciones...) se compilan una vez por consulta.
 - Los joins por igualdad de columnas se ejecutan como hash joins.
-- `order_by` + `limit` selecciona las primeras filas sin ordenarlo todo.
+- `order_by` + `limit` selecciona las primeras filas sobre claves enteras compactas, sin ordenarlo todo; `count` cuenta sin construir filas, y los resultados se decodifican directamente desde las filas guardadas.
 - Las transacciones usan instantáneas con copia en escritura: iniciar una es barato, y una tabla solo se copia cuando la transacción escribe en ella por primera vez.
 
 ### Redis: primero las búsquedas por clave
@@ -113,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Indexa las columnas por las que buscas
 
-Añade `#[memoire(index)]` a las columnas por las que filtras, haces joins u ordenas a menudo, en particular las claves foráneas. Las columnas `unique` se indexan automáticamente. MongoDB crea los mismos índices en sus colecciones. El motor en memoria mantiene índices hash sobre la clave primaria y las columnas `unique`, y Redis busca las filas directamente por clave primaria; `index` no tiene ningún efecto en ninguno de los dos.
+Añade `#[memoire(index)]` a las columnas por las que filtras, haces joins u ordenas a menudo, en particular las claves foráneas. Las columnas `unique` se indexan automáticamente. MongoDB crea los mismos índices en sus colecciones. El motor en memoria también indexa la clave primaria y las columnas `unique` e `index` (un filtro de igualdad o un join sobre ellas es una búsqueda, no un recorrido); Redis busca las filas directamente por clave primaria, así que `index` no tiene efecto allí.
 
 ### Evita las consultas N+1
 

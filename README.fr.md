@@ -91,16 +91,27 @@ DATABASE_URL=postgres://… cargo run -p memoire-orm --example postgres --featur
 
 ## Performances
 
-Comparaison avec du code `rusqlite` écrit à la main (même pilote, requêtes préparées en cache :
-le plancher que tout ORM SQLite peut atteindre). Intel Xeon 2,8 GHz, médianes criterion :
+Le moteur en mémoire (qui évalue aussi les requêtes des backends Redis et MongoDB) filtre avec des
+boucles spécialisées pour chaque type de colonne, sur des copies contiguës des colonnes numériques,
+et ses index ne copient jamais les clés. Intel Xeon 2,8 GHz, médianes criterion, table de 10 000 lignes :
+
+| Moteur en mémoire | Avant | Maintenant |
+|---|---:|---:|
+| Égalité sur une colonne `#[memoire(index)]` | 140,9 µs | **1,1 µs** (×123) |
+| `COUNT(*) WHERE` | 106,2 µs | **11,1 µs** (×9,6) |
+| Filtre + `ORDER BY` + `LIMIT 20` | 231,2 µs | **36,3 µs** (×6,4) |
+| `update_many` avec un filtre | 177,0 µs | **35,8 µs** (×4,9) |
+| `insert_many`, 1 000 lignes | 422,9 µs | **246,0 µs** (×1,7) |
+
+Sur SQLite, comparaison avec du code `rusqlite` écrit à la main (même pilote, requêtes préparées en
+cache : le plancher que tout ORM SQLite peut atteindre) :
 
 | Opération | Memoire | rusqlite brut |
 |---|---:|---:|
-| Recherche par clé primaire | 987 ns | 840 ns |
-| Sélection + décodage de 1 000 lignes | 343 µs | 324 µs |
-| Insertion d'une ligne | 8,88 µs | 8,21 µs |
-| Insertion de 1 000 lignes dans une transaction | **1,80 ms** | 7,98 ms |
-| Moteur en mémoire : recherche par clé parmi 10 000 lignes | 231 ns | — |
+| Recherche par clé primaire | 961 ns | 746 ns |
+| Sélection + décodage de 1 000 lignes | 315 µs | 308 µs |
+| Insertion d'une ligne | 6,26 µs | 5,92 µs |
+| Insertion de 1 000 lignes dans une transaction | **1,95 ms** | 6,64 ms |
 
 Détails : [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 à reproduire avec `cargo bench -p memoire-orm --features memory,sqlite`.

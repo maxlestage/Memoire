@@ -87,14 +87,23 @@ More: joins (`inner_join`, `left_join`), `group_by` + aggregates, `paginate`,
 
 ## Performance
 
+The in-memory engine filters with loops specialised for each column type, over contiguous copies
+of the numeric columns, and its indexes never copy keys (10 000-row table, criterion medians):
+
+| In-memory engine | Before | Now |
+|---|---:|---:|
+| Equality on an `#[memoire(index)]` column | 140.9 µs | **1.1 µs** (×123) |
+| `COUNT(*) WHERE` | 106.2 µs | **11.1 µs** (×9.6) |
+| Filter + `ORDER BY` + `LIMIT 20` | 231.2 µs | **36.3 µs** (×6.4) |
+
 Measured against hand-written `rusqlite` code (same driver, cached prepared
 statements — the floor any SQLite ORM can reach):
 
 | Operation | Memoire | Raw rusqlite |
 |---|---:|---:|
-| Find by primary key | 987 ns | 840 ns |
-| Select + decode 1 000 rows | 343 µs | 324 µs |
-| Insert 1 000 rows in a transaction | **1.80 ms** | 7.98 ms |
+| Find by primary key | 961 ns | 746 ns |
+| Select + decode 1 000 rows | 315 µs | 308 µs |
+| Insert 1 000 rows in a transaction | **1.95 ms** | 6.64 ms |
 
 Full results and methodology: [`benches/RESULTS.md`](benches/RESULTS.md).
 

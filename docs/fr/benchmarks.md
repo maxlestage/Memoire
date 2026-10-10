@@ -16,6 +16,8 @@ Ils sont compilés avec le profil `bench` du workspace (`lto = "thin"`, `codegen
 | `memory` | `find_by_pk_10k` | `User::find` par clé primaire dans une table de 10 000 lignes |
 | `memory` | `filter_order_limit_10k` | Filtre (`between` et `gt`), tri et `limit(20)` sur 10 000 lignes |
 | `memory` | `count_where_10k` | `count` avec un filtre sur 10 000 lignes |
+| `memory` | `filter_indexed_eq_10k` | Filtre d'égalité sur une colonne `#[memoire(index)]` (une recherche dans l'index) sur 10 000 lignes |
+| `memory` | `update_where_10k` | `update_many` avec un filtre et un `increment` sur 10 000 lignes |
 | `memory` | `insert_one` | Insère une ligne |
 | `memory` | `insert_many_1000` | `insert_many` de 1 000 lignes dans une table vide |
 | `sqlite` | `find_by_pk/...` | Trouve une ligne par clé primaire parmi 10 000 lignes |

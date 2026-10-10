@@ -89,6 +89,25 @@ fn memory(c: &mut Criterion) {
         b.iter(|| black_box(block_on(User::query().filter(User::AGE.eq(black_box(42))).count(&db)).unwrap()))
     });
 
+    // `name` is `#[memoire(index)]`: an index lookup, not a scan.
+    g.bench_function("filter_indexed_eq_10k", |b| {
+        let mut i = 0;
+        b.iter(|| {
+            i = (i + 7919) % 10_000;
+            let name = format!("User {i:06}");
+            black_box(block_on(User::query().filter(User::NAME.eq(name.as_str())).all(&db)).unwrap())
+        })
+    });
+
+    g.bench_function("update_where_10k", |b| {
+        b.iter(|| {
+            let n = block_on(
+                User::update_many().filter(User::AGE.eq(black_box(7))).increment(User::SCORE, 1.0).execute(&db),
+            );
+            black_box(n.unwrap())
+        })
+    });
+
     // Average cost of one insert while a table grows from 0 to `iters` rows.
     g.bench_function("insert_one", |b| {
         b.iter_custom(|iters| {

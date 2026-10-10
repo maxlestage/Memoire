@@ -1097,7 +1097,7 @@ impl Executor for RedisTransaction {
         }
         let mut tx = self.inner.lock().await;
         self.ensure_loaded(&mut tx, &tables_of(&query)).await?;
-        mem::decode(mem::fetch(&tx.state, &query)?)
+        mem::fetch_decode(&tx.state, &query)
     }
 
     async fn execute(&self, query: Query<'_>) -> Result<ExecResult> {

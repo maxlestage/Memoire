@@ -9,6 +9,8 @@
 //! `wasm32-unknown-unknown`, no runtime required).
 
 mod eval;
+mod index;
+mod scan;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -20,14 +22,15 @@ use parking_lot::{Mutex, RwLock};
 use crate::ast::{DeleteAst, InsertAst, JoinKind, Projection, Query, SelectAst, UpdateAst};
 use crate::error::{Error, Result};
 use crate::executor::{Database, ExecResult, Executor, Transaction};
-use crate::expr::{BinOp, ColumnRef, Expr};
-use crate::row::{FromRow, ValueRow};
+use crate::expr::{AggFunc, BinOp, ColumnRef, Expr};
+use crate::row::{FromRow, RowSource, ValueRow};
 use crate::schema::{Dialect, TableSchema};
-use crate::value::Value;
+use crate::value::{ColumnType, Value};
 
-use eval::{Ctx, Group, Key, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
+use eval::{Ctx, Group, Key, Parts, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
 #[cfg(feature = "mongodb")]
 pub(crate) use eval::{Tok as LikeTok, tokenize as like_tokens};
+use index::Index;
 
 type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 type Set<K> = HashSet<K, foldhash::fast::RandomState>;
@@ -53,13 +56,106 @@ pub(crate) fn validate_row(schema: &TableSchema, row: &[Value]) -> Result<()> {
     Ok(())
 }
 
+/// Per-row state of a [`Mirror`].
+pub(crate) const MIRROR_NULL: u8 = 0;
+pub(crate) const MIRROR_VALUE: u8 = 1;
+/// A value of another type than the column's: scans read it from the row.
+pub(crate) const MIRROR_OTHER: u8 = 2;
+
+/// A numeric column copied into a contiguous typed array, kept in step with
+/// the rows: filters and sorts on it read 9 bytes per row instead of
+/// following a pointer to each row (see `scan.rs`).
+#[derive(Clone)]
+pub(crate) struct Mirror {
+    pub(crate) col: usize,
+    pub(crate) data: MirrorData,
+    /// One of `MIRROR_NULL`, `MIRROR_VALUE`, `MIRROR_OTHER` per row.
+    pub(crate) state: Vec<u8>,
+    /// Number of `MIRROR_OTHER` rows (scans take a branch-free loop when 0).
+    pub(crate) others: usize,
+}
+
+#[derive(Clone)]
+pub(crate) enum MirrorData {
+    Int(Vec<i64>),
+    Float(Vec<f64>),
+}
+
+impl Mirror {
+    fn for_column(col: usize, kind: ColumnType) -> Option<Mirror> {
+        let data = match kind {
+            ColumnType::SmallInt | ColumnType::Int | ColumnType::BigInt => MirrorData::Int(Vec::new()),
+            ColumnType::Real | ColumnType::Double => MirrorData::Float(Vec::new()),
+            _ => return None,
+        };
+        Some(Mirror { col, data, state: Vec::new(), others: 0 })
+    }
+
+    fn push(&mut self, row: &[Value]) {
+        let v = row.get(self.col).unwrap_or(&Value::Null);
+        match &mut self.data {
+            MirrorData::Int(d) => {
+                let (x, st) = match *v {
+                    Value::I32(x) => (i64::from(x), MIRROR_VALUE),
+                    Value::I64(x) => (x, MIRROR_VALUE),
+                    Value::Null => (0, MIRROR_NULL),
+                    _ => (0, MIRROR_OTHER),
+                };
+                d.push(x);
+                self.state.push(st);
+                self.others += usize::from(st == MIRROR_OTHER);
+            }
+            MirrorData::Float(d) => {
+                let (x, st) = match *v {
+                    Value::F64(x) if !x.is_nan() => (x, MIRROR_VALUE),
+                    Value::Null => (0.0, MIRROR_NULL),
+                    _ => (0.0, MIRROR_OTHER),
+                };
+                d.push(x);
+                self.state.push(st);
+                self.others += usize::from(st == MIRROR_OTHER);
+            }
+        }
+    }
+
+    fn set(&mut self, idx: usize, row: &[Value]) {
+        self.push(row);
+        self.swap_remove(idx);
+    }
+
+    fn swap_remove(&mut self, idx: usize) {
+        match &mut self.data {
+            MirrorData::Int(d) => {
+                d.swap_remove(idx);
+            }
+            MirrorData::Float(d) => {
+                d.swap_remove(idx);
+            }
+        }
+        self.others -= usize::from(self.state.swap_remove(idx) == MIRROR_OTHER);
+    }
+
+    fn rebuild(&mut self, rows: &[Vec<Value>]) {
+        match &mut self.data {
+            MirrorData::Int(d) => d.clear(),
+            MirrorData::Float(d) => d.clear(),
+        }
+        self.state.clear();
+        self.others = 0;
+        for row in rows {
+            self.push(row);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Table {
     pub(crate) schema: &'static TableSchema,
     pub(crate) rows: Vec<Vec<Value>>,
-    pk: Map<Key, usize>,
-    /// `(column index, value -> row)` for `UNIQUE` columns.
-    uniques: Vec<(usize, Map<Key, usize>)>,
+    /// The primary key first, then `unique` columns, then `index` columns.
+    indexes: Vec<Index>,
+    /// Typed copies of the numeric columns.
+    mirrors: Vec<Mirror>,
     pub(crate) next_id: i64,
     version: u64,
 }
@@ -70,6 +166,9 @@ impl Table {
     #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
     pub(crate) fn from_rows(schema: &'static TableSchema, rows: Vec<Vec<Value>>, last_id: i64) -> Self {
         let mut t = Table::new(schema, 0);
+        // Built for one statement: the `index` columns' indexes would rarely pay
+        // for themselves (scans are fast); keep those that enforce uniqueness.
+        t.indexes.retain(|i| i.unique);
         t.rows = rows;
         t.rebuild_indexes();
         t.next_id = last_id.saturating_add(1).max(1);
@@ -81,20 +180,30 @@ impl Table {
     }
 
     pub(crate) fn new(schema: &'static TableSchema, version: u64) -> Self {
-        Table {
-            schema,
-            rows: Vec::new(),
-            pk: Map::default(),
-            uniques: schema
+        let mut indexes = vec![Index::new(schema.primary_key, true)];
+        let others = |unique: bool| {
+            schema
                 .columns
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.unique && !c.primary_key)
-                .map(|(i, _)| (i, Map::default()))
-                .collect(),
+                .filter(move |(i, c)| *i != schema.primary_key && c.unique == unique && (unique || c.indexed))
+                .map(move |(i, _)| Index::new(i, unique))
+        };
+        indexes.extend(others(true));
+        indexes.extend(others(false));
+        Table {
+            schema,
+            rows: Vec::new(),
+            indexes,
+            mirrors: schema.columns.iter().enumerate().filter_map(|(i, c)| Mirror::for_column(i, c.kind)).collect(),
             next_id: 1,
             version,
         }
+    }
+
+    /// The typed copy of column `col`, if it is numeric.
+    pub(crate) fn mirror(&self, col: usize) -> Option<&Mirror> {
+        self.mirrors.iter().find(|m| m.col == col)
     }
 
     fn name(&self) -> &'static str {
@@ -105,17 +214,22 @@ impl Table {
         Error::UniqueViolation { table: self.name().to_owned(), column: self.schema.columns[col].name.to_owned() }
     }
 
+    fn index(&self, col: usize) -> Option<&Index> {
+        self.indexes.iter().find(|i| i.col == col)
+    }
+
+    /// The row holding `value` in the primary key or a `unique` column.
     fn lookup(&self, col: usize, value: &Value) -> Option<usize> {
-        let key = Key(value.clone());
-        if col == self.schema.primary_key {
-            self.pk.get(&key).copied()
-        } else {
-            self.uniques.iter().find(|(c, _)| *c == col).and_then(|(_, m)| m.get(&key).copied())
-        }
+        self.index(col).filter(|i| i.unique).and_then(|i| i.find(&self.rows, value))
+    }
+
+    /// Every row holding `value` in an indexed column, in table order.
+    fn lookup_all(&self, col: usize, value: &Value) -> Option<Vec<usize>> {
+        self.index(col).map(|i| i.find_all(&self.rows, value))
     }
 
     fn has_index(&self, col: usize) -> bool {
-        col == self.schema.primary_key || self.uniques.iter().any(|(c, _)| *c == col)
+        self.index(col).is_some()
     }
 
     fn check_row(&self, row: &[Value]) -> Result<()> {
@@ -123,29 +237,23 @@ impl Table {
     }
 
     fn index_row(&mut self, idx: usize) {
-        let row = &self.rows[idx];
-        self.pk.insert(Key(row[self.schema.primary_key].clone()), idx);
-        for (col, map) in &mut self.uniques {
-            if !row[*col].is_null() {
-                map.insert(Key(row[*col].clone()), idx);
-            }
+        for index in &mut self.indexes {
+            index.insert(&self.rows, idx);
         }
     }
 
     fn unindex_row(&mut self, idx: usize) {
-        let row = &self.rows[idx];
-        self.pk.remove(&Key(row[self.schema.primary_key].clone()));
-        for (col, map) in &mut self.uniques {
-            if !row[*col].is_null() {
-                map.remove(&Key(row[*col].clone()));
-            }
+        for index in &mut self.indexes {
+            index.remove(&self.rows, idx);
         }
     }
 
     fn rebuild_indexes(&mut self) {
-        self.pk.clear();
-        for (_, m) in &mut self.uniques {
-            m.clear();
+        for m in &mut self.mirrors {
+            m.rebuild(&self.rows);
+        }
+        for index in &mut self.indexes {
+            index.clear();
         }
         for i in 0..self.rows.len() {
             self.index_row(i);
@@ -169,32 +277,34 @@ impl Table {
                 .ok_or_else(|| Error::Conversion(format!("`{}`: row has no primary key column", self.name())))?;
         }
         self.check_row(&row)?;
-        // Build every index key once: used for the uniqueness check, then moved
-        // into the indexes.
-        let pk_key = Key(row[pk].clone());
-        if self.pk.contains_key(&pk_key) {
-            return Err(self.violation(pk));
-        }
-        let mut unique_keys = Vec::with_capacity(self.uniques.len());
-        for (col, map) in &self.uniques {
-            if row[*col].is_null() {
-                unique_keys.push(None);
+        // Each indexed value is hashed once: for the unique check, then to file it.
+        const HASHED: usize = 8;
+        let mut hashes = [None::<u64>; HASHED];
+        for (k, index) in self.indexes.iter().enumerate() {
+            let v = &row[index.col];
+            if v.is_null() {
                 continue;
             }
-            let k = Key(row[*col].clone());
-            if map.contains_key(&k) {
-                return Err(self.violation(*col));
+            let h = index.hash(v);
+            if index.unique && index.find_hashed(&self.rows, v, h).is_some() {
+                return Err(self.violation(index.col));
             }
-            unique_keys.push(Some(k));
+            if k < HASHED {
+                hashes[k] = Some(h);
+            }
         }
-        let key = pk_key.0.clone();
+        let key = row[pk].clone();
         self.bump_next_id(&key);
         let idx = self.rows.len();
+        for m in &mut self.mirrors {
+            m.push(&row);
+        }
         self.rows.push(row);
-        self.pk.insert(pk_key, idx);
-        for ((_, map), k) in self.uniques.iter_mut().zip(unique_keys) {
-            if let Some(k) = k {
-                map.insert(k, idx);
+        for (k, index) in self.indexes.iter_mut().enumerate() {
+            match hashes.get(k) {
+                Some(Some(h)) => index.insert_hashed(idx, *h),
+                Some(None) => {} // NULL: not indexed
+                None => index.insert(&self.rows, idx),
             }
         }
         Ok(key)
@@ -203,13 +313,14 @@ impl Table {
     fn upsert(&mut self, row: Vec<Value>) -> Result<()> {
         self.check_row(&row)?;
         let pk = self.schema.primary_key;
-        match self.pk.get(&Key(row[pk].clone())).copied() {
+        match self.lookup(pk, &row[pk]) {
             Some(idx) => self.replace_rows(vec![(idx, row)]).map(|_| ()),
             None => self.insert(row, false).map(|_| ()),
         }
     }
 
-    /// Atomically replaces rows, validating unique constraints first.
+    /// Atomically replaces rows, validating unique constraints first. Only the
+    /// indexes whose column changes are touched.
     fn replace_rows(&mut self, changes: Vec<(usize, Vec<Value>)>) -> Result<u64> {
         if changes.is_empty() {
             return Ok(0);
@@ -217,38 +328,56 @@ impl Table {
         for (_, row) in &changes {
             self.check_row(row)?;
         }
-        let changed: Set<usize> = changes.iter().map(|(i, _)| *i).collect();
-        let pk = self.schema.primary_key;
-        let indexed: Vec<usize> = std::iter::once(pk).chain(self.uniques.iter().map(|(c, _)| *c)).collect();
-        for col in indexed {
-            let mut seen: Set<Key> = Set::default();
-            for (_, row) in &changes {
-                let v = &row[col];
-                if v.is_null() {
-                    continue;
-                }
-                if !seen.insert(Key(v.clone())) {
-                    return Err(self.violation(col));
-                }
-                if let Some(other) = self.lookup(col, v)
-                    && !changed.contains(&other)
-                {
-                    return Err(self.violation(col));
+        // Indexes whose column changes in at least one row.
+        let touched: Vec<usize> = (0..self.indexes.len())
+            .filter(|&k| {
+                let col = self.indexes[k].col;
+                changes.iter().any(|(i, row)| !eval::key_eq(&self.rows[*i][col], &row[col]))
+            })
+            .collect();
+        if touched.iter().any(|&k| self.indexes[k].unique) {
+            let changed: Set<usize> = changes.iter().map(|(i, _)| *i).collect();
+            for &k in touched.iter().filter(|&&k| self.indexes[k].unique) {
+                let col = self.indexes[k].col;
+                let mut seen: Set<Key> = Set::default();
+                for (_, row) in &changes {
+                    let v = &row[col];
+                    if v.is_null() {
+                        continue;
+                    }
+                    if !seen.insert(Key(v.clone())) {
+                        return Err(self.violation(col));
+                    }
+                    if let Some(other) = self.lookup(col, v)
+                        && !changed.contains(&other)
+                    {
+                        return Err(self.violation(col));
+                    }
                 }
             }
         }
-        for (idx, _) in &changes {
-            self.unindex_row(*idx);
+        for &k in &touched {
+            for (idx, _) in &changes {
+                self.indexes[k].remove(&self.rows, *idx);
+            }
         }
+        let pk = self.schema.primary_key;
         let n = changes.len() as u64;
-        let mut touched = Vec::with_capacity(changes.len());
+        let mut written = Vec::with_capacity(if touched.is_empty() { 0 } else { changes.len() });
         for (idx, row) in changes {
             self.bump_next_id(&row[pk]);
+            for m in &mut self.mirrors {
+                m.set(idx, &row);
+            }
             self.rows[idx] = row;
-            touched.push(idx);
+            if !touched.is_empty() {
+                written.push(idx);
+            }
         }
-        for idx in touched {
-            self.index_row(idx);
+        for &k in &touched {
+            for &idx in &written {
+                self.indexes[k].insert(&self.rows, idx);
+            }
         }
         Ok(n)
     }
@@ -277,9 +406,14 @@ impl Table {
                 self.unindex_row(idx);
                 let last = self.rows.len() - 1;
                 self.rows.swap_remove(idx);
+                for m in &mut self.mirrors {
+                    m.swap_remove(idx);
+                }
                 if idx != last {
                     // The former last row moved to `idx`.
-                    self.index_row(idx);
+                    for index in &mut self.indexes {
+                        index.moved(&self.rows, last, idx);
+                    }
                 }
             }
         }
@@ -332,8 +466,8 @@ impl State {
 // SELECT
 // ---------------------------------------------------------------------------
 
-/// If `filter` pins an indexed column of the root table to constants, returns
-/// the candidate row indexes.
+/// If `filter` pins an indexed column of the root table (primary key,
+/// `unique` or `index`) to constants, returns the candidate row indexes.
 fn index_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
     let indexed_col = |e: &Expr| match e {
         Expr::Column(c) if c.table == table.name() && table.has_index(c.index) => Some(c.index),
@@ -346,11 +480,11 @@ fn index_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
                 (Expr::Value(v), r) => (indexed_col(r)?, v),
                 _ => return None,
             };
-            Some(table.lookup(col, v).into_iter().collect())
+            table.lookup_all(col, v)
         }
         Expr::InList { expr, list, negated: false } => {
             let col = indexed_col(expr)?;
-            let mut out: Vec<usize> = list.iter().filter_map(|v| table.lookup(col, v)).collect();
+            let mut out: Vec<usize> = list.iter().flat_map(|v| table.lookup_all(col, v).unwrap_or_default()).collect();
             out.sort_unstable();
             out.dedup();
             Some(out)
@@ -377,7 +511,111 @@ fn equi_join(on: &Expr, joined: &'static str, known: &[&'static str]) -> Option<
     None
 }
 
-fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
+/// Result of a `SELECT`: whole table rows borrowed from the store (decoded
+/// straight into the caller's types, without an intermediate copy), or
+/// computed values.
+pub(crate) enum Selected<'a> {
+    Tables {
+        rows: Rows<'a>,
+        /// Result rows, as positions in `rows`.
+        order: Vec<usize>,
+        /// `(slot in the row, width)` of each projected table.
+        columns: Vec<(usize, usize)>,
+    },
+    Values(Vec<Vec<Value>>),
+}
+
+impl Selected<'_> {
+    pub(crate) fn into_values(self) -> Vec<Vec<Value>> {
+        match self {
+            Selected::Values(v) => v,
+            Selected::Tables { rows, order, columns } => {
+                let width = columns.iter().map(|c| c.1).sum();
+                order
+                    .into_iter()
+                    .map(|i| {
+                        let parts = rows.get(i);
+                        let mut out = Vec::with_capacity(width);
+                        for &(slot, width) in &columns {
+                            match parts[slot] {
+                                Some(r) => out.extend_from_slice(r),
+                                None => out.extend(std::iter::repeat_n(Value::Null, width)),
+                            }
+                        }
+                        out
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) fn decode<O: FromRow>(self) -> Result<Vec<O>> {
+        match self {
+            Selected::Values(v) => decode(v),
+            Selected::Tables { rows, order, columns } => {
+                order.into_iter().map(|i| O::from_row(&mut PartsRow::new(rows.get(i), &columns), 0)).collect()
+            }
+        }
+    }
+}
+
+/// One result row made of borrowed table rows (`None`: the NULL side of a
+/// `LEFT JOIN`); values are cloned only when the caller takes them.
+struct PartsRow<'a, 'b> {
+    parts: &'b Parts<'a>,
+    columns: &'b [(usize, usize)],
+    len: usize,
+}
+
+impl<'a, 'b> PartsRow<'a, 'b> {
+    fn new(parts: &'b Parts<'a>, columns: &'b [(usize, usize)]) -> Self {
+        PartsRow { parts, columns, len: columns.iter().map(|c| c.1).sum() }
+    }
+
+    /// The value at `index`; `None` for a missing (NULL) table row.
+    #[inline]
+    fn get(&self, mut index: usize) -> Option<&'a Value> {
+        for &(slot, width) in self.columns {
+            if index < width {
+                return self.parts[slot].and_then(|r| r.get(index));
+            }
+            index -= width;
+        }
+        None
+    }
+}
+
+impl RowSource for PartsRow<'_, '_> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
+    fn take(&mut self, index: usize) -> Result<Value> {
+        if index >= self.len {
+            return Err(Error::Conversion(format!("column index {index} out of range ({} columns)", self.len)));
+        }
+        Ok(self.get(index).cloned().unwrap_or(Value::Null))
+    }
+
+    #[inline]
+    fn is_null(&self, index: usize) -> bool {
+        self.get(index).is_none_or(Value::is_null)
+    }
+}
+
+/// `SELECT COUNT(*) FROM t [WHERE ...]`: counted without building rows.
+fn is_count_all(ast: &SelectAst) -> bool {
+    ast.joins.is_empty()
+        && ast.group_by.is_empty()
+        && ast.having.is_none()
+        && !ast.distinct
+        && matches!(&ast.projection, Projection::Exprs(e)
+            if matches!(e.as_slice(), [Expr::Aggregate { func: AggFunc::Count, arg: None, distinct: false }]))
+}
+
+fn select<'a>(state: &'a State, ast: &SelectAst) -> Result<Selected<'a>> {
     let layout: Vec<&'static str> = ast.tables().map(|t| t.name).collect();
     for (i, name) in layout.iter().enumerate() {
         if layout[..i].contains(name) {
@@ -386,39 +624,38 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
             )));
         }
     }
-    let tables: Vec<&Table> = layout.iter().map(|n| state.table(n)).collect::<Result<_>>()?;
+    let tables: Vec<&'a Table> = layout.iter().map(|n| state.table(n)).collect::<Result<_>>()?;
     let stride = layout.len();
     let root = tables[0];
 
-    let pred = ast.filter.as_ref().map(|f| Pred::compile(f, &layout)).transpose()?;
-
-    // 1. Root rows (index lookup when possible).
-    let candidates = ast.filter.as_ref().and_then(|f| index_candidates(f, root));
-    let root_rows: Box<dyn Iterator<Item = &[Value]>> = match &candidates {
-        Some(idx) => Box::new(idx.iter().map(|&i| root.rows[i].as_slice())),
-        None => Box::new(root.rows.iter().map(Vec::as_slice)),
-    };
-
+    // Single table: the matching rows' indexes, for the sort fast path.
+    let mut single: Option<Vec<u32>> = None;
     let rows = if ast.joins.is_empty() {
-        // Single table: filter while scanning.
-        let mut rows = Rows::with_capacity(1, if pred.is_some() { 0 } else { root.rows.len() });
-        for r in root_rows {
-            let parts = [Some(r)];
-            if let Some(p) = &pred
-                && !p.passes(&parts, &layout)?
-            {
-                continue;
-            }
-            rows.flat.push(Some(r));
+        // Single table: vectorised scan (scan.rs).
+        if is_count_all(ast) {
+            let n = scan::count(root, ast.filter.as_ref())?;
+            let shown = ast.offset.unwrap_or(0) == 0 && ast.limit != Some(0);
+            return Ok(Selected::Values(if shown { vec![vec![Value::I64(n as i64)]] } else { Vec::new() }));
         }
+        let sel = scan::matching(root, ast.filter.as_ref())?;
+        let mut rows = Rows::with_capacity(1, sel.len());
+        rows.flat.extend(sel.iter().map(|&i| Some(root.rows[i as usize].as_slice())));
+        single = Some(sel);
         rows
     } else {
+        let pred = ast.filter.as_ref().map(|f| Pred::compile(f, &layout)).transpose()?;
+
+        // 1. Root rows (index lookup when possible).
+        let candidates = ast.filter.as_ref().and_then(|f| index_candidates(f, root));
+        let root_rows: Box<dyn Iterator<Item = &[Value]>> = match &candidates {
+            Some(idx) => Box::new(idx.iter().map(|&i| root.rows[i].as_slice())),
+            None => Box::new(root.rows.iter().map(Vec::as_slice)),
+        };
         let mut current = Rows::with_capacity(stride, root.rows.len());
         for r in root_rows {
             current.flat.push(Some(r));
             current.flat.extend(std::iter::repeat_n(None, stride - 1));
         }
-
         // 2. Joins.
         for (ji, join) in ast.joins.iter().enumerate() {
             let slot = ji + 1;
@@ -431,10 +668,10 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
             }
             if let Some((jcol, other)) = equi_join(&join.on, jt.name(), &layout[..slot]) {
                 let other_slot = slot_of(&layout, other.table)?;
-                // Hash join: build on the joined table (or reuse its unique index).
-                let use_index = jt.has_index(jcol);
+                // Hash join: build on the joined table (or reuse its index).
+                let index = jt.index(jcol);
                 let mut built: Map<Key, Vec<usize>> = Map::default();
-                if !use_index {
+                if index.is_none() {
                     for (i, r) in jt.rows.iter().enumerate() {
                         if !r[jcol].is_null() {
                             built.entry(Key(r[jcol].clone())).or_default().push(i);
@@ -446,11 +683,17 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
                     let probe = base[other_slot].and_then(|r| r.get(other.index)).filter(|v| !v.is_null());
                     let mut matched = false;
                     if let Some(v) = probe {
-                        if use_index {
-                            if let Some(m) = jt.lookup(jcol, v) {
+                        if let Some(index) = index.filter(|i| i.unique) {
+                            if let Some(m) = index.find(&jt.rows, v) {
                                 emit(&mut next, base, slot, Some(&jt.rows[m]));
                                 matched = true;
                             }
+                        } else if let Some(index) = index {
+                            let ms = index.find_all(&jt.rows, v);
+                            for &m in &ms {
+                                emit(&mut next, base, slot, Some(&jt.rows[m]));
+                            }
+                            matched = !ms.is_empty();
                         } else if let Some(ms) = built.get(&Key(v.clone())) {
                             for &m in ms {
                                 emit(&mut next, base, slot, Some(&jt.rows[m]));
@@ -506,7 +749,7 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
         || matches!(&ast.projection, Projection::Exprs(e) if e.iter().any(Expr::has_aggregate));
 
     if aggregated {
-        return select_grouped(ast, &layout, &rows);
+        return select_grouped(ast, &layout, &rows).map(Selected::Values);
     }
 
     // 4. ORDER BY / OFFSET / LIMIT / projection.
@@ -526,7 +769,16 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
                 _ => None,
             })
             .collect();
-        if let Some(slots) = column_slots {
+        let need_some = partial.then_some(need);
+        let fast = match (column_slots.as_deref(), &single) {
+            (Some(&[slot]), Some(sel)) => scan::sort_selection(root, sel, slot.index, &ast.order[0], need_some),
+            (Some(&[slot]), None) => scan::sort_rows(&rows, slot, &ast.order[0], need_some),
+            _ => None,
+        };
+        if let Some(sorted) = fast {
+            // One plain column: keys extracted once, compared without dispatch.
+            order = sorted;
+        } else if let Some(slots) = column_slots {
             // Plain columns: compare in place, no copies.
             let cmp = |a: &usize, b: &usize| {
                 let (pa, pb) = (rows.get(*a), rows.get(*b));
@@ -589,6 +841,13 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
         }
     };
 
+    if let (Projection::Tables(ts), false) = (&ast.projection, ast.distinct) {
+        let columns =
+            ts.iter().map(|t| Ok((slot_of(&layout, t.name)?, t.columns.len()))).collect::<Result<Vec<_>>>()?;
+        let order = order.into_iter().skip(offset).take(take).collect();
+        return Ok(Selected::Tables { rows, order, columns });
+    }
+
     if ast.distinct {
         let mut seen: Set<Vec<Key>> = Set::default();
         let mut out = Vec::new();
@@ -598,10 +857,10 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
                 out.push(row);
             }
         }
-        return Ok(out.into_iter().skip(offset).take(take).collect());
+        return Ok(Selected::Values(out.into_iter().skip(offset).take(take).collect()));
     }
 
-    order.iter().skip(offset).take(take).map(|&i| project(rows.get(i))).collect()
+    order.iter().skip(offset).take(take).map(|&i| project(rows.get(i))).collect::<Result<_>>().map(Selected::Values)
 }
 
 fn select_grouped(ast: &SelectAst, layout: &[&'static str], rows: &Rows<'_>) -> Result<Vec<Vec<Value>>> {
@@ -680,25 +939,7 @@ fn select_grouped(ast: &SelectAst, layout: &[&'static str], rows: &Rows<'_>) -> 
 // ---------------------------------------------------------------------------
 
 fn matching_rows(table: &Table, filter: Option<&Expr>) -> Result<Vec<usize>> {
-    let layout = [table.name()];
-    let Some(filter) = filter else {
-        return Ok((0..table.rows.len()).collect());
-    };
-    let candidates = index_candidates(filter, table);
-    let pred = Pred::compile(filter, &layout)?;
-    let mut out = Vec::new();
-    let mut test = |i: usize| -> Result<()> {
-        let parts = [Some(table.rows[i].as_slice())];
-        if pred.passes(&parts, &layout)? {
-            out.push(i);
-        }
-        Ok(())
-    };
-    match candidates {
-        Some(c) => c.into_iter().try_for_each(&mut test)?,
-        None => (0..table.rows.len()).try_for_each(&mut test)?,
-    }
-    Ok(out)
+    Ok(scan::matching(table, filter)?.into_iter().map(|i| i as usize).collect())
 }
 
 fn update(state: &mut State, u: &UpdateAst) -> Result<u64> {
@@ -737,12 +978,22 @@ fn delete(state: &mut State, d: &DeleteAst) -> Result<u64> {
 }
 
 pub(crate) fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
-    let t = state.table_mut(ins.table.name)?;
-    // All or nothing: validate on a scratch copy only if a row fails.
+    insert_all(state.table_mut(ins.table.name)?, ins.rows.iter().cloned())
+}
+
+/// [`insert_many`] with rows given by value: stored without a copy.
+pub(crate) fn insert_owned(state: &mut State, table: &TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
+    insert_all(state.table_mut(table.name)?, rows.into_iter())
+}
+
+/// Inserts rows, all or nothing.
+fn insert_all(t: &mut Table, rows: impl ExactSizeIterator<Item = Vec<Value>>) -> Result<u64> {
+    let n = rows.len();
     let snapshot_len = t.rows.len();
     let snapshot_next = t.next_id;
-    for row in &ins.rows {
-        if let Err(e) = t.insert(row.clone(), true) {
+    t.rows.reserve(n);
+    for row in rows {
+        if let Err(e) = t.insert(row, true) {
             // Roll back the rows inserted by this statement.
             let added: Vec<usize> = (snapshot_len..t.rows.len()).collect();
             t.remove_rows(added);
@@ -750,7 +1001,7 @@ pub(crate) fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
             return Err(e);
         }
     }
-    Ok(ins.rows.len() as u64)
+    Ok(n as u64)
 }
 
 /// Executes a write statement. Returns the result and the written table.
@@ -830,7 +1081,7 @@ pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, O
 
 pub(crate) fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
     match *q {
-        Query::Select(s) => select(state, s),
+        Query::Select(s) => Ok(select(state, s)?.into_values()),
         Query::FindByKey { table, key } => {
             let t = state.table(table.name)?;
             Ok(t.lookup(table.primary_key, key).map(|i| t.rows[i].clone()).into_iter().collect())
@@ -839,6 +1090,24 @@ pub(crate) fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
             Err(Error::Unsupported("raw SQL is not supported by the memory engine".into()))
         }
         _ => Err(Error::Unsupported("statement does not return rows".into())),
+    }
+}
+
+/// [`fetch`] decoded into `O`, straight from the stored rows when whole rows
+/// are selected.
+pub(crate) fn fetch_decode<O: FromRow>(state: &State, q: &Query<'_>) -> Result<Vec<O>> {
+    match *q {
+        Query::Select(s) => select(state, s)?.decode(),
+        Query::FindByKey { table, key } => {
+            let t = state.table(table.name)?;
+            let Some(i) = t.lookup(table.primary_key, key) else {
+                return Ok(Vec::new());
+            };
+            let parts = [Some(t.rows[i].as_slice())];
+            let columns = [(0, t.schema.columns.len())];
+            Ok(vec![O::from_row(&mut PartsRow::new(&parts, &columns), 0)?])
+        }
+        _ => decode(fetch(state, q)?),
     }
 }
 
@@ -908,12 +1177,15 @@ impl Executor for MemoryDb {
     where
         O: FromRow + Send,
     {
-        let rows = fetch(&self.shared.read(), &query)?;
-        decode(rows)
+        fetch_decode(&self.shared.read(), &query)
     }
 
     async fn execute(&self, query: Query<'_>) -> Result<ExecResult> {
         execute(&mut self.shared.write(), &query).map(|(r, _)| r)
+    }
+
+    async fn insert_rows(&self, table: &'static TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
+        insert_owned(&mut self.shared.write(), table, rows)
     }
 }
 
@@ -961,8 +1233,7 @@ impl Executor for MemoryTransaction {
     where
         O: FromRow + Send,
     {
-        let rows = fetch(&self.local.lock(), &query)?;
-        decode(rows)
+        fetch_decode(&self.local.lock(), &query)
     }
 
     async fn execute(&self, query: Query<'_>) -> Result<ExecResult> {
@@ -971,6 +1242,12 @@ impl Executor for MemoryTransaction {
             self.dirty.lock().insert(t);
         }
         Ok(res)
+    }
+
+    async fn insert_rows(&self, table: &'static TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
+        let n = insert_owned(&mut self.local.lock(), table, rows)?;
+        self.dirty.lock().insert(table.name.to_owned());
+        Ok(n)
     }
 }
 
@@ -1008,5 +1285,96 @@ impl Transaction for MemoryTransaction {
 
     fn rollback(self) -> impl Future<Output = Result<()>> + Send {
         std::future::ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::eval::key_eq;
+    use super::*;
+    use crate::prelude::*;
+
+    #[derive(Model, Debug, Clone)]
+    #[memoire(table = "consistency")]
+    struct C {
+        id: i64,
+        #[memoire(unique)]
+        code: Option<String>,
+        #[memoire(index)]
+        group: Option<i32>,
+        weight: Option<f64>,
+    }
+
+    /// Indexes and typed copies must always describe the rows exactly.
+    fn assert_consistent(t: &Table) {
+        for index in &t.indexes {
+            let mut values: Vec<&Value> = t.rows.iter().map(|r| &r[index.col]).filter(|v| !v.is_null()).collect();
+            values.push(&Value::I32(-1));
+            for v in values {
+                let expected: Vec<usize> = (0..t.rows.len()).filter(|&i| key_eq(&t.rows[i][index.col], v)).collect();
+                assert_eq!(index.find_all(&t.rows, v), expected, "column {} value {v:?}", index.col);
+            }
+        }
+        for m in &t.mirrors {
+            let mut fresh = m.clone();
+            fresh.rebuild(&t.rows);
+            assert_eq!(fresh.state, m.state, "mirror {} states", m.col);
+            match (&fresh.data, &m.data) {
+                (MirrorData::Int(a), MirrorData::Int(b)) => assert_eq!(a, b),
+                (MirrorData::Float(a), MirrorData::Float(b)) => assert_eq!(a, b),
+                _ => panic!("mirror kind changed"),
+            }
+        }
+    }
+
+    #[test]
+    fn indexes_and_mirrors_follow_every_change() {
+        let mut t = Table::new(C::SCHEMA, 0);
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rnd = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let row = |id: i64, r: &mut dyn FnMut(u64) -> u64| {
+            vec![
+                Value::I64(id),
+                if r(4) == 0 { Value::Null } else { Value::Text(format!("c{}", r(400))) },
+                if r(5) == 0 { Value::Null } else { Value::I32(r(6) as i32) },
+                if r(5) == 0 { Value::Null } else { Value::F64(r(100) as f64 / 4.0) },
+            ]
+        };
+        for step in 0..1500 {
+            match rnd(10) {
+                0..=4 => {
+                    let r = row(0, &mut rnd);
+                    let _ = t.insert(r, true); // may hit the unique `code`
+                }
+                5 | 6 if !t.rows.is_empty() => {
+                    let i = rnd(t.rows.len() as u64) as usize;
+                    let id = t.rows[i][0].clone();
+                    let mut r = row(0, &mut rnd);
+                    r[0] = id;
+                    let _ = t.replace_rows(vec![(i, r)]);
+                }
+                7 | 8 if !t.rows.is_empty() => {
+                    let k = 1 + rnd(3) as usize;
+                    let idxs = (0..k).map(|_| rnd(t.rows.len() as u64) as usize).collect();
+                    t.remove_rows(idxs);
+                }
+                9 if t.rows.len() > 40 => {
+                    // Large delete: the retain + rebuild path.
+                    let idxs = (0..t.rows.len()).filter(|i| i % 3 == 0).collect();
+                    t.remove_rows(idxs);
+                }
+                _ => {}
+            }
+            if step % 25 == 0 {
+                assert_consistent(&t);
+            }
+        }
+        assert_consistent(&t);
+        assert!(t.rows.len() > 10);
     }
 }

@@ -91,16 +91,27 @@ DATABASE_URL=postgres://… cargo run -p memoire-orm --example postgres --featur
 
 ## Rendimiento
 
-Comparado con código `rusqlite` escrito a mano (mismo driver, sentencias preparadas en caché: el
-límite al que puede llegar cualquier ORM sobre SQLite). Intel Xeon 2,8 GHz, medianas de criterion:
+El motor en memoria (que también evalúa las consultas de los backends Redis y MongoDB) filtra con
+bucles especializados para cada tipo de columna, sobre copias contiguas de las columnas numéricas,
+y sus índices nunca copian las claves. Intel Xeon 2,8 GHz, medianas de criterion, tabla de 10 000 filas:
+
+| Motor en memoria | Antes | Ahora |
+|---|---:|---:|
+| Igualdad sobre una columna `#[memoire(index)]` | 140,9 µs | **1,1 µs** (×123) |
+| `COUNT(*) WHERE` | 106,2 µs | **11,1 µs** (×9,6) |
+| Filtro + `ORDER BY` + `LIMIT 20` | 231,2 µs | **36,3 µs** (×6,4) |
+| `update_many` con un filtro | 177,0 µs | **35,8 µs** (×4,9) |
+| `insert_many`, 1 000 filas | 422,9 µs | **246,0 µs** (×1,7) |
+
+En SQLite, comparado con código `rusqlite` escrito a mano (mismo driver, sentencias preparadas en
+caché: el límite al que puede llegar cualquier ORM sobre SQLite):
 
 | Operación | Memoire | rusqlite puro |
 |---|---:|---:|
-| Búsqueda por clave primaria | 987 ns | 840 ns |
-| Selección + decodificación de 1 000 filas | 343 µs | 324 µs |
-| Inserción de una fila | 8,88 µs | 8,21 µs |
-| Inserción de 1 000 filas en una transacción | **1,80 ms** | 7,98 ms |
-| Motor en memoria: búsqueda por clave entre 10 000 filas | 231 ns | — |
+| Búsqueda por clave primaria | 961 ns | 746 ns |
+| Selección + decodificación de 1 000 filas | 315 µs | 308 µs |
+| Inserción de una fila | 6,26 µs | 5,92 µs |
+| Inserción de 1 000 filas en una transacción | **1,95 ms** | 6,64 ms |
 
 Detalles: [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 reprodúcelo con `cargo bench -p memoire-orm --features memory,sqlite`.

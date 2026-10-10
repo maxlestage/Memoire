@@ -91,16 +91,27 @@ DATABASE_URL=postgres://… cargo run -p memoire-orm --example postgres --featur
 
 ## Performance
 
-Compared with hand-written `rusqlite` code (same driver, cached prepared statements — the floor
-any SQLite ORM can reach). Intel Xeon 2.8 GHz, criterion medians:
+The in-memory engine (which also evaluates queries for the Redis and MongoDB backends) filters with
+loops specialised for each column type, over contiguous copies of the numeric columns, and its
+indexes never copy keys. Intel Xeon 2.8 GHz, criterion medians, 10 000-row table:
+
+| In-memory engine | Before | Now |
+|---|---:|---:|
+| Equality on an `#[memoire(index)]` column | 140.9 µs | **1.1 µs** (×123) |
+| `COUNT(*) WHERE` | 106.2 µs | **11.1 µs** (×9.6) |
+| Filter + `ORDER BY` + `LIMIT 20` | 231.2 µs | **36.3 µs** (×6.4) |
+| `update_many` with a filter | 177.0 µs | **35.8 µs** (×4.9) |
+| `insert_many`, 1 000 rows | 422.9 µs | **246.0 µs** (×1.7) |
+
+On SQLite, compared with hand-written `rusqlite` code (same driver, cached prepared statements: the
+floor any SQLite ORM can reach):
 
 | Operation | Memoire | Raw rusqlite |
 |---|---:|---:|
-| Find by primary key | 987 ns | 840 ns |
-| Select + decode 1 000 rows | 343 µs | 324 µs |
-| Insert one row | 8.88 µs | 8.21 µs |
-| Insert 1 000 rows in a transaction | **1.80 ms** | 7.98 ms |
-| In-memory engine: find by key in 10 000 rows | 231 ns | — |
+| Find by primary key | 961 ns | 746 ns |
+| Select + decode 1 000 rows | 315 µs | 308 µs |
+| Insert one row | 6.26 µs | 5.92 µs |
+| Insert 1 000 rows in a transaction | **1.95 ms** | 6.64 ms |
 
 Details: [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 reproduce with `cargo bench -p memoire-orm --features memory,sqlite`.

@@ -217,7 +217,7 @@ CREATE INDEX "idx_posts_author_id" ON "posts" ("author_id");
 ### `unique` et `index`
 
 - `unique` fait refuser par la base de données une deuxième ligne ayant la même valeur. Memoire le signale sous la forme `Error::UniqueViolation { table, column }` sur tous les backends. Une colonne `unique` est automatiquement indexée par la base de données.
-- `index` accélère les filtres, les jointures et les tris sur cette colonne. Utilisez-le sur les colonnes sur lesquelles vous recherchez souvent, comme les clés étrangères. Les bases de données SQL et MongoDB créent un vrai index ; le moteur en mémoire et Redis l'ignorent.
+- `index` accélère les filtres, les jointures et les tris sur cette colonne. Utilisez-le sur les colonnes sur lesquelles vous recherchez souvent, comme les clés étrangères. Les bases de données SQL, MongoDB et le moteur en mémoire créent un vrai index ; Redis l'ignore.
 
 ### `column` (renommage)
 

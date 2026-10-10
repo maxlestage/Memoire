@@ -217,7 +217,7 @@ CREATE INDEX "idx_posts_author_id" ON "posts" ("author_id");
 ### `unique` and `index`
 
 - `unique` makes the database reject a second row with the same value. Memoire reports it as `Error::UniqueViolation { table, column }` on every backend. A `unique` column is automatically indexed by the database.
-- `index` speeds up filters, joins and sorting on that column. Use it on columns you search by often, such as foreign keys. SQL databases and MongoDB create a real index; the in-memory engine and Redis ignore it.
+- `index` speeds up filters, joins and sorting on that column. Use it on columns you search by often, such as foreign keys. SQL databases, MongoDB and the in-memory engine create a real index; Redis ignores it.
 
 ### `column` (rename)
 

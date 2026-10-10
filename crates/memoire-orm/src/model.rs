@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use crate::ast::{InsertAst, Query};
+use crate::ast::Query;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::query::{Delete, Select, Update};
@@ -134,8 +134,7 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             let batch = (max_params / width.max(1)).clamp(1, 10_000);
             let mut total = 0;
             for chunk in rows.chunks(batch) {
-                let ast = InsertAst { table: Self::SCHEMA, rows: chunk.iter().map(Model::to_values).collect() };
-                total += db.execute(Query::Insert(&ast)).await?.rows_affected;
+                total += db.insert_rows(Self::SCHEMA, chunk.iter().map(Model::to_values).collect()).await?;
             }
             Ok(total)
         }

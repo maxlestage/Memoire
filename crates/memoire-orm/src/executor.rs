@@ -3,11 +3,11 @@
 
 use std::future::Future;
 
-use crate::ast::Query;
+use crate::ast::{InsertAst, Query};
 use crate::error::Result;
 use crate::model::Model;
 use crate::row::FromRow;
-use crate::schema::Dialect;
+use crate::schema::{Dialect, TableSchema};
 use crate::value::Value;
 
 /// Result of a statement that does not return rows.
@@ -82,6 +82,21 @@ pub trait Executor: Send + Sync {
     /// Runs raw SQL that does not return rows and returns the affected row count.
     fn raw_execute(&self, sql: &str, params: &[Value]) -> impl Future<Output = Result<u64>> + Send {
         async move { Ok(self.execute(Query::Raw { sql, params }).await?.rows_affected) }
+    }
+
+    /// Inserts rows handed over by value, all or nothing; returns the number of
+    /// rows inserted. Used by [`Model::insert_many`]. The default runs a
+    /// multi-row `INSERT` ([`Query::Insert`]); the in-memory engine stores the
+    /// values as they are, without copying them. Generated keys are not read back.
+    fn insert_rows(
+        &self,
+        table: &'static TableSchema,
+        rows: Vec<Vec<Value>>,
+    ) -> impl Future<Output = Result<u64>> + Send {
+        async move {
+            let ast = InsertAst { table, rows };
+            Ok(self.execute(Query::Insert(&ast)).await?.rows_affected)
+        }
     }
 }
 
