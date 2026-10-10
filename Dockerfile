@@ -43,6 +43,10 @@ RUN touch server/src/main.rs \
  && cargo build --release --manifest-path server/Cargo.toml
 
 # --- Site: same trick for the wasm dependencies (yew, pulldown-cmark, …).
+# The playground runs the real ORM in the browser, so the site depends on the
+# memoire-orm crate (and its workspace manifest).
+COPY Cargo.toml Cargo.toml
+COPY crates crates
 COPY site/Cargo.toml site/Cargo.loc[k] site/
 RUN mkdir -p site/src \
  && echo "fn main() {}" > site/src/main.rs \

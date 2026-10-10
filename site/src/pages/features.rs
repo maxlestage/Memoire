@@ -24,20 +24,14 @@ const BACKEND_ICONS: [Icon; 6] = [
     Icon::Layers,
 ];
 
-/// A constructor (rendered as code) where the API is known, otherwise a short tag.
-enum BackendHint {
-    Code(&'static str),
-    /// `[en, fr, es]`
-    Tag([&'static str; 3]),
-}
 
-const BACKEND_HINTS: [BackendHint; 6] = [
-    BackendHint::Code("MemoryDb::new()"),
-    BackendHint::Code("SqliteDb::open(\"app.db\")?"),
-    BackendHint::Code("PgPool::connect(url).await?"),
-    BackendHint::Tag(["SQL · MySQL · MariaDB"; 3]),
-    BackendHint::Tag(["NoSQL · key-value", "NoSQL · clé-valeur", "NoSQL · clave-valor"]),
-    BackendHint::Tag(["NoSQL · documents", "NoSQL · documents", "NoSQL · documentos"]),
+const BACKEND_HINTS: [&str; 6] = [
+    "MemoryDb::new()",
+    "SqliteDb::open(\"app.db\")?",
+    "PgPool::connect(url).await?",
+    "MySqlPool::connect(url).await?",
+    "RedisDb::connect(url).await?",
+    "MongoDb::connect(url).await?",
 ];
 
 #[component]
@@ -86,10 +80,7 @@ pub fn FeaturesPage() -> Html {
                             <TiltCard class="backend-card">
                                 <div class={classes!("feature-icon", format!("fi-{}", i % 4))}>{ BACKEND_ICONS[i].html() }</div>
                                 <h3>{ b.title }</h3>
-                                { match BACKEND_HINTS[i] {
-                                    BackendHint::Code(code) => html! { <code class="backend-code">{ code }</code> },
-                                    BackendHint::Tag(tag) => html! { <span class="backend-tag">{ tag[lang.idx()] }</span> },
-                                } }
+                                <code class="backend-code">{ BACKEND_HINTS[i] }</code>
                                 <p>{ b.desc }</p>
                             </TiltCard>
                         </Reveal>
