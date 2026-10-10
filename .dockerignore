@@ -1,0 +1,17 @@
+# Keep the build context small: only site/, server/ and docs/ are needed.
+.git
+.github
+**/target
+site/dist
+**/*.br
+**/*.gz
+**/node_modules
+**/.DS_Store
+**/*.swp
+.idea
+.vscode
+
+# The ORM crates are not needed to build the website image.
+crates
+
+# Keep docs/ (embedded into the site at compile time), site/ and server/.

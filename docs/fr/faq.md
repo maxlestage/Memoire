@@ -1,0 +1,3 @@
+# FAQ
+
+Documentation bientôt disponible.

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Memoire ORM — The blazing-fast, pure-Rust ORM</title>
+    <meta name="description" content="Memoire ORM: a blazing-fast, pure-Rust ORM with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly." />
+    <meta name="theme-color" content="#07070d" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Memoire ORM" />
+    <meta property="og:title" content="Memoire ORM — The blazing-fast, pure-Rust ORM" />
+    <meta property="og:description" content="Compile-time SQL, a type-safe query builder, zero-cost row mapping and an in-memory engine that even runs in WebAssembly." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:locale:alternate" content="es_ES" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Memoire ORM — The blazing-fast, pure-Rust ORM" />
+    <meta name="twitter:description" content="Compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly." />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <!-- Inline SVG favicon (same artwork as assets/favicon.svg) -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='a' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f74c00'/%3E%3Cstop offset='.55' stop-color='%23ffb347'/%3E%3Cstop offset='1' stop-color='%237c5cff'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg stroke='url(%23b)' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M21 4v6M32 4v6M43 4v6M21 54v6M32 54v6M43 54v6M4 21h6M4 32h6M4 43h6M54 21h6M54 32h6M54 43h6'/%3E%3C/g%3E%3Crect x='10' y='10' width='44' height='44' rx='12' fill='%230d0d18' stroke='url(%23a)' stroke-width='3'/%3E%3Cpath d='M20.5 42V22.5L32 34l11.5-11.5V42' fill='none' stroke='url(%23a)' stroke-width='4.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link data-trunk rel="copy-file" href="assets/favicon.svg" />
+    <link data-trunk rel="copy-file" href="assets/og-image.png" />
+    <link data-trunk rel="copy-file" href="assets/robots.txt" />
+
+    <!-- Theme + language before the app boots (no flash) -->
+    <link data-trunk rel="inline" href="assets/boot.js" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" />
+
+    <link data-trunk rel="css" href="styles/main.css" />
+    <link
+      data-trunk
+      rel="rust"
+      data-bin="memoire-site"
+      data-wasm-opt="z"
+      data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue"
+    />
+  </head>
+  <body>
+    <noscript>
+      <div class="noscript">
+        <strong>Memoire ORM</strong>
+        <p>This site is a WebAssembly app: please enable JavaScript to view it. · Ce site est une application WebAssembly : activez JavaScript pour l'afficher. · Este sitio es una aplicación WebAssembly: activa JavaScript para verlo.</p>
+        <p><a href="https://github.com/maxlestage/Memoire">github.com/maxlestage/Memoire</a></p>
+      </div>
+    </noscript>
+    <div id="app">
+      <div class="preloader" aria-label="Loading">
+        <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><defs><linearGradient id="pl-a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f74c00"/><stop offset=".55" stop-color="#ffb347"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs><rect x="10" y="10" width="44" height="44" rx="12" fill="#0d0d18" stroke="url(#pl-a)" stroke-width="3"/><path class="pl-m" d="M20.5 42V22.5L32 34l11.5-11.5V42" fill="none" stroke="url(#pl-a)" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Memoire ORM</span>
+      </div>
+    </div>
+  </body>
+</html>

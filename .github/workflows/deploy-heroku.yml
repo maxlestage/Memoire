@@ -1,0 +1,116 @@
+name: Deploy to Heroku
+
+# Runs on every push to master, and manually from the GitHub app or website:
+# Actions → "Deploy to Heroku" → Run workflow.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   HEROKU_API_KEY   Heroku → Account settings → API Key (or an authorization token)
+#   HEROKU_APP_NAME  the app name, e.g. "memoire-orm" (created automatically if missing)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heroku-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build image & release
+    runs-on: ubuntu-latest
+    env:
+      HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME || vars.HEROKU_APP_NAME }}
+    steps:
+      - name: Check configuration
+        id: config
+        run: |
+          if [ -z "$HEROKU_API_KEY" ] || [ -z "$HEROKU_APP_NAME" ]; then
+            echo "::notice title=Heroku deployment skipped::Add the HEROKU_API_KEY and HEROKU_APP_NAME repository secrets to deploy automatically (see docs/en/deploy-heroku-mobile.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.enabled == 'true'
+
+      - name: Create the app if needed and switch it to the container stack
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          api() {
+            curl -sS -o /tmp/heroku.json -w '%{http_code}' \
+              -H "Accept: application/vnd.heroku+json; version=3" \
+              -H "Authorization: Bearer ${HEROKU_API_KEY}" \
+              -H "Content-Type: application/json" "$@"
+          }
+          code=$(api "https://api.heroku.com/apps/${HEROKU_APP_NAME}")
+          if [ "$code" = "404" ]; then
+            echo "Creating the Heroku app ${HEROKU_APP_NAME}"
+            code=$(api -X POST https://api.heroku.com/apps -d "{\"name\":\"${HEROKU_APP_NAME}\",\"stack\":\"container\"}")
+            if [ "$code" != "201" ]; then cat /tmp/heroku.json; exit 1; fi
+          elif [ "$code" != "200" ]; then
+            cat /tmp/heroku.json; exit 1
+          fi
+          code=$(api -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}" -d '{"build_stack":"container"}')
+          if [ "$code" != "200" ]; then cat /tmp/heroku.json; exit 1; fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.config.outputs.enabled == 'true'
+
+      - name: Log in to the Heroku container registry
+        if: steps.config.outputs.enabled == 'true'
+        run: echo "${HEROKU_API_KEY}" | docker login --username=_ --password-stdin registry.heroku.com
+
+      - name: Build and push the image
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --tag "registry.heroku.com/${HEROKU_APP_NAME}/web" \
+            --load .
+          docker push "registry.heroku.com/${HEROKU_APP_NAME}/web"
+
+      - name: Release
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          # Heroku releases an image by its config digest; read it from the registry
+          # (works whatever the local Docker image store is).
+          ref="registry.heroku.com/${HEROKU_APP_NAME}/web"
+          raw=$(docker buildx imagetools inspect --raw "$ref")
+          if echo "$raw" | jq -e '.manifests' > /dev/null; then
+            manifest=$(echo "$raw" | jq -r '[.manifests[] | select(.platform.architecture == "amd64")][0].digest')
+            raw=$(docker buildx imagetools inspect --raw "${ref}@${manifest}")
+          fi
+          image_id=$(echo "$raw" | jq -r '.config.digest')
+          echo "Releasing image ${image_id}"
+          curl -sSf -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}/formation" \
+            -H "Accept: application/vnd.heroku+json; version=3.docker-releases" \
+            -H "Authorization: Bearer ${HEROKU_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"updates\":[{\"type\":\"web\",\"docker_image\":\"${image_id}\"}]}" > /dev/null
+
+      - name: Health check
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          url=$(curl -sSf "https://api.heroku.com/apps/${HEROKU_APP_NAME}" \
+            -H "Accept: application/vnd.heroku+json; version=3" \
+            -H "Authorization: Bearer ${HEROKU_API_KEY}" | jq -r .web_url)
+          echo "App URL: ${url}"
+          for i in $(seq 1 30); do
+            if curl -fsS "${url%/}/healthz" > /dev/null; then
+              echo "✅ ${url} is up"
+              echo "### 🚀 Deployed to ${url}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::The app did not answer on /healthz yet; check the logs in the Heroku dashboard."

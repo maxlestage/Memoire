@@ -1,0 +1,5 @@
+# Heroku container-stack build: the image is built from the root Dockerfile.
+# The web process runs the image CMD (/app/memoire-site-server), which listens on $PORT.
+build:
+  docker:
+    web: Dockerfile

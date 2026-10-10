@@ -1,0 +1,19 @@
+# Trunk configuration for the Memoire ORM website.
+# Build:  trunk build --release      Dev server:  trunk serve --open
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "/"
+filehash = true
+# No minification: Trunk's JS minifier chokes on the wasm-bindgen glue (harmless
+# but noisy warning). Everything is compressed (gzip / brotli) when served anyway.
+minify = "never"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+
+[tools]
+# Pinned so local and Docker builds produce the same output.
+wasm_bindgen = "0.2.129"
+wasm_opt = "version_123"
