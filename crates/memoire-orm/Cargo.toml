@@ -1,0 +1,84 @@
+[package]
+name = "memoire-orm"
+description = "A blazing-fast, type-safe, async ORM written in pure Rust: compile-time SQL, zero-cost row mapping, PostgreSQL, SQLite and an in-memory engine that even runs in WebAssembly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+documentation = "https://docs.rs/memoire-orm"
+readme = "README.md"
+keywords = ["orm", "database", "sql", "postgres", "sqlite"]
+categories = ["database", "asynchronous", "wasm", "data-structures"]
+exclude = ["benches/results/*"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["memory"]
+## In-memory storage engine (pure Rust, works on wasm32).
+memory = ["dep:parking_lot", "dep:foldhash"]
+## SQLite backend (via rusqlite, SQLite is compiled in).
+sqlite = ["dep:rusqlite", "dep:async-lock"]
+## PostgreSQL backend (tokio-postgres + deadpool connection pool).
+postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:tokio", "dep:bytes"]
+## `chrono` date/time types.
+chrono = ["dep:chrono", "tokio-postgres?/with-chrono-0_4"]
+## `uuid::Uuid` support.
+uuid = ["dep:uuid", "tokio-postgres?/with-uuid-1"]
+## JSON columns (`serde_json::Value` and `Json<T>`).
+json = ["dep:serde", "dep:serde_json", "tokio-postgres?/with-serde_json-1"]
+## Everything.
+full = ["memory", "sqlite", "postgres", "chrono", "uuid", "json"]
+
+[dependencies]
+memoire-orm-derive.workspace = true
+thiserror = "2"
+
+parking_lot = { version = "0.12", optional = true }
+foldhash = { version = "0.2", optional = true }
+
+rusqlite = { version = "0.40", optional = true, features = ["bundled"] }
+async-lock = { version = "3", optional = true }
+
+tokio-postgres = { version = "0.7", optional = true }
+deadpool-postgres = { version = "0.14", optional = true }
+tokio = { version = "1", optional = true, features = ["rt"] }
+bytes = { version = "1", optional = true }
+
+chrono = { version = "0.4", optional = true, default-features = false, features = ["std", "clock"] }
+uuid = { version = "1", optional = true }
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }
+
+[[bench]]
+name = "orm"
+harness = false
+required-features = ["memory", "sqlite"]
+
+[[example]]
+name = "quickstart"
+required-features = ["memory"]
+
+[[example]]
+name = "sqlite"
+required-features = ["sqlite"]
+
+[[example]]
+name = "postgres"
+required-features = ["postgres"]
+
+[[example]]
+name = "blog"
+required-features = ["memory"]
