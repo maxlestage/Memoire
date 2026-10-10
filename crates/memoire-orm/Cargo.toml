@@ -28,9 +28,14 @@ sqlite = ["dep:rusqlite", "dep:async-lock"]
 postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:tokio", "dep:bytes"]
 ## MySQL / MariaDB backend (mysql_async, pure Rust, requires Tokio).
 mysql = ["dep:mysql_async", "dep:async-lock"]
+## TLS for MySQL / MariaDB (rustls + ring), e.g. `mysql://...?require_ssl=true`.
+mysql-tls = ["mysql", "mysql_async/default-rustls-ring"]
 ## Redis backend (redis-rs, requires Tokio). Rows are JSON documents in hashes;
 ## queries are evaluated by the in-memory engine.
 redis = ["memory", "dep:redis", "dep:serde_json", "dep:async-lock"]
+## TLS for Redis (`rediss://` URLs; append `#insecure` for self-signed certificates
+## such as Heroku Key-Value Store).
+redis-tls = ["redis", "redis/tokio-rustls-comp", "redis/tls-rustls-webpki-roots", "redis/tls-rustls-insecure", "dep:rustls"]
 ## MongoDB backend (official driver, requires Tokio). Filters, sorting and
 ## pagination run in MongoDB; joins and GROUP BY are finished by the in-memory engine.
 mongodb = ["memory", "dep:mongodb", "dep:serde_json", "dep:async-lock"]
@@ -44,7 +49,7 @@ uuid = ["dep:uuid", "tokio-postgres?/with-uuid-1"]
 ## JSON columns (`serde_json::Value` and `Json<T>`).
 json = ["dep:serde", "dep:serde_json", "tokio-postgres?/with-serde_json-1"]
 ## Everything.
-full = ["memory", "sqlite", "postgres", "postgres-tls", "mysql", "redis", "mongodb", "chrono", "uuid", "json"]
+full = ["memory", "sqlite", "postgres", "postgres-tls", "mysql", "mysql-tls", "redis", "redis-tls", "mongodb", "chrono", "uuid", "json"]
 
 [dependencies]
 memoire-orm-derive.workspace = true

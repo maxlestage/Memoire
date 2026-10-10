@@ -32,7 +32,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Tests (memory, SQLite, PostgreSQL)
+    name: Tests (memory, SQLite, PostgreSQL, MySQL, Redis, MongoDB)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -46,13 +46,52 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: memoire_test
+          MARIADB_USER: memoire
+          MARIADB_PASSWORD: memoire
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       MEMOIRE_PG_URL: postgres://postgres:postgres@localhost:5432/memoire_test
+      MEMOIRE_MYSQL_URL: mysql://memoire:memoire@127.0.0.1:3306/memoire_test
+      MEMOIRE_REDIS_URL: redis://127.0.0.1:6379
+      MEMOIRE_MONGO_URL: mongodb://127.0.0.1:27017/?directConnection=true
+      MEMOIRE_MONGO_STANDALONE_URL: mongodb://127.0.0.1:27018/
     steps:
       - uses: actions/checkout@v4
+      - name: Start MongoDB (replica set + standalone)
+        run: |
+          docker run -d --name mongo-rs -p 27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          docker run -d --name mongo-standalone -p 27018:27017 mongo:7
+          for i in $(seq 1 60); do
+            if docker exec mongo-rs mongosh --quiet --eval 'db.runCommand({ping: 1}).ok' > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec mongo-rs mongosh --quiet --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})'
+          for i in $(seq 1 60); do
+            state=$(docker exec mongo-rs mongosh --quiet --eval 'rs.status().members[0].stateStr' 2>/dev/null || true)
+            if [ "$state" = "PRIMARY" ]; then echo "MongoDB replica set ready"; break; fi
+            sleep 1
+          done
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Tests, all features
+      - name: Tests, all features, every backend
         run: cargo test --workspace --all-features
       - name: Tests, default features
         run: cargo test -p memoire-orm
@@ -62,6 +101,23 @@ jobs:
           cargo run -p memoire-orm --example blog
           cargo run -p memoire-orm --example sqlite --features sqlite
           DATABASE_URL="$MEMOIRE_PG_URL" cargo run -p memoire-orm --example postgres --features postgres
+
+  features:
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Each backend on its own
+        run: |
+          for f in memory sqlite postgres postgres-tls mysql mysql-tls redis redis-tls mongodb chrono,uuid,json; do
+            echo "::group::--no-default-features --features $f"
+            cargo clippy -p memoire-orm --no-default-features --features "$f" --all-targets -- -D warnings
+            echo "::endgroup::"
+          done
 
   msrv:
     name: MSRV (1.88)
@@ -122,7 +178,7 @@ jobs:
   # Heroku deployment is triggered explicitly afterwards.
   auto-merge:
     name: Auto-merge into master
-    needs: [lint, test, msrv, wasm, package, site]
+    needs: [lint, test, features, msrv, wasm, package, site]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
