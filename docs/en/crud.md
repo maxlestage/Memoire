@@ -195,11 +195,9 @@ tag.upsert(&db).await?; // creates "rust", or updates its label
 Tag { slug: "orm".into(), label: "ORM".into() }.upsert(&db).await?;
 ```
 
-It is a single atomic operation on every backend (`INSERT ... ON CONFLICT (key) DO UPDATE` on SQLite and PostgreSQL, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL, a Lua script on Redis, `replaceOne` with `upsert` on MongoDB), so it is safe even when two programs upsert the same key at the same time.
+It matches on the primary key only, and is safe even when two programs upsert the same key at the same time (`INSERT ... ON CONFLICT (key) DO UPDATE` on SQLite and PostgreSQL, `INSERT ... ON DUPLICATE KEY UPDATE` or an insert followed by an update on MySQL, a Lua script on Redis, `replaceOne` with `upsert` on MongoDB). If the row has a new key but a `unique` value that belongs to another row, `upsert` fails with `Error::UniqueViolation` on every backend.
 
 > **Warning** `upsert` always stores the key that is in your struct, even for an `auto_increment` key. Upserting `User { id: 0, ... }` creates a row whose id is `0`. Use `insert` for new rows of auto-increment models, and `upsert` for natural keys (slugs, codes, UUIDs) or rows you know the id of. On PostgreSQL, also note that upserting new rows with explicit ids does not advance the id sequence, so a later `insert` can collide with them.
-
-> **Warning** On MySQL and MariaDB, an upserted row whose `unique` value (an email, say) belongs to *another* row updates that other row instead of failing. The other backends return `Error::UniqueViolation`. See [MySQL & MariaDB](mysql).
 
 ## Delete
 

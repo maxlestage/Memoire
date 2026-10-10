@@ -61,7 +61,7 @@ async fn main() -> memoire_orm::Result<()> {
 | `db.pool()` | The underlying `mysql_async::Pool` (escape hatch) |
 | `db.close().await` | Closes every connection of the pool (for a clean shutdown) |
 
-`MySqlPool` is cheap to clone: clones share the same pool. Connections are opened on demand and reused; the pool keeps at most 100 connections (the `mysql_async` default).
+`MySqlPool` is cheap to clone: clones share the same pool. Connections are opened on demand and reused. By default the pool keeps between 10 and 100 connections (the `mysql_async` defaults); set other bounds with the `pool_min` and `pool_max` URL parameters, for example `mysql://app:secret@localhost:3306/app?pool_min=1&pool_max=5`, or with `OptsBuilder::pool_opts`. `pool_min` must not exceed `pool_max`, so a `pool_max` below 10 needs a `pool_min` too; on a small hosted plan with a low connection limit, set both.
 
 ## Encrypted connections (TLS)
 
@@ -142,9 +142,9 @@ This matters for [migrations](migrations): if a migration fails after creating a
 
 ## Upsert
 
-`upsert` uses `INSERT ... ON DUPLICATE KEY UPDATE`. MySQL triggers the update when **any** unique key collides, not only the primary key.
+`upsert` matches rows on the primary key only, as on every other backend. If the row you upsert has a new primary key but a `unique` value (an email, say) that already belongs to another row, it fails with `Error::UniqueViolation` and the other row is left untouched.
 
-> **Warning** If the row you upsert has a new primary key but a `unique` value (for example an email) that already belongs to another row, MySQL updates *that other row* instead of reporting an error. The other backends fail with `Error::UniqueViolation` in this situation. On MySQL, only `upsert` rows whose `unique` values cannot belong to another row, or use `insert` and `update` explicitly.
+MySQL's own `INSERT ... ON DUPLICATE KEY UPDATE` fires when **any** unique key collides, so it would update that other row instead. Memoire therefore uses it only for tables without other `unique` columns, where it is a single atomic statement. For the others, `upsert` runs an `INSERT` and, when that insert collides on the primary key, an `UPDATE` by key. Both steps are safe when several programs upsert at the same time, and inside a transaction too: a failed statement does not abort a MySQL transaction.
 
 Upserting rows with explicit ids into an `auto_increment` table is safe on MySQL: the counter moves past the highest id.
 

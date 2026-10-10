@@ -106,6 +106,12 @@ pub struct StaticSql {
     /// Delete one row by primary key.
     pub delete: &'static str,
     /// Insert or update by primary key.
+    ///
+    /// On MySQL, for a table with `unique` columns besides its primary key,
+    /// this is a plain `INSERT`: `ON DUPLICATE KEY UPDATE` would also fire on
+    /// those columns and overwrite another row. The MySQL backend runs
+    /// [`update`](Self::update) when that `INSERT` collides on the primary key
+    /// (see [`TableSchema::has_secondary_unique`]).
     pub upsert: &'static str,
 }
 
@@ -123,6 +129,11 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    /// Whether a column other than the primary key is `unique`.
+    pub fn has_secondary_unique(&self) -> bool {
+        self.columns.iter().enumerate().any(|(i, c)| i != self.primary_key && c.unique)
+    }
+
     /// Statements for a dialect.
     #[inline]
     pub fn sql(&self, dialect: Dialect) -> &StaticSql {

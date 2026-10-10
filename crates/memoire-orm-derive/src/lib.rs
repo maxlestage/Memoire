@@ -335,9 +335,15 @@ fn static_sql(d: Dialect, table: &str, cols: &[&FieldInfo], pk: usize, auto_pk: 
     let all_names = cols.iter().map(|c| d.quote(&c.column)).collect::<Vec<_>>().join(", ");
     let all_phs = (1..=cols.len()).map(|i| d.placeholder(i)).collect::<Vec<_>>().join(", ");
     let upsert = match d {
+        // `ON DUPLICATE KEY UPDATE` fires on *any* unique key, so with other
+        // unique columns it could overwrite a different row. Those tables get
+        // a plain INSERT; the backend updates by key when it hits the primary key.
+        Dialect::MySql if non_pk.iter().any(|c| c.unique) => {
+            format!("INSERT INTO {t} ({all_names}) VALUES ({all_phs})")
+        }
         Dialect::MySql => {
             if non_pk.is_empty() {
-                format!("INSERT IGNORE INTO {t} ({all_names}) VALUES ({all_phs})")
+                format!("INSERT INTO {t} ({all_names}) VALUES ({all_phs}) ON DUPLICATE KEY UPDATE {pk_col} = {pk_col}")
             } else {
                 let sets = non_pk
                     .iter()

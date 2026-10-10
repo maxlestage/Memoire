@@ -381,6 +381,24 @@ async fn errors<E: Executor>(db: &E) -> Result<()> {
         Error::UniqueViolation { column, .. } => assert_eq!(column, "email"),
         other => panic!("expected a unique violation, got {other:?}"),
     }
+    // An upsert matches on the primary key only: a new key whose unique value
+    // belongs to another row fails and leaves that row untouched.
+    let mut b = user("dup@example.com", "Intruder", Some(7), 1.0);
+    b.id = a.id + 1000;
+    assert!(b.upsert(db).await.unwrap_err().is_unique_violation());
+    let kept = User::get(db, a.id).await?;
+    assert_eq!((kept.name.as_str(), kept.age), ("Dup", None));
+    assert!(User::find(db, b.id).await?.is_none());
+    // Upserting the same key still updates, and a unique clash on update fails.
+    let mut c = user("other@example.com", "Other", None, 0.0);
+    c.insert(db).await?;
+    a.name = "Dup v2".into();
+    a.upsert(db).await?;
+    assert_eq!(User::get(db, a.id).await?.name, "Dup v2");
+    c.email = "dup@example.com".into();
+    assert!(c.upsert(db).await.unwrap_err().is_unique_violation());
+    assert_eq!(User::get(db, c.id).await?.email, "other@example.com");
+    c.delete(db).await?;
     let mut tag = Tag { slug: "k".into(), label: "K".into() };
     tag.insert(db).await?;
     assert!(tag.insert(db).await.unwrap_err().is_unique_violation());
