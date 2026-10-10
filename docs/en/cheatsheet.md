@@ -9,14 +9,20 @@ Every common Memoire operation on one page. The examples assume `use memoire_orm
 | In-memory engine (default feature) | `cargo add memoire-orm` |
 | SQLite | `cargo add memoire-orm --features sqlite` |
 | PostgreSQL / with TLS | `--features postgres` / `--features postgres-tls` (plus Tokio) |
+| MySQL, MariaDB / with TLS | `--features mysql` / `--features mysql-tls` (plus Tokio) |
+| Redis / with TLS | `--features redis` / `--features redis-tls` (plus Tokio) |
+| MongoDB | `--features mongodb` (plus Tokio) |
 | Extra column types | `--features chrono,uuid,json` (or `full`) |
 | Import everything | `use memoire_orm::prelude::*;` |
 | Open in-memory | `let db = MemoryDb::new();` |
 | Open SQLite file / memory | `SqliteDb::open("app.db")?` / `SqliteDb::open_in_memory()?` |
 | Connect to PostgreSQL | `PgPool::connect(url).await?` or `PgPool::connect_with(url, 10).await?` |
+| Connect to MySQL / MariaDB | `MySqlPool::connect("mysql://user:pass@host:3306/app").await?` |
+| Connect to Redis | `RedisDb::connect(url).await?` or `RedisDb::connect_with_prefix(url, "myapp").await?` |
+| Connect to MongoDB | `MongoDb::connect("mongodb://host:27017/app").await?` or `MongoDb::connect_with_database(uri, "app").await?` |
 | Run without a runtime (memory, SQLite) | `memoire_orm::block_on(future)` |
 
-MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
+Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis), [MongoDB](mongodb).
 
 ## Model attributes
 
@@ -165,16 +171,20 @@ MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](my
 | Run pending | `Migrator::new().add(m1).add(m2).run(&db).await?` → applied versions |
 | Inspect | `migrator.applied(&db).await?`, `migrator.pending(&db).await?` |
 
-## Raw SQL (SQLite, PostgreSQL)
+## Raw SQL and driver access
 
 | Task | Code |
 |---|---|
 | Query | `db.raw::<(i64, String)>("SELECT id, name FROM users WHERE age > ?", &params![18]).await?` |
 | Execute | `db.raw_execute("DELETE FROM users WHERE active = ?", &params![false]).await?` → `u64` |
 | No parameters | `db.raw::<i64>("SELECT COUNT(*) FROM users", &[]).await?` |
-| Placeholders | SQLite `?`, PostgreSQL `$1`, `$2`, ... |
+| Available on | SQLite, PostgreSQL, MySQL/MariaDB (in-memory, Redis and MongoDB return `Error::Unsupported`) |
+| Placeholders | SQLite and MySQL `?`, PostgreSQL `$1`, `$2`, ... |
 | SQLite connection | `db.with_connection(\|conn\| ...).await` |
-| PostgreSQL pool | `db.pool()` |
+| PostgreSQL / MySQL pool | `db.pool()` |
+| Redis connection | `db.connection()` |
+| MongoDB database | `db.database()` |
+| MongoDB transactions available? | `db.supports_transactions()` |
 
 ## Errors
 

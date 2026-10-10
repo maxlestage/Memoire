@@ -108,10 +108,10 @@ SQLite has only a few storage types, so Memoire converts richer Rust types:
 | `String` | `TEXT` | `'hello'` |
 | `Vec<u8>` | `BLOB` | raw bytes |
 | `uuid::Uuid` | `TEXT` | `'67e55044-10b1-426f-9247-bb680e5fe0c8'` |
-| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250'` |
-| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250Z'` |
+| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250000000'` |
+| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250000000Z'` |
 | `chrono::NaiveDate` | `TEXT` | `'2026-10-10'` |
-| `chrono::NaiveTime` | `TEXT` | `'14:30:00'` |
+| `chrono::NaiveTime` | `TEXT` | `'14:30:00.000000000'` |
 | `serde_json::Value`, `Json<T>` | `TEXT` | `'{"theme":"dark"}'` |
 
 Reading converts back automatically, so your structs always get proper Rust types.
@@ -154,7 +154,7 @@ SQLite errors are translated into Memoire's common error variants:
 ## Things to know
 
 - **`LIKE` is case-sensitive** (Memoire turns on `case_sensitive_like`). `ilike` and `icontains` ignore case for ASCII letters only: `icontains("é")` does not match `"É"`.
-- **NULL ordering:** SQLite puts NULLs first in ascending order, unlike PostgreSQL and the memory engine. Use `nulls_first()`/`nulls_last()` for portable results.
+- **NULL ordering:** SQLite puts NULLs first in ascending order, like MySQL and MongoDB but unlike PostgreSQL, Redis and the memory engine. Use `nulls_first()`/`nulls_last()` for portable results.
 - **Raw SQL** uses `?` placeholders. See [Raw SQL](raw-sql).
 - **Direct access:** `db.with_connection(|conn| ...)` gives you the `rusqlite::Connection` for anything Memoire does not cover (backups, pragmas, custom functions). See [Raw SQL](raw-sql).
 

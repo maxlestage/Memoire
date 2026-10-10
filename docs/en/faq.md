@@ -4,13 +4,20 @@ Answers to the questions people ask most often about Memoire ORM. Each answer li
 
 ## Which databases are supported?
 
-Three backends run queries today: the in-memory engine `MemoryDb` (default feature `memory`), SQLite with `SqliteDb` (feature `sqlite`) and PostgreSQL with `PgPool` (feature `postgres`, or `postgres-tls` for encrypted connections). They share one API, so the same models and queries work on all three.
+Six backends, all with the same API and passing the same test suite:
 
-MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
+| Backend | Feature | Page |
+|---|---|---|
+| `MemoryDb` | `memory` (default) | [In-memory engine](memory) |
+| `SqliteDb` | `sqlite` | [SQLite](sqlite) |
+| `PgPool` | `postgres` (`postgres-tls` for TLS) | [PostgreSQL](postgres) |
+| `MySqlPool` | `mysql` (`mysql-tls` for TLS) | [MySQL & MariaDB](mysql) |
+| `RedisDb` | `redis` (`redis-tls` for TLS) | [Redis](redis) |
+| `MongoDb` | `mongodb` | [MongoDB](mongodb) |
 
 ## Which async runtime do I need?
 
-Only PostgreSQL needs one, and it must be **Tokio**. The in-memory engine and SQLite never wait for the network, so their futures work with any executor (Tokio, async-std, smol...) or with no runtime at all. See [Installation](installation).
+The server backends (PostgreSQL, MySQL/MariaDB, Redis and MongoDB) need **Tokio**. The in-memory engine and SQLite never wait for the network, so their futures work with any executor (Tokio, async-std, smol...) or with no runtime at all. See [Installation](installation).
 
 ## Can I use Memoire from synchronous code?
 
@@ -32,11 +39,11 @@ fn read_setting(db: &SqliteDb, key: &str) -> memoire_orm::Result<Option<Setting>
 }
 ```
 
-For PostgreSQL, use a Tokio runtime (`#[tokio::main]`, or `tokio::runtime::Runtime::block_on` in synchronous code).
+For the server backends, use a Tokio runtime (`#[tokio::main]`, or `tokio::runtime::Runtime::block_on` in synchronous code).
 
 ## Why are ids `i64`, and why do I write `id: 0`?
 
-`i64` is the largest integer type that every supported database stores natively (`BIGINT`, SQLite's `INTEGER`), so it never overflows in practice and maps cleanly everywhere. `i32` and `i16` keys work too. Unsigned 64-bit integers are not supported because SQL databases have no portable unsigned 64-bit type.
+`i64` is the largest integer type that every supported database stores natively (`BIGINT`, SQLite's `INTEGER`), so it never overflows in practice and maps cleanly everywhere. `i32` and `i16` keys work too. Unsigned 64-bit integers are not supported because most databases have no portable unsigned 64-bit type.
 
 For an `auto_increment` key, the database chooses the value: the `0` you write is a placeholder that `insert` ignores, and the generated id is written back into your struct. See [Models](models).
 
@@ -46,15 +53,15 @@ Make the field an `Option`: `pub age: Option<i32>`. `None` is stored as `NULL`, 
 
 ## Is `LIKE` case-sensitive?
 
-Yes, `like`, `contains`, `starts_with` and `ends_with` are case-sensitive on the in-memory engine, SQLite and PostgreSQL (Memoire configures SQLite that way so every backend agrees). Use `ilike` or `icontains` to ignore case. On SQLite, case-insensitive matching only covers ASCII letters. See [Query builder](queries).
+Yes, `like`, `contains`, `starts_with` and `ends_with` are case-sensitive on all six backends (Memoire configures SQLite and the MySQL tables it creates that way so every backend agrees). Use `ilike` or `icontains` to ignore case. On SQLite, case-insensitive matching only covers ASCII letters; the other backends also handle accented letters. See [Query builder](queries).
 
 ## Why do NULL values appear first on one database and last on another?
 
-Databases disagree: PostgreSQL and the in-memory engine put NULLs last in ascending order, SQLite puts them first. Say what you want and Memoire produces it everywhere: `order_by(User::AGE.asc().nulls_last())` or `.nulls_first()`.
+Databases disagree: PostgreSQL, Redis and the in-memory engine put NULLs last in ascending order; SQLite, MySQL and MongoDB put them first. Say what you want and Memoire produces it everywhere: `order_by(User::AGE.asc().nulls_last())` or `.nulls_first()`.
 
 ## Does Memoire support composite primary keys?
 
-No: a model has exactly one primary-key field. For link tables, add a surrogate `id` key, and if you want the database to reject duplicate pairs, create a unique index over both columns with a SQL [migration](migrations).
+No: a model has exactly one primary-key field. For link tables, add a surrogate `id` key, and if you want the database to reject duplicate pairs, create a unique index over both columns with a SQL [migration](migrations) (or with `db.database()` on MongoDB).
 
 ## How do I store an enum?
 
@@ -67,7 +74,7 @@ The second option is shown step by step in [Models](models). On PostgreSQL you c
 
 ## How do I store JSON?
 
-Enable the `json` feature. Use `serde_json::Value` for free-form JSON, or `Json<T>` for any type implementing `serde::Serialize` and `serde::Deserialize`. It is stored as `JSONB` on PostgreSQL and as text on SQLite. See [Models](models).
+Enable the `json` feature. Use `serde_json::Value` for free-form JSON, or `Json<T>` for any type implementing `serde::Serialize` and `serde::Deserialize`. It is stored as `JSONB` on PostgreSQL, `JSON` on MySQL, text on SQLite, embedded JSON on Redis and embedded documents on MongoDB. See [Models](models).
 
 ## Can I use UUIDs as primary keys?
 
@@ -91,30 +98,30 @@ async fn create(db: &MemoryDb, title: &str) -> memoire_orm::Result<Document> {
 }
 ```
 
-UUIDs are stored as `UUID` on PostgreSQL and as text on SQLite.
+UUIDs are stored as `UUID` on PostgreSQL, `CHAR(36)` on MySQL, text on SQLite and Redis, and BSON binary (subtype 4) on MongoDB.
 
 ## Which type should I use for timestamps?
 
 Enable the `chrono` feature. Use `chrono::DateTime<Utc>` for moments in time (stored as `TIMESTAMPTZ` on PostgreSQL), `NaiveDateTime` for a date and time without time zone, `NaiveDate` for dates and `NaiveTime` for times of day. Two details:
 
-- PostgreSQL keeps microseconds: compare with `Utc::now().trunc_subsecs(6)` if you check a value after reading it back.
-- SQLite stores timestamps as text; for columns you filter or sort on, `NaiveDateTime` (holding UTC) sorts correctly as text. See [SQLite](sqlite).
+- Precision depends on the backend: nanoseconds on the in-memory engine, SQLite and Redis, microseconds on PostgreSQL and MySQL, milliseconds on MongoDB. If you compare a value with what you read back, truncate it first, for example `Utc::now().trunc_subsecs(3)` (from `chrono::SubsecRound`) for code that must work everywhere.
+- Comparisons and sorting work on every backend, including SQLite and Redis, where timestamps are stored as fixed-width text.
 
 ## Do I need to set up connection pooling?
 
-No. `PgPool` *is* a connection pool: create it once with `PgPool::connect` (up to 4 × CPU cores connections) or `PgPool::connect_with(url, size)`, and share clones of it. `SqliteDb` uses one shared connection, and `MemoryDb` needs none. See [PostgreSQL](postgres).
+No. `PgPool` and `MySqlPool` *are* connection pools: create them once and share clones of them (`PgPool::connect_with(url, size)` sets the PostgreSQL pool size). `MongoDb` uses the driver's own pool, `RedisDb` one multiplexed connection that reconnects automatically, `SqliteDb` one shared connection, and `MemoryDb` needs none.
 
 ## How do I test code that uses Memoire?
 
-Write your functions against the `Executor` (or `Database`) trait and give them a fresh `MemoryDb` in each test. It takes microseconds to create, needs no cleanup, and enforces the same keys and unique constraints as SQL databases. For behaviour that depends on SQL features (foreign key cascades, raw SQL), add a few tests with `SqliteDb::open_in_memory()`. See [In-memory engine](memory).
+Write your functions against the `Executor` (or `Database`) trait and give them a fresh `MemoryDb` in each test. It takes microseconds to create, needs no cleanup, and enforces the same keys and unique constraints as SQL databases. For behaviour that depends on your production database (foreign key cascades, raw SQL, transactions on MongoDB), add a few integration tests against that database, or `SqliteDb::open_in_memory()` for SQL features. See [In-memory engine](memory).
 
 ## Does it work in WebAssembly?
 
-Yes, the in-memory engine compiles to `wasm32-unknown-unknown` with no extra setup, and runs its futures with `memoire_orm::block_on` or `wasm-bindgen-futures`. The SQLite and PostgreSQL backends are not available there. See [In-memory engine](memory).
+Yes, the in-memory engine compiles to `wasm32-unknown-unknown` with no extra setup, and runs its futures with `memoire_orm::block_on` or `wasm-bindgen-futures`. The other backends are not available there. See [In-memory engine](memory).
 
 ## How can I see the SQL that Memoire runs?
 
-Call `to_sql(Dialect::Postgres)` (or `Dialect::Sqlite`) on any query, update or delete builder; `to_sql_with_params` also returns the bound values. The statements used by `find`, `insert`, `update`, `delete` and `upsert` are in `User::SCHEMA.sql(dialect)`. See [Query builder](queries).
+Call `to_sql(Dialect::Postgres)` (or `Dialect::Sqlite`, `Dialect::MySql`) on any query, update or delete builder; `to_sql_with_params` also returns the bound values. The statements used by `find`, `insert`, `update`, `delete` and `upsert` are in `User::SCHEMA.sql(dialect)`. Redis and MongoDB do not use SQL; their pages explain what they do instead. See [Query builder](queries).
 
 ## Does Memoire create or update my tables automatically?
 
@@ -129,7 +136,7 @@ No. The crate is compiled with `#![forbid(unsafe_code)]`, so it cannot contain a
 Contributions of every size are welcome: bug reports, documentation fixes, translations and new features.
 
 1. Fork `https://github.com/maxlestage/Memoire` and clone it.
-2. Run the tests: `cargo test --workspace --features memory,sqlite` (set `MEMOIRE_PG_URL` to a PostgreSQL URL to include PostgreSQL).
+2. Run the tests: `cargo test --workspace --features memory,sqlite`. To include the server backends, enable all features and set `MEMOIRE_PG_URL`, `MEMOIRE_MYSQL_URL`, `MEMOIRE_REDIS_URL` and `MEMOIRE_MONGO_URL` to test servers (MongoDB as a replica set).
 3. Before opening a pull request, run `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` and the tests.
 4. Add behaviour tests to `crates/memoire-orm/tests/common/mod.rs`, so they run on every backend.
 5. Documentation lives in `docs/en`, `docs/fr` and `docs/es`: update all three, or open an issue so someone can translate.

@@ -56,12 +56,12 @@ The building blocks:
 
 A migration is a list of steps, run in the order you add them:
 
-| Step | What it does | Memory engine |
+| Step | What it does | In-memory, Redis, MongoDB |
 |---|---|---|
-| `.create_table::<M>()` | `CREATE TABLE` (and its indexes) for model `M` | Supported |
+| `.create_table::<M>()` | `CREATE TABLE` (and its indexes) for model `M`; a collection and its indexes on MongoDB | Supported |
 | `.drop_table("name")` | `DROP TABLE name` | Supported |
-| `.sql("...")` | Runs a SQL script on any SQL database | **Fails** with `Error::Unsupported` |
-| `.sql_for(Dialect::Postgres, "...")` | Runs a SQL script only on that database; skipped elsewhere | Skipped |
+| `.sql("...")` | Runs a SQL script on any SQL database (SQLite, PostgreSQL, MySQL) | **Fails** with `Error::Unsupported` |
+| `.sql_for(Dialect::Postgres, "...")` | Runs a SQL script only on that database (`Dialect::Sqlite`, `Dialect::Postgres` or `Dialect::MySql`); skipped elsewhere | Skipped |
 
 One migration can mix several steps:
 
@@ -70,8 +70,11 @@ let release_2 = Migration::new(3, "comments_and_cleanup")
     .create_table::<Comment>()
     .drop_table("legacy_comments")
     .sql_for(Dialect::Postgres, "CREATE INDEX idx_posts_title ON posts (title)")
-    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)");
+    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)")
+    .sql_for(Dialect::MySql, "CREATE INDEX idx_posts_title ON posts (title(100))");
 ```
+
+The MySQL version indexes the first 100 characters only, because MySQL cannot index a whole `TEXT` column: `sql_for` is how you handle such differences.
 
 A `sql` or `sql_for` script may contain several statements separated by semicolons.
 
@@ -82,7 +85,8 @@ To change an existing table, add a **new** migration with the SQL for the change
 ```rust
 let add_bio = Migration::new(4, "add_user_bio")
     .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT");
+    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+    .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT");
 ```
 
 Then add the field to the struct (`pub bio: Option<String>`), so the model matches the new schema.
@@ -127,7 +131,8 @@ fn migrations() -> Migrator {
         .add(
             Migration::new(2, "add_user_bio")
                 .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT"),
+                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+                .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT"),
         )
 }
 ```
@@ -170,7 +175,7 @@ async fn status<D: Database>(db: &D) -> memoire_orm::Result<()> {
 
 1. Checks that no two migrations share a version (otherwise it fails before touching the database).
 2. Reads `_memoire_migrations` to find the pending migrations.
-3. For each pending migration, in ascending version order, it opens a **transaction**, runs every step, records the migration in `_memoire_migrations`, and commits.
+3. For each pending migration, in ascending version order, it opens a **transaction**, runs every step, records the migration in `_memoire_migrations`, and commits. (On a standalone MongoDB server, which has no transactions, the steps run without one.)
 4. Returns the list of applied versions.
 
 If a step fails:
@@ -192,11 +197,19 @@ match migrations().run(&db).await {
 
 Fix the migration and run again: it continues where it stopped.
 
-> **Tip** SQLite and PostgreSQL can roll back schema changes (`CREATE TABLE`, `ALTER TABLE`...) inside a transaction, so a failed migration leaves no half-applied schema behind.
+How much of a failed migration is undone depends on the backend:
 
-## Migrations and the in-memory engine
+| Backend | Schema changes of a failed migration |
+|---|---|
+| SQLite, PostgreSQL, in-memory, Redis | Rolled back: nothing is left half-applied |
+| MySQL / MariaDB | **Kept**: MySQL commits every schema change immediately |
+| MongoDB | **Kept**: collections are created and dropped outside transactions |
 
-The in-memory engine has no SQL, so it only understands `create_table` and `drop_table` steps. A `sql` step makes the migration fail with `Error::Unsupported`, and `sql_for` steps are skipped.
+> **Warning** On MySQL and MongoDB, a migration that fails after a `create_table` (or any other schema change) leaves that change in place, while the migration is not recorded as applied. Undo it by hand before running the fixed migration again. Keeping one schema change per migration makes this easy.
+
+## Migrations without SQL: in-memory, Redis and MongoDB
+
+The in-memory engine, Redis and MongoDB have no SQL, so they only understand `create_table` and `drop_table` steps. A `sql` step makes the migration fail with `Error::Unsupported`, and `sql_for` steps are skipped. Redis and MongoDB have no fixed columns, so adding a field to a model needs no migration there: new rows have the field, and rows written before read it as empty (`NULL`), so declare new fields as `Option<T>`. (This does not create indexes for a new `unique` or `index` field. The in-memory engine starts empty at every run, so it has nothing to migrate.)
 
 For unit tests on `MemoryDb`, the simplest approach is usually to create the tables straight from your current models instead of running the migrator:
 

@@ -26,12 +26,13 @@ Every statement is prepared once per connection and reused:
 |---|---|
 | SQLite | Up to 256 statements per connection |
 | PostgreSQL | Every statement per connection, reset after 1,024 distinct statements |
+| MySQL / MariaDB | Up to 256 statements per connection |
 
 Because the builder produces the same SQL text for queries of the same shape (values are always parameters), a query in a loop is parsed and planned only once.
 
 ### Bulk inserts in few statements
 
-`insert_many` turns a slice of rows into multi-row `INSERT ... VALUES (...), (...), ...` statements. Each statement carries as many rows as the database allows: the number of bound parameters stays under the limit (32,766 on SQLite, 65,535 on PostgreSQL), with at most 10,000 rows per statement. Inserting 1,000 rows in a transaction this way is about 4 times faster than a loop of single-row inserts with hand-written `rusqlite` code (see [Benchmarks](benchmarks)).
+`insert_many` turns a slice of rows into multi-row `INSERT ... VALUES (...), (...), ...` statements. Each statement carries as many rows as the database allows: the number of bound parameters stays under the limit (32,766 on SQLite, 65,535 on PostgreSQL and MySQL), with at most 10,000 rows per statement. On Redis a batch is one atomic script, and on MongoDB one `insertMany` call. Inserting 1,000 rows in a transaction this way is about 4 times faster than a loop of single-row inserts with hand-written `rusqlite` code (see [Benchmarks](benchmarks)).
 
 ### A purpose-built in-memory engine
 
@@ -42,6 +43,14 @@ Because the builder produces the same SQL text for queries of the same shape (va
 - Joins on column equality run as hash joins.
 - `order_by` + `limit` selects the top rows without sorting everything.
 - Transactions use copy-on-write snapshots: starting one is cheap, and a table is copied only when the transaction first writes to it.
+
+### Redis: key lookups first
+
+`RedisDb` reads only the rows it needs when you look up by primary key (`find`, or a filter with `eq`/`is_in` on the key) and counts with `HLEN`. Every write, even a batch of thousands of rows, is applied by one atomic Lua script. Other queries read the whole table and run on the in-memory engine. See [Redis](redis).
+
+### MongoDB: the server does the filtering
+
+`MongoDb` translates filters, sorting, `limit` and `offset` into one native `find`, counts with `countDocuments`, and runs `update_many`/`delete_many` as single server-side commands. Joins fetch only the documents whose keys match. See [MongoDB](mongodb).
 
 ### Lean by construction
 
@@ -104,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Index the columns you search
 
-Add `#[memoire(index)]` to columns you filter, join or sort on often, foreign keys in particular. `unique` columns are indexed automatically. On the in-memory engine, lookups on the primary key and `unique` columns use hash indexes.
+Add `#[memoire(index)]` to columns you filter, join or sort on often, foreign keys in particular. `unique` columns are indexed automatically. MongoDB creates the same indexes on its collections. The in-memory engine keeps hash indexes on the primary key and `unique` columns, and Redis looks rows up by primary key directly; `index` has no effect on either.
 
 ### Avoid N+1 queries
 
@@ -129,7 +138,7 @@ This stays fast on any page. Keep `paginate` (which also runs a `COUNT`) for scr
 
 ### Reuse the database handle
 
-Open the database (or the PostgreSQL pool) once at startup and share it: `MemoryDb`, `SqliteDb` and `PgPool` are cheap to clone (MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb)). Opening a new pool per request throws away the connections and the statement caches. Size the PostgreSQL pool to what your server allows (see [PostgreSQL](postgres)).
+Open the database once at startup and share it: every handle (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) is cheap to clone, and clones share the same connections. Opening a new pool per request throws away the connections and the statement caches. Size the PostgreSQL pool to what your server allows (see [PostgreSQL](postgres)).
 
 ### Measure in release mode
 
