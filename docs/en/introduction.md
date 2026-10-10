@@ -1,6 +1,6 @@
 # Introduction
 
-Memoire ORM is a fast, type-safe, asynchronous ORM written in pure Rust. You describe your tables as ordinary Rust structs, and Memoire gives you a typed API to create, query, update and delete rows on an in-memory engine, SQLite or PostgreSQL, with the same code.
+Memoire ORM is a fast, type-safe, asynchronous ORM written in pure Rust. You describe your tables as ordinary Rust structs, and Memoire gives you a typed API to create, query, update and delete rows, with the same code on every supported database.
 
 ## What is an ORM?
 
@@ -43,7 +43,7 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 ## Why Memoire?
 
 - **Type-safe queries.** Every field gets a typed column constant (`User::AGE`, `User::EMAIL`, ...). `User::AGE.gt(18)` compiles; `User::AGE.gt("18")` is a compile error. Typos in column names are compile errors too.
-- **One API, several databases.** The same model and the same queries run on the in-memory engine, SQLite and PostgreSQL. Switching databases is a one-line change.
+- **One API, several databases.** The same model and the same queries run on the in-memory engine, SQLite and PostgreSQL (see the backend pages for the others). Switching databases is a one-line change.
 - **Fast by design.** The SQL for primary-key operations is generated while your code compiles, rows are decoded in a single pass without cloning, and statements are prepared once and cached. See [Why it's fast](performance).
 - **Batteries included.** Joins, aggregates, `GROUP BY`, pagination, upserts, bulk inserts, transactions, migrations and raw SQL.
 - **Safe.** The crate is `#![forbid(unsafe_code)]`, and values are always sent as bound parameters, never pasted into SQL text.
@@ -68,8 +68,9 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 |---|---|---|---|---|
 | `MemoryDb` | In-memory engine, pure Rust | `memory` (default) | Any, or none (`block_on`) | No |
 | `SqliteDb` | Embedded SQLite database (file or memory) | `sqlite` | Any, or none (`block_on`) | Yes |
-| `PgPool` | PostgreSQL client with a connection pool | `postgres` | Tokio | Yes |
-| `Dialect::MySql` | SQL generation only (no driver yet) | always available | n/a | n/a |
+| `PgPool` | PostgreSQL client with a connection pool | `postgres` (`postgres-tls` for TLS) | Tokio | Yes |
+
+> **Note** MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
 
 ## Which backend should I use?
 
@@ -79,7 +80,6 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 | Run in the browser (WebAssembly) | `MemoryDb` | The only backend that compiles to `wasm32` |
 | Ship a desktop app, CLI tool or small server with data on disk | `SqliteDb` | One file, no server to install, very fast for a single machine |
 | Run a web service with several instances or many concurrent writers | `PgPool` | A real database server with a connection pool, network access and strong concurrency |
-| Generate SQL for a MySQL or MariaDB database | `Dialect::MySql` | Render statements and run them with the MySQL driver of your choice |
 
 > **Tip** Because every backend shares the same API, a common setup is `SqliteDb` or `PgPool` in production and `MemoryDb` in unit tests. Write your functions against the `Executor` or `Database` traits and pass whichever database you like.
 

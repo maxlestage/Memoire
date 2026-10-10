@@ -486,22 +486,28 @@ impl<M: Model> Update<M> {
         Update { ast: UpdateAst { table: M::SCHEMA, sets: Vec::new(), filter: None }, _m: PhantomData }
     }
 
-    /// `SET column = value`.
-    pub fn set<T, V: Bind<T>>(mut self, column: Column<M, T>, value: V) -> Self {
-        self.ast.sets.push((column.column_ref().index, Expr::Value(value.into_bind())));
+    /// Adds an assignment; assigning the same column again replaces it.
+    fn assign(mut self, index: usize, expr: Expr) -> Self {
+        match self.ast.sets.iter_mut().find(|(i, _)| *i == index) {
+            Some(slot) => slot.1 = expr,
+            None => self.ast.sets.push((index, expr)),
+        }
         self
+    }
+
+    /// `SET column = value`.
+    pub fn set<T, V: Bind<T>>(self, column: Column<M, T>, value: V) -> Self {
+        self.assign(column.column_ref().index, Expr::Value(value.into_bind()))
     }
 
     /// `SET column = NULL`.
-    pub fn set_null<T>(mut self, column: Column<M, Option<T>>) -> Self {
-        self.ast.sets.push((column.column_ref().index, Expr::Value(Value::Null)));
-        self
+    pub fn set_null<T>(self, column: Column<M, Option<T>>) -> Self {
+        self.assign(column.column_ref().index, Expr::Value(Value::Null))
     }
 
     /// `SET column = <expression>`.
-    pub fn set_expr<T>(mut self, column: Column<M, T>, expr: Expr) -> Self {
-        self.ast.sets.push((column.column_ref().index, expr));
-        self
+    pub fn set_expr<T>(self, column: Column<M, T>, expr: Expr) -> Self {
+        self.assign(column.column_ref().index, expr)
     }
 
     /// `SET column = column + by`.

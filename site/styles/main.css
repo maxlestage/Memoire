@@ -2123,10 +2123,15 @@ pre.wrap {
   color: #7d7f9c;
 }
 
-.backends-grid,
 .why-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.backends-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 18px;
 }
 
@@ -2145,6 +2150,23 @@ pre.wrap {
   color: var(--inline-code-text);
   background: var(--inline-code-bg);
   overflow-wrap: anywhere;
+}
+
+.backend-tag {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font: 600 0.72rem var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+:root[data-theme="light"] .backend-tag {
+  color: #0e7490;
 }
 
 .backend-card p,

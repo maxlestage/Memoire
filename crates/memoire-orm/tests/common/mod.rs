@@ -74,6 +74,8 @@ async fn seed<E: Executor>(db: &E) -> Result<Vec<User>> {
 }
 
 pub async fn run_suite<D: Database>(db: &D) -> Result<()> {
+    #[cfg(all(feature = "chrono", feature = "uuid", feature = "json"))]
+    typed::run(db).await?;
     reset(db).await?;
     crud(db).await?;
     reset(db).await?;
@@ -159,6 +161,10 @@ async fn queries<E: Executor>(db: &E) -> Result<()> {
     assert_eq!(names(User::query().filter(User::EMAIL.like("_ob@%")).all(db).await?), ["Bob"]);
     // Wildcards in user input are escaped.
     assert!(User::query().filter(User::NAME.contains("%")).all(db).await?.is_empty());
+    let prefix = memoire_orm::escape_like("Car");
+    assert_eq!(names(User::query().filter(User::NAME.like(format!("{prefix}%"))).all(db).await?), ["Carol"]);
+    assert!(User::query().filter(User::NAME.like("Car\\%")).all(db).await?.is_empty());
+    assert_eq!(User::query().filter(User::NAME.not_like("%a%")).count(db).await?, 3);
 
     let q = User::query().filter(User::ID.is_in([1, 3, 5])).order_by(User::ID.desc()).all(db).await?;
     assert_eq!(names(q), ["Eve", "Carol", "Alice"]);
@@ -237,7 +243,8 @@ async fn updates_and_deletes<E: Executor>(db: &E) -> Result<()> {
     assert!(!User::get(db, 5).await?.active);
     assert!(User::get(db, 1).await?.active);
 
-    User::update_many().set_null(User::AGE).filter(User::NAME.eq("Dave")).execute(db).await?;
+    // Assigning a column twice keeps the last assignment.
+    User::update_many().set(User::AGE, 99).set_null(User::AGE).filter(User::NAME.eq("Dave")).execute(db).await?;
     assert_eq!(User::get(db, 4).await?.age, None);
     User::update_many().set(User::AGE, 50).filter(User::NAME.eq("Dave")).execute(db).await?;
     assert_eq!(User::get(db, 4).await?.age, Some(50));
@@ -402,4 +409,112 @@ async fn migrations<D: Database>(db: &D) -> Result<()> {
     assert!(matches!(err, Error::Migration { version: 3, .. }), "{err:?}");
     assert_eq!(bad.pending(db).await?.len(), 1);
     Ok(())
+}
+
+/// Every supported column type, on every backend.
+#[cfg(all(feature = "chrono", feature = "uuid", feature = "json"))]
+pub mod typed {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+    use memoire_orm::prelude::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+    pub struct Meta {
+        pub tags: Vec<String>,
+        pub score: u32,
+    }
+
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "typed_rows")]
+    pub struct Typed {
+        #[memoire(primary_key)]
+        pub id: uuid::Uuid,
+        pub flag: bool,
+        pub small: i16,
+        pub int: i32,
+        pub big: i64,
+        pub real: f32,
+        pub double: f64,
+        pub text: String,
+        pub bytes: Vec<u8>,
+        pub maybe: Option<String>,
+        #[memoire(index)]
+        pub at: DateTime<Utc>,
+        pub local: NaiveDateTime,
+        pub day: NaiveDate,
+        pub time: NaiveTime,
+        pub doc: serde_json::Value,
+        pub meta: Json<Meta>,
+    }
+
+    fn row(n: u32) -> Typed {
+        // Millisecond precision: the finest resolution shared by every backend.
+        let at =
+            Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap() + chrono::Duration::milliseconds(n as i64 * 1_500 + 7);
+        Typed {
+            id: uuid::Uuid::from_u128(0x1000 + n as u128),
+            flag: n % 2 == 0,
+            small: -(n as i16),
+            int: n as i32 * 1000,
+            big: i64::MAX - n as i64,
+            real: 0.5 * n as f32,
+            double: 1.25 * n as f64,
+            text: format!("ligne n°{n} — ünïcødé ✓"),
+            bytes: vec![0, 255, n as u8, 0x80],
+            maybe: (n % 3 != 0).then(|| format!("maybe {n}")),
+            at,
+            local: at.naive_utc() + chrono::Duration::hours(2),
+            day: NaiveDate::from_ymd_opt(2026, 3, n + 1).unwrap(),
+            time: NaiveTime::from_hms_milli_opt(8 + n, 30, 15, 250).unwrap(),
+            doc: serde_json::json!({ "n": n, "nested": { "ok": true }, "list": [1, 2, 3] }),
+            meta: Json(Meta { tags: vec!["a".into(), format!("t{n}")], score: n * 10 }),
+        }
+    }
+
+    pub async fn run<D: Database>(db: &D) -> Result<()> {
+        db.drop_table_if_exists::<Typed>().await?;
+        db.create_table::<Typed>().await?;
+        let rows: Vec<Typed> = (0..12).map(row).collect();
+        for r in &rows[..6] {
+            r.clone().insert(db).await?;
+        }
+        Typed::insert_many(db, &rows[6..]).await?;
+
+        // Exact round trip of every type.
+        for r in &rows {
+            assert_eq!(&Typed::get(db, r.id).await?, r);
+        }
+
+        // Ordering and comparisons on timestamps, dates and times.
+        let t5 = rows[5].at;
+        let later = Typed::query().filter(Typed::AT.gt(t5)).order_by(Typed::AT.desc()).all(db).await?;
+        assert_eq!(later.iter().map(|r| r.int).collect::<Vec<_>>(), vec![11000, 10000, 9000, 8000, 7000, 6000]);
+        assert_eq!(Typed::query().filter(Typed::LOCAL.le(rows[1].local)).count(db).await?, 2);
+        assert_eq!(Typed::query().filter(Typed::DAY.between(rows[2].day, rows[4].day)).count(db).await?, 3);
+        assert_eq!(Typed::query().filter(Typed::TIME.ge(rows[10].time)).count(db).await?, 2);
+        let first = Typed::query().order_by(Typed::AT.asc()).first(db).await?.unwrap();
+        assert_eq!(first, rows[0]);
+
+        // Other comparisons.
+        assert_eq!(Typed::query().filter(Typed::FLAG.eq(true)).count(db).await?, 6);
+        assert_eq!(Typed::query().filter(Typed::SMALL.lt(-9)).count(db).await?, 2);
+        assert_eq!(Typed::query().filter(Typed::BIG.eq(i64::MAX)).count(db).await?, 1);
+        assert_eq!(Typed::query().filter(Typed::REAL.ge(5.0)).count(db).await?, 2);
+        assert_eq!(Typed::query().filter(Typed::MAYBE.is_null()).count(db).await?, 4);
+        assert_eq!(Typed::query().filter(Typed::TEXT.contains("n°7 —")).count(db).await?, 1);
+        assert_eq!(Typed::query().filter(Typed::ID.is_in([rows[3].id, rows[4].id])).count(db).await?, 2);
+        assert_eq!(Typed::query().max(Typed::DAY, db).await?, Some(rows[11].day));
+        assert_eq!(Typed::query().sum(Typed::INT, db).await?, Some(66_000));
+
+        // Update and delete by key with a UUID primary key.
+        let mut r = rows[0].clone();
+        r.meta.0.tags.push("updated".into());
+        r.doc = serde_json::json!(["replaced"]);
+        r.update(db).await?;
+        assert_eq!(Typed::get(db, r.id).await?, r);
+        assert!(r.delete(db).await?);
+        assert_eq!(Typed::count(db).await?, 11);
+        db.drop_table::<Typed>().await?;
+        Ok(())
+    }
 }

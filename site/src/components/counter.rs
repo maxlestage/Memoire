@@ -31,13 +31,14 @@ pub fn Counter(props: &CounterProps) -> Html {
         let duration = f64::from(props.duration.max(1));
         use_effect_with(props.value, move |&value| {
             let raf: Rc<RefCell<Option<RafLoop>>> = Rc::default();
-            let io = node.cast::<Element>().and_then(|el| {
+            let reduced = dom::prefers_reduced_motion();
+            if reduced {
+                // No animation: show the final number right away.
+                shown.set(value);
+            }
+            let io = node.cast::<Element>().filter(|_| !reduced).and_then(|el| {
                 let raf = raf.clone();
                 dom::observe_once(&el, 0.4, move || {
-                    if dom::prefers_reduced_motion() {
-                        shown.set(value);
-                        return;
-                    }
                     let start = Cell::new(None::<f64>);
                     *raf.borrow_mut() = Some(RafLoop::start(move |ts| {
                         let t0 = start.get().unwrap_or(ts);

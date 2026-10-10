@@ -26,6 +26,8 @@ memory = ["dep:parking_lot", "dep:foldhash"]
 sqlite = ["dep:rusqlite", "dep:async-lock"]
 ## PostgreSQL backend (tokio-postgres + deadpool connection pool).
 postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:tokio", "dep:bytes"]
+## MySQL / MariaDB backend (mysql_async, pure Rust, requires Tokio).
+mysql = ["dep:mysql_async", "dep:async-lock"]
 ## TLS for PostgreSQL (rustls, `sslmode=require|verify-ca|verify-full`), needed by
 ## Heroku Postgres and most managed databases.
 postgres-tls = ["postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:webpki-roots"]
@@ -36,7 +38,7 @@ uuid = ["dep:uuid", "tokio-postgres?/with-uuid-1"]
 ## JSON columns (`serde_json::Value` and `Json<T>`).
 json = ["dep:serde", "dep:serde_json", "tokio-postgres?/with-serde_json-1"]
 ## Everything.
-full = ["memory", "sqlite", "postgres", "postgres-tls", "chrono", "uuid", "json"]
+full = ["memory", "sqlite", "postgres", "postgres-tls", "mysql", "chrono", "uuid", "json"]
 
 [dependencies]
 memoire-orm-derive.workspace = true
@@ -53,6 +55,7 @@ deadpool-postgres = { version = "0.14", optional = true }
 tokio = { version = "1", optional = true, features = ["rt"] }
 bytes = { version = "1", optional = true }
 tokio-postgres-rustls = { version = "0.14", optional = true }
+mysql_async = { version = "0.37", optional = true, default-features = false, features = ["minimal-rust"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = { version = "1", optional = true }
 

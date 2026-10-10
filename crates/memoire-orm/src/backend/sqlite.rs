@@ -69,15 +69,16 @@ impl ToSql for Param<'_> {
             #[cfg(feature = "uuid")]
             Value::Uuid(u) => ToSqlOutput::Owned(Sv::Text(u.hyphenated().to_string())),
             #[cfg(feature = "chrono")]
-            Value::Timestamp(t) => ToSqlOutput::Owned(Sv::Text(t.format("%Y-%m-%d %H:%M:%S%.f").to_string())),
+            // Fixed-width text so that SQLite compares and sorts timestamps correctly.
+            Value::Timestamp(t) => ToSqlOutput::Owned(Sv::Text(t.format("%Y-%m-%d %H:%M:%S%.9f").to_string())),
             #[cfg(feature = "chrono")]
             Value::TimestampTz(t) => {
-                ToSqlOutput::Owned(Sv::Text(t.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)))
+                ToSqlOutput::Owned(Sv::Text(t.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)))
             }
             #[cfg(feature = "chrono")]
             Value::Date(d) => ToSqlOutput::Owned(Sv::Text(d.format("%Y-%m-%d").to_string())),
             #[cfg(feature = "chrono")]
-            Value::Time(t) => ToSqlOutput::Owned(Sv::Text(t.format("%H:%M:%S%.f").to_string())),
+            Value::Time(t) => ToSqlOutput::Owned(Sv::Text(t.format("%H:%M:%S%.9f").to_string())),
             #[cfg(feature = "json")]
             Value::Json(j) => ToSqlOutput::Owned(Sv::Text(j.to_string())),
         })

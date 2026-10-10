@@ -206,7 +206,8 @@ impl<M, T: SqlType> Column<M, T> {
     }
 }
 
-/// Escapes `%`, `_` and `\` so a user string matches literally inside `LIKE`.
+/// Escapes `%`, `_` and `\` so a user string matches literally inside a
+/// [`like`](Column::like) pattern: `User::NAME.like(format!("{}%", escape_like(input)))`.
 pub fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     for c in s.chars() {
@@ -229,23 +230,26 @@ impl<M, T: SqlType<Base = String>> Column<M, T> {
         }
     }
 
-    /// `column LIKE pattern` (`%` and `_` are wildcards).
+    /// `column LIKE pattern`: `%` matches any sequence, `_` any character and
+    /// `\` escapes the next character (use [`escape_like`] on user input).
     ///
-    /// Case sensitivity follows the database: SQLite and MySQL compare ASCII
-    /// case-insensitively by default, PostgreSQL and the memory engine do not.
-    /// Use [`ilike`](Self::ilike) for portable case-insensitive matching.
+    /// Matching is case-sensitive on every backend (Memoire makes SQLite's and
+    /// MySQL's `LIKE` case-sensitive too); use [`ilike`](Self::ilike) for
+    /// case-insensitive matching.
     pub fn like(self, pattern: impl Into<String>) -> Expr {
-        self.like_expr(pattern.into(), false, false, false)
+        self.like_expr(pattern.into(), false, false, true)
     }
 
     /// `column NOT LIKE pattern`.
     pub fn not_like(self, pattern: impl Into<String>) -> Expr {
-        self.like_expr(pattern.into(), false, true, false)
+        self.like_expr(pattern.into(), false, true, true)
     }
 
-    /// Case-insensitive `LIKE` on every backend.
+    /// Case-insensitive `LIKE` on every backend (`ILIKE` on PostgreSQL,
+    /// `LOWER(..) LIKE LOWER(..)` elsewhere: non-ASCII letters are only folded
+    /// by PostgreSQL, MySQL and the in-memory engine).
     pub fn ilike(self, pattern: impl Into<String>) -> Expr {
-        self.like_expr(pattern.into(), true, false, false)
+        self.like_expr(pattern.into(), true, false, true)
     }
 
     /// The column contains `needle` (wildcards in `needle` are escaped).
