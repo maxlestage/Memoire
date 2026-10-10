@@ -289,9 +289,11 @@ fn asset(site: &Site, url: &str, uri: &Uri, headers: &HeaderMap) -> Response {
     } else {
         "public, max-age=3600"
     };
-    let (body, encoding) = match (accepts(headers, "br").then(|| asset.brotli()).flatten(), asset.gzip()) {
+    let brotli = if accepts(headers, "br") { asset.brotli() } else { None };
+    let gzip = if brotli.is_none() && accepts(headers, "gzip") { asset.gzip() } else { None };
+    let (body, encoding) = match (brotli, gzip) {
         (Some(br), _) => (br, Some("br")),
-        (None, Some(gz)) if accepts(headers, "gzip") => (gz, Some("gzip")),
+        (None, Some(gz)) => (gz, Some("gzip")),
         _ => (&asset.bytes[..], None),
     };
     let mut response = (
