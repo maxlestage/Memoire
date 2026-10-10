@@ -32,7 +32,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Tests (memory, SQLite, PostgreSQL, MySQL, Redis, MongoDB)
+    name: Tests (memory, SQLite, PostgreSQL, MariaDB, MySQL, Redis, MongoDB)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -56,6 +56,19 @@ jobs:
         ports: ["3306:3306"]
         options: >-
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: memoire_test
+          MYSQL_USER: memoire
+          MYSQL_PASSWORD: memoire
+        ports: ["3307:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
@@ -93,6 +106,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Tests, all features, every backend
         run: cargo test --workspace --all-features
+      - name: Tests, MySQL 8.4 (the run above used MariaDB 11)
+        run: cargo test -p memoire-orm --features mysql --test mysql
+        env:
+          MEMOIRE_MYSQL_URL: mysql://memoire:memoire@127.0.0.1:3307/memoire_test
       - name: Tests, default features
         run: cargo test -p memoire-orm
       - name: Examples
@@ -103,7 +120,7 @@ jobs:
           DATABASE_URL="$MEMOIRE_PG_URL" cargo run -p memoire-orm --example postgres --features postgres
       - name: Same code on every backend
         run: |
-          for url in memory sqlite::memory: "$MEMOIRE_PG_URL" "$MEMOIRE_MYSQL_URL" "$MEMOIRE_REDIS_URL" "$MEMOIRE_MONGO_URL"; do
+          for url in memory sqlite::memory: "$MEMOIRE_PG_URL" "$MEMOIRE_MYSQL_URL" mysql://memoire:memoire@127.0.0.1:3307/memoire_test "$MEMOIRE_REDIS_URL" "$MEMOIRE_MONGO_URL"; do
             cargo run -p memoire-orm --example any_backend --features full -- "$url"
           done
 

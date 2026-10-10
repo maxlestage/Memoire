@@ -188,6 +188,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Gardez un pool de petite taille : les plus petites offres Heroku Postgres n'acceptent qu'un nombre limité de connexions (vérifiez votre offre), partagé entre tous vos dynos. Consultez [PostgreSQL](postgres) pour les options TLS.
 
+### Autres bases de données sur Heroku
+
+Les autres backends serveur fonctionnent de la même façon : ajoutez le service, puis lisez son URL dans une config var.
+
+| Base de données | Comment l'obtenir sur Heroku | Feature Memoire | Connexion |
+|---|---|---|---|
+| Redis | L'add-on **Heroku Key-Value Store**, qui définit `REDIS_URL` | `redis-tls` | `RedisDb::connect(&format!("{url}#insecure"))` (son certificat est auto-signé ; voir [Redis](redis)) |
+| MySQL / MariaDB | Un add-on MySQL de la marketplace Elements, qui place une URL `mysql://` dans une config var | `mysql` (ou `mysql-tls`) | `MySqlPool::connect(&url)` (voir [MySQL & MariaDB](mysql)) |
+| MongoDB | Un cluster MongoDB Atlas ; copiez son URI `mongodb+srv://` dans une config var comme `MONGODB_URI` (**Settings → Config Vars**) | `mongodb` | `MongoDb::connect(&uri)` (voir [MongoDB](mongodb)) |
+
 ### 3. Construire et déployer
 
 Ajoutez à votre dépôt un `Dockerfile` et un `heroku.yml`, comme le fait le dépôt de Memoire. Un `Dockerfile` minimal pour un binaire Rust appelé `my-app` :

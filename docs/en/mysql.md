@@ -20,10 +20,10 @@ The client is `mysql_async`, a pure Rust implementation of the MySQL protocol; T
 | Requirement | Value |
 |---|---|
 | Async runtime | **Tokio** (`#[tokio::main]`, `#[tokio::test]`) |
-| MySQL | 5.7 or 8.0 and newer |
-| MariaDB | 10.3 and newer (tested on 10.11) |
+| MySQL | 8.0 and newer (tested on 8.4) |
+| MariaDB | 10.6 and newer (tested on 10.11 and 11) |
 
-> **Tip** To try it locally, start a server with Docker: `docker run -d -p 3306:3306 -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=app -e MARIADB_USER=app -e MARIADB_PASSWORD=secret mariadb:11`.
+> **Tip** To try it locally, start a server with Docker: `docker run -d -p 3306:3306 -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=app -e MARIADB_USER=app -e MARIADB_PASSWORD=secret mariadb:11` (or the `mysql:8.4` image, with `MYSQL_` instead of `MARIADB_` in the variable names).
 
 ## Connecting
 

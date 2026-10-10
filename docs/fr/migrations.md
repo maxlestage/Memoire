@@ -56,12 +56,12 @@ Les briques de base :
 
 Une migration est une liste d'étapes, exécutées dans l'ordre où vous les ajoutez :
 
-| Étape | Ce qu'elle fait | Moteur en mémoire |
+| Étape | Ce qu'elle fait | En mémoire, Redis, MongoDB |
 |---|---|---|
-| `.create_table::<M>()` | `CREATE TABLE` (et ses index) pour le modèle `M` | Pris en charge |
+| `.create_table::<M>()` | `CREATE TABLE` (et ses index) pour le modèle `M` ; une collection et ses index sur MongoDB | Pris en charge |
 | `.drop_table("name")` | `DROP TABLE name` | Pris en charge |
-| `.sql("...")` | Exécute un script SQL sur n'importe quelle base de données SQL | **Échoue** avec `Error::Unsupported` |
-| `.sql_for(Dialect::Postgres, "...")` | Exécute un script SQL uniquement sur cette base de données ; ignorée ailleurs | Ignorée |
+| `.sql("...")` | Exécute un script SQL sur n'importe quelle base de données SQL (SQLite, PostgreSQL, MySQL) | **Échoue** avec `Error::Unsupported` |
+| `.sql_for(Dialect::Postgres, "...")` | Exécute un script SQL uniquement sur cette base de données (`Dialect::Sqlite`, `Dialect::Postgres` ou `Dialect::MySql`) ; ignorée ailleurs | Ignorée |
 
 Une migration peut combiner plusieurs étapes :
 
@@ -70,8 +70,11 @@ let release_2 = Migration::new(3, "comments_and_cleanup")
     .create_table::<Comment>()
     .drop_table("legacy_comments")
     .sql_for(Dialect::Postgres, "CREATE INDEX idx_posts_title ON posts (title)")
-    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)");
+    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)")
+    .sql_for(Dialect::MySql, "CREATE INDEX idx_posts_title ON posts (title(100))");
 ```
+
+La version MySQL n'indexe que les 100 premiers caractères, car MySQL ne sait pas indexer une colonne `TEXT` entière : `sql_for` est la façon de gérer ce genre de différences.
 
 Un script `sql` ou `sql_for` peut contenir plusieurs instructions séparées par des points-virgules.
 
@@ -82,7 +85,8 @@ Pour modifier une table existante, ajoutez une **nouvelle** migration contenant 
 ```rust
 let add_bio = Migration::new(4, "add_user_bio")
     .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT");
+    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+    .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT");
 ```
 
 Ajoutez ensuite le champ à la struct (`pub bio: Option<String>`), pour que le modèle corresponde au nouveau schéma.
@@ -127,7 +131,8 @@ fn migrations() -> Migrator {
         .add(
             Migration::new(2, "add_user_bio")
                 .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT"),
+                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+                .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT"),
         )
 }
 ```
@@ -170,7 +175,7 @@ async fn status<D: Database>(db: &D) -> memoire_orm::Result<()> {
 
 1. Il vérifie que deux migrations ne partagent pas la même version (sinon il échoue avant de toucher à la base de données).
 2. Il lit `_memoire_migrations` pour trouver les migrations en attente.
-3. Pour chaque migration en attente, par ordre croissant de version, il ouvre une **transaction**, exécute toutes les étapes, enregistre la migration dans `_memoire_migrations` et valide (commit).
+3. Pour chaque migration en attente, par ordre croissant de version, il ouvre une **transaction**, exécute toutes les étapes, enregistre la migration dans `_memoire_migrations` et valide (commit). (Sur un serveur MongoDB autonome, qui n'a pas de transactions, les étapes s'exécutent sans transaction.)
 4. Il renvoie la liste des versions appliquées.
 
 Si une étape échoue :
@@ -192,11 +197,19 @@ match migrations().run(&db).await {
 
 Corrigez la migration et relancez : l'exécution reprend là où elle s'était arrêtée.
 
-> **Astuce** SQLite et PostgreSQL savent annuler les modifications de schéma (`CREATE TABLE`, `ALTER TABLE`...) à l'intérieur d'une transaction : une migration qui échoue ne laisse donc derrière elle aucun schéma à moitié appliqué.
+La part d'une migration échouée qui est annulée dépend du backend :
 
-## Les migrations et le moteur en mémoire
+| Backend | Modifications de schéma d'une migration échouée |
+|---|---|
+| SQLite, PostgreSQL, en mémoire, Redis | Annulées : rien ne reste à moitié appliqué |
+| MySQL / MariaDB | **Conservées** : MySQL valide immédiatement chaque modification de schéma |
+| MongoDB | **Conservées** : les collections sont créées et supprimées en dehors des transactions |
 
-Le moteur en mémoire n'a pas de SQL : il ne comprend donc que les étapes `create_table` et `drop_table`. Une étape `sql` fait échouer la migration avec `Error::Unsupported`, et les étapes `sql_for` sont ignorées.
+> **Attention** Sur MySQL et MongoDB, une migration qui échoue après un `create_table` (ou toute autre modification de schéma) laisse cette modification en place, alors que la migration n'est pas enregistrée comme appliquée. Annulez-la à la main avant de relancer la migration corrigée. Ne mettre qu'une seule modification de schéma par migration vous facilite la tâche.
+
+## Migrations sans SQL : en mémoire, Redis et MongoDB
+
+Le moteur en mémoire, Redis et MongoDB n'ont pas de SQL : ils ne comprennent donc que les étapes `create_table` et `drop_table`. Une étape `sql` fait échouer la migration avec `Error::Unsupported`, et les étapes `sql_for` sont ignorées. Redis et MongoDB n'ont pas de colonnes fixes : ajouter un champ à un modèle n'y demande donc aucune migration. Les nouvelles lignes ont le champ, et les lignes écrites auparavant le lisent comme vide (`NULL`) : déclarez donc les nouveaux champs en `Option<T>`. (Cela ne crée pas d'index pour un nouveau champ `unique` ou `index`. Le moteur en mémoire démarre vide à chaque exécution, il n'a donc rien à migrer.)
 
 Pour les tests unitaires sur `MemoryDb`, l'approche la plus simple consiste généralement à créer les tables directement à partir de vos modèles actuels au lieu de lancer le migrateur :
 

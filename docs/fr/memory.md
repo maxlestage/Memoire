@@ -1,6 +1,6 @@
 # Moteur en mémoire
 
-`MemoryDb` est un moteur de base de données écrit en Rust pur qui garde toutes les tables en mémoire. Il n'a besoin ni de fichier, ni de serveur, ni de runtime async, il exécute les mêmes requêtes que SQLite et PostgreSQL, et il fonctionne même en WebAssembly. Il est activé par défaut (feature `memory`).
+`MemoryDb` est un moteur de base de données écrit en Rust pur qui garde toutes les tables en mémoire. Il n'a besoin ni de fichier, ni de serveur, ni de runtime async, il exécute les mêmes requêtes que les autres backends, et il fonctionne même en WebAssembly. Il est activé par défaut (feature `memory`).
 
 ## Quand l'utiliser
 
@@ -83,11 +83,13 @@ Le moteur ne génère ni n'analyse de SQL. Il interprète directement les struct
 | `group_by`, `distinct` | Tables de hachage |
 | Transactions | Snapshots en copy-on-write |
 
-> **Remarque** `#[memoire(index)]` ne concerne que les bases de données SQL. Le moteur en mémoire maintient des index de hachage pour la clé primaire et les colonnes `unique`.
+Le backend [Redis](redis) évalue les requêtes avec ce même moteur, et [MongoDB](mongodb) l'utilise pour terminer les jointures, les `GROUP BY` et les agrégats : ils partagent donc sa sémantique.
+
+> **Remarque** `#[memoire(index)]` crée un vrai index sur les bases de données SQL et sur MongoDB, mais le moteur en mémoire l'ignore : il maintient des index de hachage uniquement pour la clé primaire et les colonnes `unique`.
 
 ## Sémantique SQL
 
-Le moteur suit les règles du SQL : vos tests sur `MemoryDb` se comportent donc comme la production sur SQLite ou PostgreSQL :
+Le moteur suit les règles du SQL : vos tests sur `MemoryDb` se comportent donc comme la production sur les autres backends :
 
 - **Logique à trois valeurs :** les comparaisons avec `NULL` ne sont ni vraies ni fausses ; utilisez `is_null()`.
 - **Tri des NULL comme dans PostgreSQL :** les NULL arrivent en dernier dans l'ordre croissant et en premier dans l'ordre décroissant (`nulls_first()`/`nulls_last()` permettent de changer ce comportement).

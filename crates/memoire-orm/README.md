@@ -33,7 +33,7 @@ memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "mysql
 | `sqlite` | | `SqliteDb` (SQLite is compiled in, nothing to install) |
 | `postgres` | | `PgPool` (tokio-postgres + connection pool, needs Tokio) |
 | `postgres-tls` | | TLS for PostgreSQL with rustls (`sslmode=require`, `verify-full`…) — Heroku Postgres |
-| `mysql` / `mysql-tls` | | `MySqlPool` for MySQL 5.7/8+ and MariaDB 10.3+ (mysql_async) |
+| `mysql` / `mysql-tls` | | `MySqlPool` for MySQL 8+ and MariaDB 10.6+ (mysql_async) |
 | `redis` / `redis-tls` | | `RedisDb`: NoSQL key-value store, rows as JSON, atomic Lua writes |
 | `mongodb` | | `MongoDb`: NoSQL documents, filters run in MongoDB, real transactions |
 | `chrono` / `uuid` / `json` | | date-time, UUID and JSON column types |

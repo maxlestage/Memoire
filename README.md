@@ -76,7 +76,7 @@ Supported backends (one feature each):
 | In-memory | `memory` (default) | `MemoryDb::new()` | pure Rust, runs in WebAssembly, perfect for tests |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embedded, nothing to install |
 | PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
-| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 5.7/8+, MariaDB 10.3+ |
+| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
 | Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL key-value, rows stored as JSON |
 | MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documents, real transactions on replica sets |
 

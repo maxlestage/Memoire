@@ -108,10 +108,10 @@ SQLite ne dispose que de quelques types de stockage : Memoire convertit donc les
 | `String` | `TEXT` | `'hello'` |
 | `Vec<u8>` | `BLOB` | octets bruts |
 | `uuid::Uuid` | `TEXT` | `'67e55044-10b1-426f-9247-bb680e5fe0c8'` |
-| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250'` |
-| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250Z'` |
+| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250000000'` |
+| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250000000Z'` |
 | `chrono::NaiveDate` | `TEXT` | `'2026-10-10'` |
-| `chrono::NaiveTime` | `TEXT` | `'14:30:00'` |
+| `chrono::NaiveTime` | `TEXT` | `'14:30:00.000000000'` |
 | `serde_json::Value`, `Json<T>` | `TEXT` | `'{"theme":"dark"}'` |
 
 La lecture effectue automatiquement la conversion inverse : vos structs reçoivent donc toujours les bons types Rust.
@@ -154,7 +154,7 @@ Les erreurs SQLite sont traduites dans les variantes d'erreur communes de Memoir
 ## Bon à savoir
 
 - **`LIKE` est sensible à la casse** (Memoire active `case_sensitive_like`). `ilike` et `icontains` ignorent la casse uniquement pour les lettres ASCII : `icontains("é")` ne trouve pas `"É"`.
-- **Tri des NULL :** SQLite place les NULL en premier dans l'ordre croissant, contrairement à PostgreSQL et au moteur en mémoire. Utilisez `nulls_first()`/`nulls_last()` pour des résultats portables.
+- **Tri des NULL :** SQLite place les NULL en premier dans l'ordre croissant, comme MySQL et MongoDB mais contrairement à PostgreSQL, Redis et au moteur en mémoire. Utilisez `nulls_first()`/`nulls_last()` pour des résultats portables.
 - **Le SQL brut** utilise les placeholders `?`. Voir [SQL brut](raw-sql).
 - **Accès direct :** `db.with_connection(|conn| ...)` vous donne la `rusqlite::Connection` pour tout ce que Memoire ne couvre pas (sauvegardes, pragmas, fonctions personnalisées). Voir [SQL brut](raw-sql).
 

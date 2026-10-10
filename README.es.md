@@ -76,7 +76,7 @@ Motores compatibles (una feature cada uno):
 | En memoria | `memory` (por defecto) | `MemoryDb::new()` | 100 % Rust, funciona en WebAssembly, ideal para pruebas |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embebido, nada que instalar |
 | PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
-| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 5.7/8+, MariaDB 10.3+ |
+| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
 | Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL clave-valor, filas guardadas en JSON |
 | MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documentos, transacciones reales en replica sets |
 
