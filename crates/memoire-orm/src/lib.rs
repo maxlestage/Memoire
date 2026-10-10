@@ -139,16 +139,26 @@ pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
         }
     }
 
-    let mut future = std::pin::pin!(future);
-    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
-    let mut cx = Context::from_waker(&waker);
-    loop {
-        match future.as_mut().poll(&mut cx) {
-            Poll::Ready(v) => return v,
-            Poll::Pending => std::thread::park(),
-        }
+    thread_local! {
+        static WAKER: Waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
     }
+
+    let mut future = std::pin::pin!(future);
+    WAKER.with(|waker| {
+        let mut cx = Context::from_waker(waker);
+        loop {
+            match future.as_mut().poll(&mut cx) {
+                Poll::Ready(v) => return v,
+                Poll::Pending => std::thread::park(),
+            }
+        }
+    })
 }
+
+/// Compiles the code examples of the crate README.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
 
 #[doc(hidden)]
 pub mod __private {
