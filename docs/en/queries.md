@@ -174,6 +174,14 @@ let q = User::query().filter(User::NAME.contains("50%"));
 
 > **Tip** For search boxes and other user input, prefer `contains`, `icontains`, `starts_with` and `ends_with` over `like`: they are safe from accidental wildcards.
 
+In a hand-written `like` pattern, `\` escapes the next character on every backend (Memoire always emits `ESCAPE '\'`). To mix your own wildcards with user input, escape the input with `memoire_orm::escape_like`:
+
+```rust
+let input = "50%";
+let q = User::query().filter(User::NAME.like(format!("{}%", memoire_orm::escape_like(input))));
+// matches names starting with the four characters `50%`
+```
+
 Case sensitivity is the same on every backend Memoire runs:
 
 | Backend | `like`, `contains`, ... | `ilike`, `icontains` |
@@ -181,7 +189,7 @@ Case sensitivity is the same on every backend Memoire runs:
 | In-memory engine | Case-sensitive | Case-insensitive (Unicode) |
 | SQLite | Case-sensitive (Memoire enables `case_sensitive_like`) | Case-insensitive for ASCII letters only (`LOWER()`) |
 | PostgreSQL | Case-sensitive | Case-insensitive (native `ILIKE`) |
-| MySQL | Depends on the column collation (usually insensitive) | Case-insensitive (`LOWER()`) |
+| MySQL / MariaDB | Case-sensitive (Memoire creates tables with `utf8mb4_bin`) | Case-insensitive (`LOWER()`) |
 
 > **Note** On SQLite, `icontains("émi")` does not match `"Émile"`, because SQLite's `LOWER()` only changes ASCII letters. The memory engine and PostgreSQL handle accented letters.
 
