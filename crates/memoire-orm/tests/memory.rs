@@ -47,3 +47,43 @@ fn memory_raw_sql_is_rejected() {
     let err = memoire_orm::block_on(db.raw::<i64>("SELECT 1", &[])).unwrap_err();
     assert!(matches!(err, Error::Unsupported(_)));
 }
+
+/// A framework that re-exports Memoire under another name: the derive finds it through
+/// `#[memoire(crate = "...")]` instead of `::memoire_orm`.
+mod reexported {
+    pub mod framework {
+        pub use memoire_orm as orm;
+    }
+
+    use framework::orm::prelude::*;
+
+    #[derive(framework::orm::Model, Debug, Clone, PartialEq)]
+    #[memoire(crate = "framework::orm", table = "notes")]
+    pub struct Note {
+        pub id: i64,
+        pub text: String,
+    }
+
+    #[derive(framework::orm::FromRow, Debug, PartialEq)]
+    #[memoire(crate = "self::framework::orm")]
+    pub struct Text {
+        pub text: String,
+    }
+
+    #[test]
+    fn derive_uses_the_crate_path() {
+        framework::orm::block_on(async {
+            let db = framework::orm::MemoryDb::new();
+            db.create_table::<Note>().await?;
+            let mut note = Note { id: 0, text: "hello".into() };
+            note.insert(&db).await?;
+            assert_eq!(note.id, 1);
+            assert_eq!(Note::get(&db, 1).await?, note);
+            let texts: Vec<Text> =
+                Note::query().columns(Note::TEXT).all(&db).await?.into_iter().map(|text| Text { text }).collect();
+            assert_eq!(texts, vec![Text { text: "hello".into() }]);
+            Ok::<(), framework::orm::Error>(())
+        })
+        .unwrap();
+    }
+}

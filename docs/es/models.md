@@ -79,6 +79,19 @@ Sin él, el nombre de la tabla es el nombre del struct en `snake_case`, **sin** 
 
 > **Consejo** Escribir siempre `#[memoire(table = "...")]` hace explícito tu esquema y te permite renombrar el struct más adelante sin tocar la base de datos.
 
+## Usar Memoire a través de otra crate
+
+`#[derive(Model)]` genera código que hace referencia a `::memoire_orm`. Un framework que reexporta Memoire (como [Paquets](https://github.com/maxlestage/Paquets), donde se llama `paquets::orm`) indica a la derivación dónde encontrarlo con el atributo de struct `crate`, así tu proyecto no necesita su propia dependencia `memoire-orm`:
+
+```rust
+#[derive(paquets::orm::Model)]
+#[memoire(crate = "paquets::orm", table = "notes")]
+pub struct Note {
+    pub id: i64,
+    pub text: String,
+}
+```
+
 ## Claves primarias
 
 Cada modelo necesita exactamente una clave primaria. Identifica una fila y es lo que usan `find`, `get`, `update`, `delete` y `upsert`.
