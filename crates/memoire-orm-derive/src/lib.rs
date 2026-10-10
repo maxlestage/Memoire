@@ -26,7 +26,9 @@ use syn::{Data, DeriveInput, Fields, Ident, LitBool, LitStr, Type, parse_macro_i
 /// }
 /// ```
 ///
-/// Struct attributes: `table = "name"` (defaults to the snake_case struct name).
+/// Struct attributes: `table = "name"` (defaults to the snake_case struct name),
+/// `crate = "path"` (where the generated code finds `memoire_orm`, `::memoire_orm` by
+/// default; for crates that re-export it, e.g. `crate = "my_framework::orm"`).
 ///
 /// Field attributes: `primary_key`, `auto_increment`, `unique`, `index`,
 /// `column = "name"`, `sql_type = "VARCHAR(255)"`, `default = "SQL expression"`,
@@ -73,6 +75,8 @@ struct FieldInfo {
 
 struct ModelInfo {
     table: String,
+    /// Path of the `memoire_orm` crate in the generated code (`crate = "..."`).
+    krate: syn::Path,
     fields: Vec<FieldInfo>,
 }
 
@@ -125,6 +129,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
     };
 
     let mut table = snake_case(&input.ident.to_string());
+    let mut krate: syn::Path = syn::parse_quote!(::memoire_orm);
     for attr in &input.attrs {
         if !attr.path().is_ident("memoire") {
             continue;
@@ -137,8 +142,12 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 }
                 table = lit.value();
                 Ok(())
+            } else if meta.path.is_ident("crate") {
+                let lit: LitStr = meta.value()?.parse()?;
+                krate = lit.parse()?;
+                Ok(())
             } else {
-                Err(meta.error("unknown memoire struct attribute (expected `table = \"...\"`)"))
+                Err(meta.error("unknown memoire struct attribute (expected `table = \"...\"` or `crate = \"...\"`)"))
             }
         })?;
     }
@@ -245,7 +254,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
         }
     }
 
-    Ok(ModelInfo { table, fields })
+    Ok(ModelInfo { table, krate, fields })
 }
 
 fn is_integer_type(ty: &Type) -> bool {
@@ -389,6 +398,7 @@ fn opt_str(v: &Option<String>) -> TokenStream2 {
 
 fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let info = parse_model(input)?;
+    let krate = &info.krate;
     let name = &input.ident;
     let table = &info.table;
     let cols: Vec<&FieldInfo> = info.fields.iter().filter(|f| !f.skip).collect();
@@ -443,7 +453,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let sql_tokens = |s: &StaticSql| {
         let StaticSql { columns, select, find, insert, update, delete, upsert } = s;
         quote! {
-            ::memoire_orm::StaticSql {
+            #krate::StaticSql {
                 columns: #columns,
                 select: #select,
                 find: #find,
@@ -470,7 +480,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
             Some((t, c)) => {
                 let on_delete = opt_str(&f.on_delete);
                 let on_update = opt_str(&f.on_update);
-                quote!(::core::option::Option::Some(::memoire_orm::ForeignKey {
+                quote!(::core::option::Option::Some(#krate::ForeignKey {
                     table: #t,
                     column: #c,
                     on_delete: #on_delete,
@@ -480,11 +490,11 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
             None => quote!(::core::option::Option::None),
         };
         quote! {
-            ::memoire_orm::ColumnDef {
+            #krate::ColumnDef {
                 name: #col,
                 field: #field,
-                kind: <#ty as ::memoire_orm::SqlType>::KIND,
-                nullable: <#ty as ::memoire_orm::SqlType>::NULLABLE,
+                kind: <#ty as #krate::SqlType>::KIND,
+                nullable: <#ty as #krate::SqlType>::NULLABLE,
                 primary_key: #is_pk,
                 auto_increment: #auto,
                 unique: #unique,
@@ -503,10 +513,10 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
     let to_values = cols.iter().map(|f| {
         let id = &f.ident;
-        quote!(::memoire_orm::ToValue::to_value(&self.#id))
+        quote!(#krate::ToValue::to_value(&self.#id))
     });
 
-    let decode_fields = decode_fields_tokens(&info.fields, table);
+    let decode_fields = decode_fields_tokens(&info.fields, table, krate);
 
     let column_consts = cols.iter().enumerate().map(|(i, f)| {
         let const_name = format_ident!("{}", upper_snake(&unraw(&f.ident)), span = f.ident.span());
@@ -516,14 +526,14 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
         quote! {
             #[doc = #doc]
             #[allow(dead_code)]
-            pub const #const_name: ::memoire_orm::Column<#name, #ty> =
-                ::memoire_orm::Column::new(#table, #col, #i);
+            pub const #const_name: #krate::Column<#name, #ty> =
+                #krate::Column::new(#table, #col, #i);
         }
     });
 
     Ok(quote! {
-        impl ::memoire_orm::Model for #name {
-            const SCHEMA: &'static ::memoire_orm::TableSchema = &::memoire_orm::TableSchema {
+        impl #krate::Model for #name {
+            const SCHEMA: &'static #krate::TableSchema = &#krate::TableSchema {
                 name: #table,
                 columns: &[#(#column_defs),*],
                 primary_key: #pk,
@@ -533,30 +543,30 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
             type Key = #pk_ty;
 
             #[inline]
-            fn key(&self) -> ::memoire_orm::Value {
-                ::memoire_orm::ToValue::to_value(&self.#pk_ident)
+            fn key(&self) -> #krate::Value {
+                #krate::ToValue::to_value(&self.#pk_ident)
             }
 
             #[inline]
-            fn set_key(&mut self, value: ::memoire_orm::Value) -> ::memoire_orm::Result<()> {
-                self.#pk_ident = ::memoire_orm::__private::convert(value, #pk_name)?;
+            fn set_key(&mut self, value: #krate::Value) -> #krate::Result<()> {
+                self.#pk_ident = #krate::__private::convert(value, #pk_name)?;
                 ::core::result::Result::Ok(())
             }
 
             #[inline]
-            fn to_values(&self) -> ::std::vec::Vec<::memoire_orm::Value> {
+            fn to_values(&self) -> ::std::vec::Vec<#krate::Value> {
                 ::std::vec![#(#to_values),*]
             }
         }
 
-        impl ::memoire_orm::FromRow for #name {
+        impl #krate::FromRow for #name {
             const WIDTH: usize = #width;
 
             #[inline]
-            fn from_row<R: ::memoire_orm::RowSource + ?Sized>(
+            fn from_row<R: #krate::RowSource + ?Sized>(
                 row: &mut R,
                 offset: usize,
-            ) -> ::memoire_orm::Result<Self> {
+            ) -> #krate::Result<Self> {
                 ::core::result::Result::Ok(Self { #(#decode_fields),* })
             }
         }
@@ -567,7 +577,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
     })
 }
 
-fn decode_fields_tokens(fields: &[FieldInfo], context: &str) -> Vec<TokenStream2> {
+fn decode_fields_tokens(fields: &[FieldInfo], context: &str, krate: &syn::Path) -> Vec<TokenStream2> {
     let mut idx = 0usize;
     fields
         .iter()
@@ -579,7 +589,7 @@ fn decode_fields_tokens(fields: &[FieldInfo], context: &str) -> Vec<TokenStream2
                 let i = idx;
                 idx += 1;
                 let label = format!("{context}.{}", f.column);
-                quote!(#id: ::memoire_orm::__private::column(row, offset + #i, #label)?)
+                quote!(#id: #krate::__private::column(row, offset + #i, #label)?)
             }
         })
         .collect()
@@ -587,18 +597,19 @@ fn decode_fields_tokens(fields: &[FieldInfo], context: &str) -> Vec<TokenStream2
 
 fn expand_from_row(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let info = parse_model(input)?;
+    let krate = &info.krate;
     let name = &input.ident;
     let width = info.fields.iter().filter(|f| !f.skip).count();
-    let decode_fields = decode_fields_tokens(&info.fields, &name.to_string());
+    let decode_fields = decode_fields_tokens(&info.fields, &name.to_string(), krate);
     Ok(quote! {
-        impl ::memoire_orm::FromRow for #name {
+        impl #krate::FromRow for #name {
             const WIDTH: usize = #width;
 
             #[inline]
-            fn from_row<R: ::memoire_orm::RowSource + ?Sized>(
+            fn from_row<R: #krate::RowSource + ?Sized>(
                 row: &mut R,
                 offset: usize,
-            ) -> ::memoire_orm::Result<Self> {
+            ) -> #krate::Result<Self> {
                 ::core::result::Result::Ok(Self { #(#decode_fields),* })
             }
         }

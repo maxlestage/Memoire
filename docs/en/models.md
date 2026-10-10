@@ -79,6 +79,19 @@ Without it, the table name is the struct name in `snake_case`, **without** plura
 
 > **Tip** Always writing `#[memoire(table = "...")]` makes your schema explicit and lets you rename the struct later without touching the database.
 
+## Using Memoire through another crate
+
+`#[derive(Model)]` writes code that refers to `::memoire_orm`. A framework that re-exports Memoire (such as [Paquets](https://github.com/maxlestage/Paquets), where it is `paquets::orm`) tells the derive where to find it with the struct attribute `crate`, so your project does not need its own `memoire-orm` dependency:
+
+```rust
+#[derive(paquets::orm::Model)]
+#[memoire(crate = "paquets::orm", table = "notes")]
+pub struct Note {
+    pub id: i64,
+    pub text: String,
+}
+```
+
 ## Primary keys
 
 Every model needs exactly one primary key. It identifies a row and is what `find`, `get`, `update`, `delete` and `upsert` use.
