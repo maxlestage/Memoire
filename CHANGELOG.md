@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `#[memoire(crate = "path")]` struct attribute for `#[derive(Model)]` and
+  `#[derive(FromRow)]`: the generated code finds Memoire through `path` instead of
+  `::memoire_orm`, so frameworks that re-export it (such as Paquets) work without a
+  direct `memoire-orm` dependency.
+
 ## [0.1.0] - 2026-10-10
 
 ### Added
