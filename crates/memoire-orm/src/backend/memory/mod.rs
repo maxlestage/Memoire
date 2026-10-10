@@ -25,7 +25,7 @@ use crate::row::{FromRow, ValueRow};
 use crate::schema::{Dialect, TableSchema};
 use crate::value::Value;
 
-use eval::{Ctx, Group, Key, Rows, eval, order_cmp, truthy};
+use eval::{Ctx, Group, Key, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
 
 type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 type Set<K> = HashSet<K, foldhash::fast::RandomState>;
@@ -169,11 +169,34 @@ impl Table {
                 .ok_or_else(|| Error::Conversion(format!("`{}`: row has no primary key column", self.name())))?;
         }
         self.check_row(&row)?;
-        self.check_unique(&row, None)?;
-        let key = row[pk].clone();
+        // Build every index key once: used for the uniqueness check, then moved
+        // into the indexes.
+        let pk_key = Key(row[pk].clone());
+        if self.pk.contains_key(&pk_key) {
+            return Err(self.violation(pk));
+        }
+        let mut unique_keys = Vec::with_capacity(self.uniques.len());
+        for (col, map) in &self.uniques {
+            if row[*col].is_null() {
+                unique_keys.push(None);
+                continue;
+            }
+            let k = Key(row[*col].clone());
+            if map.contains_key(&k) {
+                return Err(self.violation(*col));
+            }
+            unique_keys.push(Some(k));
+        }
+        let key = pk_key.0.clone();
         self.bump_next_id(&key);
+        let idx = self.rows.len();
         self.rows.push(row);
-        self.index_row(self.rows.len() - 1);
+        self.pk.insert(pk_key, idx);
+        for ((_, map), k) in self.uniques.iter_mut().zip(unique_keys) {
+            if let Some(k) = k {
+                map.insert(k, idx);
+            }
+        }
         Ok(key)
     }
 
@@ -347,97 +370,116 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
     let stride = layout.len();
     let root = tables[0];
 
+    let pred = ast.filter.as_ref().map(|f| Pred::compile(f, &layout)).transpose()?;
+
     // 1. Root rows (index lookup when possible).
-    let mut rows = Rows::with_capacity(stride, if ast.joins.is_empty() { root.rows.len() } else { 0 });
     let candidates = ast.filter.as_ref().and_then(|f| index_candidates(f, root));
-    let mut current = Rows::with_capacity(stride, 0);
-    let root_iter: Box<dyn Iterator<Item = &[Value]>> = match &candidates {
+    let root_rows: Box<dyn Iterator<Item = &[Value]>> = match &candidates {
         Some(idx) => Box::new(idx.iter().map(|&i| root.rows[i].as_slice())),
         None => Box::new(root.rows.iter().map(Vec::as_slice)),
     };
-    for r in root_iter {
-        current.flat.push(Some(r));
-        current.flat.extend(std::iter::repeat_n(None, stride - 1));
-    }
 
-    // 2. Joins.
-    for (ji, join) in ast.joins.iter().enumerate() {
-        let slot = ji + 1;
-        let jt = tables[slot];
-        let mut next = Rows::with_capacity(stride, current.len());
-        fn emit<'a>(next: &mut Rows<'a>, base: &[Option<&'a [Value]>], slot: usize, row: Option<&'a [Value]>) {
-            let start = next.flat.len();
-            next.flat.extend_from_slice(base);
-            next.flat[start + slot] = row;
+    let rows = if ast.joins.is_empty() {
+        // Single table: filter while scanning.
+        let mut rows = Rows::with_capacity(1, if pred.is_some() { 0 } else { root.rows.len() });
+        for r in root_rows {
+            let parts = [Some(r)];
+            if let Some(p) = &pred
+                && !p.passes(&parts, &layout)?
+            {
+                continue;
+            }
+            rows.flat.push(Some(r));
         }
-        if let Some((jcol, other)) = equi_join(&join.on, jt.name(), &layout[..slot]) {
-            let other_slot = layout.iter().position(|t| *t == other.table).unwrap_or(0);
-            // Hash join: build on the joined table.
-            let mut built: Map<Key, Vec<usize>> = Map::default();
-            let use_index = jt.has_index(jcol);
-            if !use_index {
-                for (i, r) in jt.rows.iter().enumerate() {
-                    if !r[jcol].is_null() {
-                        built.entry(Key(r[jcol].clone())).or_default().push(i);
+        rows
+    } else {
+        let mut current = Rows::with_capacity(stride, root.rows.len());
+        for r in root_rows {
+            current.flat.push(Some(r));
+            current.flat.extend(std::iter::repeat_n(None, stride - 1));
+        }
+
+        // 2. Joins.
+        for (ji, join) in ast.joins.iter().enumerate() {
+            let slot = ji + 1;
+            let jt = tables[slot];
+            let mut next = Rows::with_capacity(stride, current.len());
+            fn emit<'a>(next: &mut Rows<'a>, base: &[Option<&'a [Value]>], slot: usize, row: Option<&'a [Value]>) {
+                let start = next.flat.len();
+                next.flat.extend_from_slice(base);
+                next.flat[start + slot] = row;
+            }
+            if let Some((jcol, other)) = equi_join(&join.on, jt.name(), &layout[..slot]) {
+                let other_slot = slot_of(&layout, other.table)?;
+                // Hash join: build on the joined table (or reuse its unique index).
+                let use_index = jt.has_index(jcol);
+                let mut built: Map<Key, Vec<usize>> = Map::default();
+                if !use_index {
+                    for (i, r) in jt.rows.iter().enumerate() {
+                        if !r[jcol].is_null() {
+                            built.entry(Key(r[jcol].clone())).or_default().push(i);
+                        }
                     }
                 }
-            }
-            for i in 0..current.len() {
-                let base = current.get(i);
-                let probe = base[other_slot].and_then(|r| r.get(other.index)).filter(|v| !v.is_null());
-                let mut matched = false;
-                if let Some(v) = probe {
-                    if use_index {
-                        if let Some(m) = jt.lookup(jcol, v) {
-                            emit(&mut next, base, slot, Some(&jt.rows[m]));
+                for i in 0..current.len() {
+                    let base = current.get(i);
+                    let probe = base[other_slot].and_then(|r| r.get(other.index)).filter(|v| !v.is_null());
+                    let mut matched = false;
+                    if let Some(v) = probe {
+                        if use_index {
+                            if let Some(m) = jt.lookup(jcol, v) {
+                                emit(&mut next, base, slot, Some(&jt.rows[m]));
+                                matched = true;
+                            }
+                        } else if let Some(ms) = built.get(&Key(v.clone())) {
+                            for &m in ms {
+                                emit(&mut next, base, slot, Some(&jt.rows[m]));
+                            }
+                            matched = !ms.is_empty();
+                        }
+                    }
+                    if !matched && join.kind == JoinKind::Left {
+                        emit(&mut next, base, slot, None);
+                    }
+                }
+            } else {
+                // Nested loop join.
+                let on = Pred::compile(&join.on, &layout)?;
+                let mut scratch: Vec<Option<&[Value]>> = vec![None; stride];
+                for i in 0..current.len() {
+                    let base = current.get(i);
+                    let mut matched = false;
+                    for r in &jt.rows {
+                        scratch.copy_from_slice(base);
+                        scratch[slot] = Some(r);
+                        if on.passes(&scratch, &layout)? {
+                            emit(&mut next, base, slot, Some(r));
                             matched = true;
                         }
-                    } else if let Some(ms) = built.get(&Key(v.clone())) {
-                        for &m in ms {
-                            emit(&mut next, base, slot, Some(&jt.rows[m]));
-                        }
-                        matched = !ms.is_empty();
+                    }
+                    if !matched && join.kind == JoinKind::Left {
+                        emit(&mut next, base, slot, None);
                     }
                 }
-                if !matched && join.kind == JoinKind::Left {
-                    emit(&mut next, base, slot, None);
-                }
             }
-        } else {
-            // Nested loop join.
-            let mut scratch: Vec<Option<&[Value]>> = vec![None; stride];
-            for i in 0..current.len() {
-                let base = current.get(i);
-                let mut matched = false;
-                for r in &jt.rows {
-                    scratch.copy_from_slice(base);
-                    scratch[slot] = Some(r);
-                    let ctx = Ctx { layout: &layout, parts: &scratch, group: None };
-                    if truthy(&*eval(&join.on, &ctx)?) {
-                        emit(&mut next, base, slot, Some(r));
-                        matched = true;
-                    }
-                }
-                if !matched && join.kind == JoinKind::Left {
-                    emit(&mut next, base, slot, None);
-                }
-            }
+            current = next;
         }
-        current = next;
-    }
 
-    // 3. WHERE.
-    if let Some(filter) = &ast.filter {
-        for i in 0..current.len() {
-            let parts = current.get(i);
-            let ctx = Ctx { layout: &layout, parts, group: None };
-            if truthy(&*eval(filter, &ctx)?) {
-                rows.flat.extend_from_slice(parts);
+        // 3. WHERE.
+        match &pred {
+            Some(p) => {
+                let mut rows = Rows::with_capacity(stride, 0);
+                for i in 0..current.len() {
+                    let parts = current.get(i);
+                    if p.passes(parts, &layout)? {
+                        rows.flat.extend_from_slice(parts);
+                    }
+                }
+                rows
             }
+            None => current,
         }
-    } else {
-        rows = current;
-    }
+    };
 
     let aggregated = !ast.group_by.is_empty()
         || ast.having.is_some()
@@ -454,26 +496,54 @@ fn select(state: &State, ast: &SelectAst) -> Result<Vec<Vec<Value>>> {
 
     let mut order: Vec<usize> = (0..n).collect();
     if !ast.order.is_empty() {
-        let mut keys: Vec<Vec<Value>> = Vec::with_capacity(n);
-        for i in 0..n {
-            let ctx = Ctx { layout: &layout, parts: rows.get(i), group: None };
-            keys.push(ast.order.iter().map(|o| eval(&o.expr, &ctx).map(Cow::into_owned)).collect::<Result<_>>()?);
-        }
-        let cmp = |a: &usize, b: &usize| {
-            for (k, o) in ast.order.iter().enumerate() {
-                let c = order_cmp(&keys[*a][k], &keys[*b][k], o);
-                if c != std::cmp::Ordering::Equal {
-                    return c;
-                }
-            }
-            a.cmp(b)
-        };
         let need = offset.saturating_add(take);
-        if !ast.distinct && need < n && need > 0 {
-            order.select_nth_unstable_by(need - 1, cmp);
-            order.truncate(need);
+        let partial = !ast.distinct && need < n && need > 0;
+        let column_slots: Option<Vec<Slot>> = ast
+            .order
+            .iter()
+            .map(|o| match &o.expr {
+                Expr::Column(c) => slot_of(&layout, c.table).ok().map(|slot| Slot { slot, index: c.index }),
+                _ => None,
+            })
+            .collect();
+        if let Some(slots) = column_slots {
+            // Plain columns: compare in place, no copies.
+            let cmp = |a: &usize, b: &usize| {
+                let (pa, pb) = (rows.get(*a), rows.get(*b));
+                for (s, o) in slots.iter().zip(&ast.order) {
+                    let c = order_cmp(s.get(pa), s.get(pb), o);
+                    if c != std::cmp::Ordering::Equal {
+                        return c;
+                    }
+                }
+                a.cmp(b)
+            };
+            if partial {
+                order.select_nth_unstable_by(need - 1, cmp);
+                order.truncate(need);
+            }
+            order.sort_unstable_by(cmp);
+        } else {
+            let mut keys: Vec<Vec<Value>> = Vec::with_capacity(n);
+            for i in 0..n {
+                let ctx = Ctx { layout: &layout, parts: rows.get(i), group: None };
+                keys.push(ast.order.iter().map(|o| eval(&o.expr, &ctx).map(Cow::into_owned)).collect::<Result<_>>()?);
+            }
+            let cmp = |a: &usize, b: &usize| {
+                for (k, o) in ast.order.iter().enumerate() {
+                    let c = order_cmp(&keys[*a][k], &keys[*b][k], o);
+                    if c != std::cmp::Ordering::Equal {
+                        return c;
+                    }
+                }
+                a.cmp(b)
+            };
+            if partial {
+                order.select_nth_unstable_by(need - 1, cmp);
+                order.truncate(need);
+            }
+            order.sort_unstable_by(cmp);
         }
-        order.sort_unstable_by(cmp);
     }
 
     let project = |parts: &[Option<&[Value]>]| -> Result<Vec<Value>> {
@@ -595,11 +665,11 @@ fn matching_rows(table: &Table, filter: Option<&Expr>) -> Result<Vec<usize>> {
         return Ok((0..table.rows.len()).collect());
     };
     let candidates = index_candidates(filter, table);
+    let pred = Pred::compile(filter, &layout)?;
     let mut out = Vec::new();
     let mut test = |i: usize| -> Result<()> {
         let parts = [Some(table.rows[i].as_slice())];
-        let ctx = Ctx { layout: &layout, parts: &parts, group: None };
-        if truthy(&*eval(filter, &ctx)?) {
+        if pred.passes(&parts, &layout)? {
             out.push(i);
         }
         Ok(())

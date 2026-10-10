@@ -466,57 +466,16 @@ fn aggregate<'a>(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tok {
+pub(crate) enum Tok {
     Lit(char),
     One,
     Any,
 }
 
-/// SQL `LIKE` matching (`%` = any sequence, `_` = any char, `\` escapes when
+/// SQL `LIKE` matching (`%` = any sequence, `_` = any char, `\\` escapes when
 /// `escaped` is set).
 pub(crate) fn like_match(s: &str, pattern: &str, escaped: bool) -> bool {
-    let mut toks: Vec<Tok> = Vec::with_capacity(pattern.len());
-    let mut it = pattern.chars();
-    while let Some(c) = it.next() {
-        match c {
-            '\\' if escaped => toks.push(Tok::Lit(it.next().unwrap_or('\\'))),
-            '%' => {
-                if toks.last() != Some(&Tok::Any) {
-                    toks.push(Tok::Any);
-                }
-            }
-            '_' => toks.push(Tok::One),
-            c => toks.push(Tok::Lit(c)),
-        }
-    }
-    let chars: Vec<char> = s.chars().collect();
-    let (mut si, mut pi) = (0usize, 0usize);
-    let mut star: Option<(usize, usize)> = None;
-    while si < chars.len() {
-        match toks.get(pi) {
-            Some(Tok::Lit(c)) if *c == chars[si] => {
-                si += 1;
-                pi += 1;
-            }
-            Some(Tok::One) => {
-                si += 1;
-                pi += 1;
-            }
-            Some(Tok::Any) => {
-                star = Some((pi, si));
-                pi += 1;
-            }
-            _ => match star {
-                Some((sp, ss)) => {
-                    pi = sp + 1;
-                    si = ss + 1;
-                    star = Some((sp, ss + 1));
-                }
-                None => return false,
-            },
-        }
-    }
-    toks[pi..].iter().all(|t| *t == Tok::Any)
+    LikeMatcher::new(pattern, escaped).matches(s)
 }
 
 #[cfg(test)]
@@ -552,5 +511,331 @@ mod tests {
         assert_eq!(order_cmp(&Value::Null, &Value::I32(1), &asc), Ordering::Greater);
         let first = asc.clone().nulls_first();
         assert_eq!(order_cmp(&Value::Null, &Value::I32(1), &first), Ordering::Less);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Compiled predicates
+// ---------------------------------------------------------------------------
+
+/// Pre-analysed `LIKE` pattern.
+pub(crate) enum LikeMatcher {
+    Exact(String),
+    Prefix(String),
+    Suffix(String),
+    Contains(String),
+    Any,
+    General(Vec<Tok>),
+}
+
+impl LikeMatcher {
+    pub(crate) fn new(pattern: &str, escaped: bool) -> Self {
+        let toks = tokenize(pattern, escaped);
+        let lit = |ts: &[Tok]| -> Option<String> {
+            ts.iter().map(|t| if let Tok::Lit(c) = t { Some(*c) } else { None }).collect()
+        };
+        match toks.as_slice() {
+            [] => LikeMatcher::Exact(String::new()),
+            [Tok::Any] => LikeMatcher::Any,
+            [Tok::Any, mid @ .., Tok::Any] if lit(mid).is_some() => LikeMatcher::Contains(lit(mid).unwrap_or_default()),
+            [Tok::Any, rest @ ..] if lit(rest).is_some() => LikeMatcher::Suffix(lit(rest).unwrap_or_default()),
+            [rest @ .., Tok::Any] if lit(rest).is_some() => LikeMatcher::Prefix(lit(rest).unwrap_or_default()),
+            all if lit(all).is_some() => LikeMatcher::Exact(lit(all).unwrap_or_default()),
+            _ => LikeMatcher::General(toks),
+        }
+    }
+
+    pub(crate) fn matches(&self, s: &str) -> bool {
+        match self {
+            LikeMatcher::Exact(p) => s == p,
+            LikeMatcher::Prefix(p) => s.starts_with(p.as_str()),
+            LikeMatcher::Suffix(p) => s.ends_with(p.as_str()),
+            LikeMatcher::Contains(p) => s.contains(p.as_str()),
+            LikeMatcher::Any => true,
+            LikeMatcher::General(toks) => match_tokens(s, toks),
+        }
+    }
+}
+
+fn tokenize(pattern: &str, escaped: bool) -> Vec<Tok> {
+    let mut toks: Vec<Tok> = Vec::with_capacity(pattern.len());
+    let mut it = pattern.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' if escaped => toks.push(Tok::Lit(it.next().unwrap_or('\\'))),
+            '%' => {
+                if toks.last() != Some(&Tok::Any) {
+                    toks.push(Tok::Any);
+                }
+            }
+            '_' => toks.push(Tok::One),
+            c => toks.push(Tok::Lit(c)),
+        }
+    }
+    toks
+}
+
+fn match_tokens(s: &str, toks: &[Tok]) -> bool {
+    let chars: Vec<char> = s.chars().collect();
+    let (mut si, mut pi) = (0usize, 0usize);
+    let mut star: Option<(usize, usize)> = None;
+    while si < chars.len() {
+        match toks.get(pi) {
+            Some(Tok::Lit(c)) if *c == chars[si] => {
+                si += 1;
+                pi += 1;
+            }
+            Some(Tok::One) => {
+                si += 1;
+                pi += 1;
+            }
+            Some(Tok::Any) => {
+                star = Some((pi, si));
+                pi += 1;
+            }
+            _ => match star {
+                Some((sp, ss)) => {
+                    pi = sp + 1;
+                    si = ss + 1;
+                    star = Some((sp, ss + 1));
+                }
+                None => return false,
+            },
+        }
+    }
+    toks[pi..].iter().all(|t| *t == Tok::Any)
+}
+
+/// Position of `table` in the layout.
+pub(crate) fn slot_of(layout: &[&'static str], table: &str) -> Result<usize> {
+    layout
+        .iter()
+        .position(|t| *t == table)
+        .ok_or_else(|| Error::Conversion(format!("table `{table}` is not part of the query")))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Slot {
+    pub slot: usize,
+    pub index: usize,
+}
+
+impl Slot {
+    #[inline]
+    pub(crate) fn get<'a>(self, parts: &Parts<'a>) -> &'a Value {
+        match parts[self.slot] {
+            Some(row) => row.get(self.index).unwrap_or(&NULL),
+            None => &NULL,
+        }
+    }
+}
+
+/// A `WHERE` / `ON` condition compiled once per query.
+pub(crate) enum Pred<'a> {
+    Const(Option<bool>),
+    And(Box<Pred<'a>>, Box<Pred<'a>>),
+    Or(Box<Pred<'a>>, Box<Pred<'a>>),
+    Not(Box<Pred<'a>>),
+    Cmp { col: Slot, op: BinOp, value: &'a Value },
+    ColCol { left: Slot, op: BinOp, right: Slot },
+    IsNull { col: Slot, negated: bool },
+    InSmall { col: Slot, list: &'a [Value], has_null: bool, negated: bool },
+    InSet { col: Slot, set: std::collections::HashSet<Key>, has_null: bool, negated: bool },
+    Between { col: Slot, low: &'a Value, high: &'a Value, negated: bool },
+    Like { col: Slot, matcher: LikeMatcher, case_insensitive: bool, negated: bool },
+    Generic(&'a Expr),
+}
+
+fn flip(op: BinOp) -> BinOp {
+    match op {
+        BinOp::Lt => BinOp::Gt,
+        BinOp::Le => BinOp::Ge,
+        BinOp::Gt => BinOp::Lt,
+        BinOp::Ge => BinOp::Le,
+        other => other,
+    }
+}
+
+#[inline]
+fn cmp_result(op: BinOp, ord: Ordering) -> bool {
+    match op {
+        BinOp::Eq => ord == Ordering::Equal,
+        BinOp::Ne => ord != Ordering::Equal,
+        BinOp::Lt => ord == Ordering::Less,
+        BinOp::Le => ord != Ordering::Greater,
+        BinOp::Gt => ord == Ordering::Greater,
+        BinOp::Ge => ord != Ordering::Less,
+        _ => false,
+    }
+}
+
+impl<'a> Pred<'a> {
+    pub(crate) fn compile(e: &'a Expr, layout: &[&'static str]) -> Result<Pred<'a>> {
+        let col = |e: &Expr| -> Result<Option<Slot>> {
+            match e {
+                Expr::Column(c) => Ok(Some(Slot { slot: slot_of(layout, c.table)?, index: c.index })),
+                _ => Ok(None),
+            }
+        };
+        Ok(match e {
+            Expr::Value(v) => Pred::Const(tri(v)),
+            Expr::Binary { op: BinOp::And, left, right } => {
+                Pred::And(Box::new(Pred::compile(left, layout)?), Box::new(Pred::compile(right, layout)?))
+            }
+            Expr::Binary { op: BinOp::Or, left, right } => {
+                Pred::Or(Box::new(Pred::compile(left, layout)?), Box::new(Pred::compile(right, layout)?))
+            }
+            Expr::Binary {
+                op: op @ (BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge),
+                left,
+                right,
+            } => match (col(left)?, col(right)?, &**left, &**right) {
+                (Some(c), None, _, Expr::Value(v)) => Pred::Cmp { col: c, op: *op, value: v },
+                (None, Some(c), Expr::Value(v), _) => Pred::Cmp { col: c, op: flip(*op), value: v },
+                (Some(l), Some(r), _, _) => Pred::ColCol { left: l, op: *op, right: r },
+                _ => Pred::Generic(e),
+            },
+            Expr::Not(inner) => Pred::Not(Box::new(Pred::compile(inner, layout)?)),
+            Expr::IsNull { expr, negated } => match col(expr)? {
+                Some(c) => Pred::IsNull { col: c, negated: *negated },
+                None => Pred::Generic(e),
+            },
+            Expr::InList { expr, list, negated } => match col(expr)? {
+                Some(c) => {
+                    let has_null = list.iter().any(Value::is_null);
+                    if list.len() > 16 {
+                        let set = list.iter().filter(|v| !v.is_null()).cloned().map(Key).collect();
+                        Pred::InSet { col: c, set, has_null, negated: *negated }
+                    } else {
+                        Pred::InSmall { col: c, list, has_null, negated: *negated }
+                    }
+                }
+                None => Pred::Generic(e),
+            },
+            Expr::Between { expr, low, high, negated } => match (col(expr)?, &**low, &**high) {
+                (Some(c), Expr::Value(l), Expr::Value(h)) => {
+                    Pred::Between { col: c, low: l, high: h, negated: *negated }
+                }
+                _ => Pred::Generic(e),
+            },
+            Expr::Like { expr, pattern, case_insensitive, negated, escaped } => match (col(expr)?, &**pattern) {
+                (Some(c), Expr::Value(Value::Text(p))) => {
+                    let p = if *case_insensitive { p.to_lowercase() } else { p.clone() };
+                    Pred::Like {
+                        col: c,
+                        matcher: LikeMatcher::new(&p, *escaped),
+                        case_insensitive: *case_insensitive,
+                        negated: *negated,
+                    }
+                }
+                _ => Pred::Generic(e),
+            },
+            _ => Pred::Generic(e),
+        })
+    }
+
+    /// Three-valued result: `Some(bool)` or `None` for NULL.
+    pub(crate) fn test(&self, parts: &Parts<'a>, layout: &[&'static str]) -> Result<Option<bool>> {
+        Ok(match self {
+            Pred::Const(b) => *b,
+            Pred::And(l, r) => {
+                let a = l.test(parts, layout)?;
+                if a == Some(false) {
+                    return Ok(Some(false));
+                }
+                match (a, r.test(parts, layout)?) {
+                    (_, Some(false)) => Some(false),
+                    (Some(true), Some(true)) => Some(true),
+                    _ => None,
+                }
+            }
+            Pred::Or(l, r) => {
+                let a = l.test(parts, layout)?;
+                if a == Some(true) {
+                    return Ok(Some(true));
+                }
+                match (a, r.test(parts, layout)?) {
+                    (_, Some(true)) => Some(true),
+                    (Some(false), Some(false)) => Some(false),
+                    _ => None,
+                }
+            }
+            Pred::Not(p) => p.test(parts, layout)?.map(|b| !b),
+            Pred::Cmp { col, op, value } => {
+                let v = col.get(parts);
+                if v.is_null() || value.is_null() {
+                    None
+                } else {
+                    Some(cmp_result(*op, compare(v, value).ok_or_else(|| incomparable(v, value))?))
+                }
+            }
+            Pred::ColCol { left, op, right } => {
+                let (a, b) = (left.get(parts), right.get(parts));
+                if a.is_null() || b.is_null() {
+                    None
+                } else {
+                    Some(cmp_result(*op, compare(a, b).ok_or_else(|| incomparable(a, b))?))
+                }
+            }
+            Pred::IsNull { col, negated } => Some(col.get(parts).is_null() != *negated),
+            Pred::InSmall { col, list, has_null, negated } => {
+                let v = col.get(parts);
+                if list.is_empty() {
+                    return Ok(Some(*negated));
+                }
+                if v.is_null() {
+                    return Ok(None);
+                }
+                let found = list.iter().any(|item| compare(v, item) == Some(Ordering::Equal));
+                if found {
+                    Some(!*negated)
+                } else if *has_null {
+                    None
+                } else {
+                    Some(*negated)
+                }
+            }
+            Pred::InSet { col, set, has_null, negated } => {
+                let v = col.get(parts);
+                if v.is_null() {
+                    return Ok(None);
+                }
+                if set.contains(&Key(v.clone())) {
+                    Some(!*negated)
+                } else if *has_null {
+                    None
+                } else {
+                    Some(*negated)
+                }
+            }
+            Pred::Between { col, low, high, negated } => {
+                let v = col.get(parts);
+                if v.is_null() || low.is_null() || high.is_null() {
+                    None
+                } else {
+                    let a = compare(v, low).ok_or_else(|| incomparable(v, low))?;
+                    let b = compare(v, high).ok_or_else(|| incomparable(v, high))?;
+                    Some((a != Ordering::Less && b != Ordering::Greater) != *negated)
+                }
+            }
+            Pred::Like { col, matcher, case_insensitive, negated } => match col.get(parts) {
+                Value::Null => None,
+                Value::Text(s) => {
+                    let m = if *case_insensitive { matcher.matches(&s.to_lowercase()) } else { matcher.matches(s) };
+                    Some(m != *negated)
+                }
+                other => return Err(Error::Conversion(format!("LIKE expects text, found {}", other.type_name()))),
+            },
+            Pred::Generic(e) => {
+                let ctx = Ctx { layout, parts, group: None };
+                tri(&*eval(e, &ctx)?)
+            }
+        })
+    }
+
+    /// `true` when the row passes the filter.
+    #[inline]
+    pub(crate) fn passes(&self, parts: &Parts<'a>, layout: &[&'static str]) -> Result<bool> {
+        Ok(self.test(parts, layout)? == Some(true))
     }
 }
