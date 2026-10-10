@@ -85,7 +85,7 @@ The engine does not generate or parse SQL. It interprets Memoire's query structu
 
 The [Redis](redis) backend evaluates queries with this same engine, and [MongoDB](mongodb) uses it to finish joins, `GROUP BY` and aggregates, so they share its semantics.
 
-> **Note** `#[memoire(index)]` only affects SQL databases. The memory engine keeps hash indexes for the primary key and `unique` columns.
+> **Note** `#[memoire(index)]` creates a real index on SQL databases and MongoDB, but the memory engine ignores it: it keeps hash indexes for the primary key and `unique` columns only.
 
 ## SQL semantics
 

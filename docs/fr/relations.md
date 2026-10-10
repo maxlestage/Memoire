@@ -63,7 +63,7 @@ Les exemples ci-dessous utilisent ces données :
 
 Commentaires : "Nice" et "Great" sur "Hello", "Hmm" sur "Bob's".
 
-> **Remarque** Les clés étrangères sont appliquées par SQLite et PostgreSQL. Le moteur en mémoire accepte la déclaration mais ne la vérifie pas et ne propage pas les suppressions en cascade : testez donc le comportement en cascade sur un backend SQL.
+> **Remarque** Les clés étrangères sont appliquées par SQLite, PostgreSQL et MySQL. Le moteur en mémoire, Redis et MongoDB acceptent la déclaration mais ne la vérifient pas et ne propagent pas les suppressions en cascade : testez donc le comportement en cascade sur un backend SQL.
 
 ## Jointure interne : les lignes qui ont une correspondance
 
@@ -248,7 +248,7 @@ Carol: 0 post(s)
 
 Deux requêtes au total, quel que soit le nombre d'utilisateurs. Le même principe fonctionne à n'importe quelle profondeur : chargez les commentaires de tous ces posts avec une troisième requête.
 
-> **Astuce** Si la liste d'ids peut être très longue (des dizaines de milliers), découpez-la en paquets de quelques milliers d'ids, car les bases de données limitent le nombre de paramètres qu'une requête peut avoir (32 766 sur SQLite, 65 535 sur PostgreSQL).
+> **Astuce** Si la liste d'ids peut être très longue (des dizaines de milliers), découpez-la en paquets de quelques milliers d'ids, car les bases de données limitent le nombre de paramètres qu'une requête peut avoir (32 766 sur SQLite, 65 535 sur PostgreSQL et MySQL).
 
 ## Relations plusieurs-à-plusieurs
 
@@ -289,8 +289,8 @@ Les modèles Memoire ont une clé primaire sur une seule colonne : la table de l
 
 ## Conseils et limites
 
-- **Gardez des conditions de jointure simples.** Une simple égalité entre deux colonnes, comme `Post::AUTHOR_ID.eq_col(User::ID)`, est le chemin rapide partout ; le moteur en mémoire l'exécute sous forme de hash join. Mettez les autres conditions dans `filter`. (Pour une jointure externe gauche, une condition dans `filter` et la même condition dans la condition de jointure donnent des résultats différents : la première supprime des lignes, la seconde ne supprime que des correspondances.)
-- **Pas d'auto-jointures.** Une table ne peut pas apparaître deux fois dans une même requête (par exemple « les utilisateurs et leur responsable, qui est lui aussi un utilisateur »), car Memoire ne génère pas d'alias de table. Le moteur en mémoire renvoie `Error::Unsupported`, et les bases de données SQL rejettent la requête. Utilisez du [SQL brut](raw-sql) avec des alias, ou deux requêtes.
+- **Gardez des conditions de jointure simples.** Une simple égalité entre deux colonnes, comme `Post::AUTHOR_ID.eq_col(User::ID)`, est le chemin rapide partout ; le moteur en mémoire (utilisé aussi par Redis) l'exécute sous forme de hash join, et MongoDB ne récupère que les documents dont la clé de jointure correspond. Mettez les autres conditions dans `filter`. (Pour une jointure externe gauche, une condition dans `filter` et la même condition dans la condition de jointure donnent des résultats différents : la première supprime des lignes, la seconde ne supprime que des correspondances.)
+- **Pas d'auto-jointures.** Une table ne peut pas apparaître deux fois dans une même requête (par exemple « les utilisateurs et leur responsable, qui est lui aussi un utilisateur »), car Memoire ne génère pas d'alias de table. Le moteur en mémoire, Redis et MongoDB renvoient `Error::Unsupported`, et les bases de données SQL rejettent la requête. Utilisez du [SQL brut](raw-sql) avec des alias sur une base de données SQL, ou deux requêtes.
 - **Cinq modèles au maximum par tuple.** Les jointures avec `inner_join`/`left_join` renvoient jusqu'à cinq modèles. `join` (filtre uniquement) n'a pas cette limite.
 
 ## Étapes suivantes

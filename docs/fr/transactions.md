@@ -57,7 +57,7 @@ Les trois étapes :
 
 `commit` et `rollback` consomment la transaction : le compilateur vous empêche donc de l'utiliser ensuite.
 
-`begin` fait partie du trait `Database`, implémenté par `MemoryDb`, `SqliteDb` et `PgPool`. Écrire `D: Database` permet à `transfer` de fonctionner avec les trois.
+`begin` fait partie du trait `Database`, implémenté par les six backends (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`). Écrire `D: Database` permet à `transfer` de fonctionner avec chacun d'eux.
 
 ## Dropper une transaction l'annule
 
@@ -97,14 +97,18 @@ async fn open_family_accounts(db: &MemoryDb) -> memoire_orm::Result<()> {
 
 ## Comportement selon le backend
 
-| | Moteur en mémoire | SQLite | PostgreSQL |
-|---|---|---|---|
-| Fonctionnement | Snapshot privé en copy-on-write | Monopolise l'unique connexion | Monopolise une connexion du pool |
-| Autre code pendant la transaction | S'exécute normalement, ne voit que les données validées | **Attend** la fin de la transaction | S'exécute sur d'autres connexions, ne voit que les données validées |
-| Écritures concurrentes en conflit | Détectées au `commit` : `Error::Conflict` | Impossible : les transactions s'exécutent une à la fois | Attend les verrous de ligne ; les échecs de sérialisation et les deadlocks donnent `Error::Conflict` |
-| Droppée sans commit | Modifications abandonnées immédiatement | `ROLLBACK` exécuté immédiatement | `ROLLBACK` envoyé en arrière-plan (nécessite Tokio) |
+| Backend | Fonctionnement | Autre code pendant ce temps | Écritures concurrentes en conflit | `create_table` / `drop_table` à l'intérieur |
+|---|---|---|---|---|
+| Moteur en mémoire | Snapshot privé en copy-on-write | S'exécute normalement, ne voit que les données validées | Détectées au `commit` (par table) : `Error::Conflict` | Font partie de la transaction |
+| SQLite | Monopolise l'unique connexion | **Attend** la fin de la transaction | Impossible : les transactions s'exécutent une à la fois | Font partie de la transaction |
+| PostgreSQL | Monopolise une connexion du pool | S'exécute sur d'autres connexions, ne voit que les données validées | Verrous de ligne ; échecs de sérialisation et deadlocks : `Error::Conflict` | Font partie de la transaction |
+| MySQL / MariaDB | Monopolise une connexion du pool | S'exécute sur d'autres connexions, ne voit que les données validées | Verrous de ligne ; deadlocks et dépassements du délai d'attente de verrou : `Error::Conflict` | **Validés immédiatement**, impossible de les annuler |
+| Redis | Snapshot de chaque table utilisée ; un seul script atomique au `commit` | S'exécute normalement, ne voit que les données validées | Détectées au `commit` (par table) : `Error::Conflict` | Font partie de la transaction |
+| MongoDB | Vraie transaction multi-documents (replica set ou cluster shardé uniquement) | S'exécute normalement, ne voit que les données validées | Conflits d'écriture : `Error::Conflict` | Exécutés en dehors de la transaction |
 
-### Moteur en mémoire : snapshots et conflits
+Sur tous les backends, une transaction droppée sans `commit` ne laisse aucune modification derrière elle : le moteur en mémoire, Redis et SQLite l'abandonnent immédiatement, PostgreSQL et MySQL l'annulent quand sa connexion retourne dans le pool, et MongoDB l'interrompt.
+
+### Moteur en mémoire et Redis : snapshots et conflits
 
 `MemoryDb::begin` prend un snapshot de la base de données. La transaction lit et écrit sa propre copie (les tables ne sont copiées qu'à la première écriture) : elle ne voit donc jamais les modifications concurrentes, et personne ne voit ses modifications avant le `commit`.
 
@@ -127,6 +131,8 @@ Bon à savoir :
 - Une transaction qui ne fait que lire n'entre jamais en conflit.
 - Toute écriture dans la table compte, y compris les écritures faites directement sur `db` en dehors d'une transaction.
 
+Les transactions `RedisDb` fonctionnent de la même façon : chaque table est lue une seule fois, quand la transaction l'utilise pour la première fois, et `commit` écrit toutes les modifications avec un seul script Lua atomique, ou échoue avec `Error::Conflict` si l'une des tables modifiées a changé entre-temps. Voir [Redis](redis).
+
 ### Réessayer en cas de conflit
 
 Un conflit n'est pas un bug : il signifie « quelqu'un d'autre a modifié ces données pendant que vous travailliez ; recommencez à partir de données fraîches ». Comme une transaction qui échoue n'applique rien, réessayer est toujours sans risque. Enveloppez toute la transaction dans une boucle :
@@ -144,7 +150,7 @@ async fn transfer_with_retry<D: Database>(db: &D, from: i64, to: i64, amount: i6
 }
 ```
 
-Réessayez la fonction *entière*, lectures comprises : la nouvelle tentative doit démarrer une nouvelle transaction et voir les données les plus récentes. La même boucle fonctionne sur PostgreSQL, où les échecs de sérialisation et les deadlocks sont eux aussi signalés comme `Error::Conflict`.
+Réessayez la fonction *entière*, lectures comprises : la nouvelle tentative doit démarrer une nouvelle transaction et voir les données les plus récentes. La même boucle fonctionne sur tous les backends : PostgreSQL et MySQL signalent les deadlocks (et PostgreSQL les échecs de sérialisation) comme `Error::Conflict`, tout comme MongoDB pour les conflits d'écriture.
 
 ### SQLite : une transaction à la fois
 
@@ -177,6 +183,18 @@ Les autres tâches ou threads qui utilisent le même `SqliteDb` attendent simple
   En `REPEATABLE READ` et en `SERIALIZABLE`, PostgreSQL peut interrompre une transaction qui entre en collision avec une autre. Memoire le signale comme `Error::Conflict` : la boucle de nouvelle tentative ci-dessus s'applique donc telle quelle. Les deadlocks sont signalés de la même façon.
 - Une transaction droppée est annulée en arrière-plan sur le runtime Tokio. Sans runtime, la connexion est fermée à la place, ce qui annule aussi la transaction.
 - Utiliser `&db` au lieu de `&tx` dans une transaction ne bloque pas, mais la requête s'exécute sur une autre connexion : elle ne voit pas les modifications non validées de la transaction et n'en fait pas partie.
+
+### MySQL et MariaDB : connexions du pool
+
+`MySqlPool::begin` garde lui aussi une connexion du pool pour la transaction, au niveau d'isolation par défaut du serveur (`REPEATABLE READ` pour InnoDB). Les deadlocks et les dépassements du délai d'attente de verrou sont signalés comme `Error::Conflict`.
+
+> **Attention** MySQL valide automatiquement avant et après chaque modification de schéma (`CREATE TABLE`, `DROP TABLE`, `ALTER TABLE`...). Une telle instruction dans une transaction ne peut pas être annulée, elle valide aussi ce que la transaction a fait avant elle, et les instructions qui la suivent ne font plus partie d'une transaction. Voir [MySQL & MariaDB](mysql).
+
+### MongoDB : replica sets uniquement
+
+Sur un replica set ou un cluster shardé (MongoDB Atlas compris), `MongoDb::begin` démarre une vraie transaction multi-documents : ses lectures voient ses propres écritures, et un conflit d'écriture avec une autre transaction est signalé comme `Error::Conflict`, parfois par l'instruction en conflit elle-même plutôt que par `commit`. La boucle de nouvelle tentative ci-dessus gère les deux cas. La création et la suppression de collections se font en dehors de la transaction.
+
+Un serveur MongoDB autonome n'a pas de transactions : `begin()` renvoie `Error::Unsupported`, et `db.supports_transactions()` vous l'indique à l'avance. Voir [MongoDB](mongodb).
 
 ## Limites
 

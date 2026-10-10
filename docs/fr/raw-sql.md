@@ -1,10 +1,10 @@
 # SQL brut
 
-Le constructeur de requêtes couvre les besoins du quotidien, mais il arrive que vous vouliez écrire le SQL vous-même : une fonctionnalité propre à une base de données, un rapport complexe, une auto-jointure, une commande de maintenance. Cette page montre comment exécuter du SQL brut en toute sécurité avec SQLite et PostgreSQL, et comment décoder ses résultats.
+Le constructeur de requêtes couvre les besoins du quotidien, mais il arrive que vous vouliez écrire le SQL vous-même : une fonctionnalité propre à une base de données, un rapport complexe, une auto-jointure, une commande de maintenance. Cette page montre comment exécuter du SQL brut en toute sécurité avec SQLite, PostgreSQL et MySQL/MariaDB, et comment décoder ses résultats.
 
 ## Deux méthodes
 
-Chaque backend SQL (et chaque transaction) dispose de deux méthodes, fournies par le trait `Executor` :
+Chaque backend SQL (`SqliteDb`, `PgPool`, `MySqlPool`) et ses transactions disposent de deux méthodes, fournies par le trait `Executor` :
 
 | Méthode | Pour | Renvoie |
 |---|---|---|
@@ -170,13 +170,40 @@ Quelques règles de typage utiles à connaître :
 - Quand PostgreSQL ne peut pas deviner le type d'un paramètre, ajoutez un cast : `SELECT $1::text`.
 - Un type que Memoire ne connaît pas (par exemple `INTERVAL`) provoque une erreur : convertissez-le en texte dans le SQL (`duration::text`).
 
-## Non disponible sur le moteur en mémoire
+## Remarques sur MySQL et MariaDB
 
-`MemoryDb` ne comprend pas le SQL : `raw` et `raw_execute` renvoient `Error::Unsupported`. Le code qui doit aussi tourner sur le moteur en mémoire (tests, WebAssembly) doit s'en tenir au constructeur de requêtes.
+MySQL utilise des placeholders `?`, comme SQLite :
+
+```rust
+async fn mysql_example(db: &MySqlPool) -> memoire_orm::Result<()> {
+    let rows: Vec<(String, i64)> = db
+        .raw("SELECT name, salary FROM employees WHERE salary > ? ORDER BY name", &params![50_000])
+        .await?;
+    let total: Vec<i64> = db.raw("SELECT SUM(salary) FROM employees", &[]).await?;
+    println!("{rows:?} {total:?}");
+    Ok(())
+}
+```
+
+- Les valeurs `DECIMAL` (y compris le `SUM` d'une colonne entière) sont décodées sous forme de texte exact : lisez-les comme `String`, `f64`, ou `i64` lorsqu'elles contiennent des nombres entiers.
+- `raw` et `raw_execute` exécutent une instruction à la fois ; les scripts de migration (`Migration::sql`) peuvent en contenir plusieurs.
+- Les colonnes `BOOLEAN` sont des `TINYINT(1)` : elles se lisent comme `bool` ou comme un entier.
+
+## Non disponible sur le moteur en mémoire, Redis et MongoDB
+
+`MemoryDb`, `RedisDb` et `MongoDb` ne comprennent pas le SQL : `raw` et `raw_execute` renvoient `Error::Unsupported`. Le code qui doit aussi tourner sur ces backends (les tests sur `MemoryDb`, par exemple) doit s'en tenir au constructeur de requêtes. Pour les commandes Redis natives ou les pipelines d'agrégation MongoDB, utilisez leurs portes de sortie ci-dessous.
 
 ## Portes de sortie
 
-Quand vous avez besoin d'une fonctionnalité du driver sous-jacent lui-même, les deux backends SQL vous permettent d'y accéder.
+Quand vous avez besoin d'une fonctionnalité du driver sous-jacent lui-même, chaque backend vous permet d'y accéder :
+
+| Backend | Porte de sortie | Ce que vous obtenez |
+|---|---|---|
+| `SqliteDb` | `db.with_connection(\|conn\| ...)` | La `rusqlite::Connection` |
+| `PgPool` | `db.pool()` | Le `deadpool_postgres::Pool` |
+| `MySqlPool` | `db.pool()` | Le `mysql_async::Pool` (voir [MySQL & MariaDB](mysql)) |
+| `RedisDb` | `db.connection()` | Un `redis::aio::ConnectionManager` (voir [Redis](redis)) |
+| `MongoDb` | `db.database()` | La `mongodb::Database` (voir [MongoDB](mongodb)) |
 
 ### La connexion SQLite
 
@@ -215,5 +242,5 @@ async fn pool_tools(db: &PgPool) -> memoire_orm::Result<()> {
 ## Étapes suivantes
 
 - [Constructeur de requêtes](queries) : la plupart des requêtes n'ont pas besoin de SQL brut.
-- [SQLite](sqlite) et [PostgreSQL](postgres) : détails des backends et correspondance des types.
+- [SQLite](sqlite), [PostgreSQL](postgres) et [MySQL & MariaDB](mysql) : détails des backends et correspondance des types.
 - [Migrations](migrations) : exécutez des scripts SQL sous forme de modifications de schéma versionnées.

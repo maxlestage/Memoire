@@ -4,13 +4,20 @@ Les réponses aux questions les plus fréquentes sur Memoire ORM. Chaque répons
 
 ## Quelles bases de données sont prises en charge ?
 
-Trois backends exécutent des requêtes aujourd'hui : le moteur en mémoire `MemoryDb` (feature par défaut `memory`), SQLite avec `SqliteDb` (feature `sqlite`) et PostgreSQL avec `PgPool` (feature `postgres`, ou `postgres-tls` pour les connexions chiffrées). Ils partagent une seule API : les mêmes modèles et les mêmes requêtes fonctionnent donc sur les trois.
+Six backends, qui partagent tous la même API et passent la même suite de tests :
 
-Pour les backends MySQL/MariaDB, Redis et MongoDB, consultez leurs pages : [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb).
+| Backend | Feature | Page |
+|---|---|---|
+| `MemoryDb` | `memory` (par défaut) | [Moteur en mémoire](memory) |
+| `SqliteDb` | `sqlite` | [SQLite](sqlite) |
+| `PgPool` | `postgres` (`postgres-tls` pour TLS) | [PostgreSQL](postgres) |
+| `MySqlPool` | `mysql` (`mysql-tls` pour TLS) | [MySQL & MariaDB](mysql) |
+| `RedisDb` | `redis` (`redis-tls` pour TLS) | [Redis](redis) |
+| `MongoDb` | `mongodb` | [MongoDB](mongodb) |
 
 ## De quel runtime async ai-je besoin ?
 
-Seul PostgreSQL en a besoin, et ce doit être **Tokio**. Le moteur en mémoire et SQLite n'attendent jamais le réseau : leurs futures fonctionnent donc avec n'importe quel exécuteur (Tokio, async-std, smol...) ou même sans aucun runtime. Voir [Installation](installation).
+Les backends serveur (PostgreSQL, MySQL/MariaDB, Redis et MongoDB) ont besoin de **Tokio**. Le moteur en mémoire et SQLite n'attendent jamais le réseau : leurs futures fonctionnent donc avec n'importe quel exécuteur (Tokio, async-std, smol...) ou même sans aucun runtime. Voir [Installation](installation).
 
 ## Puis-je utiliser Memoire depuis du code synchrone ?
 
@@ -32,11 +39,11 @@ fn read_setting(db: &SqliteDb, key: &str) -> memoire_orm::Result<Option<Setting>
 }
 ```
 
-Pour PostgreSQL, utilisez un runtime Tokio (`#[tokio::main]`, ou `tokio::runtime::Runtime::block_on` dans du code synchrone).
+Pour les backends serveur, utilisez un runtime Tokio (`#[tokio::main]`, ou `tokio::runtime::Runtime::block_on` dans du code synchrone).
 
 ## Pourquoi les ids sont-ils des `i64`, et pourquoi écrire `id: 0` ?
 
-`i64` est le plus grand type entier que toutes les bases de données prises en charge stockent nativement (`BIGINT`, l'`INTEGER` de SQLite) : il ne déborde donc jamais en pratique et se mappe proprement partout. Les clés `i32` et `i16` fonctionnent aussi. Les entiers non signés sur 64 bits ne sont pas pris en charge, car les bases de données SQL n'ont pas de type non signé 64 bits portable.
+`i64` est le plus grand type entier que toutes les bases de données prises en charge stockent nativement (`BIGINT`, l'`INTEGER` de SQLite) : il ne déborde donc jamais en pratique et se mappe proprement partout. Les clés `i32` et `i16` fonctionnent aussi. Les entiers non signés sur 64 bits ne sont pas pris en charge, car la plupart des bases de données n'ont pas de type non signé 64 bits portable.
 
 Pour une clé `auto_increment`, c'est la base de données qui choisit la valeur : le `0` que vous écrivez est une valeur provisoire que `insert` ignore, et l'id généré est réécrit dans votre struct. Voir [Modèles](models).
 
@@ -46,15 +53,15 @@ Faites du champ une `Option` : `pub age: Option<i32>`. `None` est stocké sous f
 
 ## `LIKE` est-il sensible à la casse ?
 
-Oui, `like`, `contains`, `starts_with` et `ends_with` sont sensibles à la casse sur le moteur en mémoire, SQLite et PostgreSQL (Memoire configure SQLite en ce sens pour que tous les backends se comportent de la même façon). Utilisez `ilike` ou `icontains` pour ignorer la casse. Sur SQLite, la recherche insensible à la casse ne concerne que les lettres ASCII. Voir [Constructeur de requêtes](queries).
+Oui, `like`, `contains`, `starts_with` et `ends_with` sont sensibles à la casse sur les six backends (Memoire configure en ce sens SQLite et les tables MySQL qu'il crée, pour que tous les backends se comportent de la même façon). Utilisez `ilike` ou `icontains` pour ignorer la casse. Sur SQLite, la recherche insensible à la casse ne concerne que les lettres ASCII ; les autres backends gèrent aussi les lettres accentuées. Voir [Constructeur de requêtes](queries).
 
 ## Pourquoi les valeurs NULL apparaissent-elles en premier sur une base de données et en dernier sur une autre ?
 
-Les bases de données ne sont pas d'accord : PostgreSQL et le moteur en mémoire placent les NULL en dernier dans l'ordre croissant, SQLite les place en premier. Dites ce que vous voulez et Memoire le produit partout : `order_by(User::AGE.asc().nulls_last())` ou `.nulls_first()`.
+Les bases de données ne sont pas d'accord : PostgreSQL, Redis et le moteur en mémoire placent les NULL en dernier dans l'ordre croissant ; SQLite, MySQL et MongoDB les placent en premier. Dites ce que vous voulez et Memoire le produit partout : `order_by(User::AGE.asc().nulls_last())` ou `.nulls_first()`.
 
 ## Memoire prend-il en charge les clés primaires composites ?
 
-Non : un modèle a exactement un champ de clé primaire. Pour les tables de liaison, ajoutez une clé de substitution `id` et, si vous voulez que la base de données refuse les paires en double, créez un index unique sur les deux colonnes avec une [migration](migrations) SQL.
+Non : un modèle a exactement un champ de clé primaire. Pour les tables de liaison, ajoutez une clé de substitution `id` et, si vous voulez que la base de données refuse les paires en double, créez un index unique sur les deux colonnes avec une [migration](migrations) SQL (ou avec `db.database()` sur MongoDB).
 
 ## Comment stocker une enum ?
 
@@ -67,7 +74,7 @@ La seconde possibilité est détaillée pas à pas dans [Modèles](models). Sur 
 
 ## Comment stocker du JSON ?
 
-Activez la feature `json`. Utilisez `serde_json::Value` pour du JSON libre, ou `Json<T>` pour n'importe quel type qui implémente `serde::Serialize` et `serde::Deserialize`. Il est stocké en `JSONB` sur PostgreSQL et sous forme de texte sur SQLite. Voir [Modèles](models).
+Activez la feature `json`. Utilisez `serde_json::Value` pour du JSON libre, ou `Json<T>` pour n'importe quel type qui implémente `serde::Serialize` et `serde::Deserialize`. Il est stocké en `JSONB` sur PostgreSQL, en `JSON` sur MySQL, sous forme de texte sur SQLite, en JSON imbriqué sur Redis et en documents imbriqués sur MongoDB. Voir [Modèles](models).
 
 ## Puis-je utiliser des UUID comme clés primaires ?
 
@@ -91,30 +98,30 @@ async fn create(db: &MemoryDb, title: &str) -> memoire_orm::Result<Document> {
 }
 ```
 
-Les UUID sont stockés en `UUID` sur PostgreSQL et sous forme de texte sur SQLite.
+Les UUID sont stockés en `UUID` sur PostgreSQL, en `CHAR(36)` sur MySQL, sous forme de texte sur SQLite et Redis, et en binaire BSON (sous-type 4) sur MongoDB.
 
 ## Quel type utiliser pour les horodatages ?
 
 Activez la feature `chrono`. Utilisez `chrono::DateTime<Utc>` pour des instants précis (stockés en `TIMESTAMPTZ` sur PostgreSQL), `NaiveDateTime` pour une date et une heure sans fuseau horaire, `NaiveDate` pour les dates et `NaiveTime` pour les heures de la journée. Deux détails :
 
-- PostgreSQL conserve des microsecondes : comparez avec `Utc::now().trunc_subsecs(6)` si vous vérifiez une valeur après l'avoir relue.
-- SQLite stocke les horodatages sous forme de texte ; pour les colonnes sur lesquelles vous filtrez ou triez, `NaiveDateTime` (contenant de l'UTC) se trie correctement en tant que texte. Voir [SQLite](sqlite).
+- La précision dépend du backend : nanosecondes sur le moteur en mémoire, SQLite et Redis, microsecondes sur PostgreSQL et MySQL, millisecondes sur MongoDB. Si vous comparez une valeur avec ce que vous relisez, tronquez-la d'abord, par exemple avec `Utc::now().trunc_subsecs(3)` (depuis `chrono::SubsecRound`) pour du code qui doit fonctionner partout.
+- Les comparaisons et les tris fonctionnent sur tous les backends, y compris SQLite et Redis, où les horodatages sont stockés sous forme de texte à largeur fixe.
 
 ## Dois-je configurer un pool de connexions ?
 
-Non. `PgPool` *est* un pool de connexions : créez-le une seule fois avec `PgPool::connect` (jusqu'à 4 × le nombre de cœurs CPU en connexions) ou `PgPool::connect_with(url, size)`, et partagez-en des clones. `SqliteDb` utilise une connexion partagée unique, et `MemoryDb` n'en a pas besoin. Voir [PostgreSQL](postgres).
+Non. `PgPool` et `MySqlPool` *sont* des pools de connexions : créez-les une seule fois et partagez-en des clones (`PgPool::connect_with(url, size)` définit la taille du pool PostgreSQL). `MongoDb` utilise le pool propre au driver, `RedisDb` une connexion multiplexée unique qui se reconnecte automatiquement, `SqliteDb` une connexion partagée unique, et `MemoryDb` n'en a pas besoin.
 
 ## Comment tester du code qui utilise Memoire ?
 
-Écrivez vos fonctions en vous appuyant sur le trait `Executor` (ou `Database`) et donnez-leur un `MemoryDb` tout neuf dans chaque test. Il se crée en quelques microsecondes, ne demande aucun nettoyage et applique les mêmes clés et contraintes d'unicité que les bases de données SQL. Pour les comportements qui dépendent de fonctionnalités SQL (suppressions en cascade via les clés étrangères, SQL brut), ajoutez quelques tests avec `SqliteDb::open_in_memory()`. Voir [Moteur en mémoire](memory).
+Écrivez vos fonctions en vous appuyant sur le trait `Executor` (ou `Database`) et donnez-leur un `MemoryDb` tout neuf dans chaque test. Il se crée en quelques microsecondes, ne demande aucun nettoyage et applique les mêmes clés et contraintes d'unicité que les bases de données SQL. Pour les comportements qui dépendent de votre base de données de production (suppressions en cascade via les clés étrangères, SQL brut, transactions sur MongoDB), ajoutez quelques tests d'intégration sur cette base de données, ou avec `SqliteDb::open_in_memory()` pour les fonctionnalités SQL. Voir [Moteur en mémoire](memory).
 
 ## Est-ce que ça fonctionne en WebAssembly ?
 
-Oui, le moteur en mémoire compile vers `wasm32-unknown-unknown` sans configuration supplémentaire, et exécute ses futures avec `memoire_orm::block_on` ou `wasm-bindgen-futures`. Les backends SQLite et PostgreSQL n'y sont pas disponibles. Voir [Moteur en mémoire](memory).
+Oui, le moteur en mémoire compile vers `wasm32-unknown-unknown` sans configuration supplémentaire, et exécute ses futures avec `memoire_orm::block_on` ou `wasm-bindgen-futures`. Les autres backends n'y sont pas disponibles. Voir [Moteur en mémoire](memory).
 
 ## Comment voir le SQL qu'exécute Memoire ?
 
-Appelez `to_sql(Dialect::Postgres)` (ou `Dialect::Sqlite`) sur n'importe quel builder de requête, de modification ou de suppression ; `to_sql_with_params` renvoie en plus les valeurs liées. Les instructions utilisées par `find`, `insert`, `update`, `delete` et `upsert` se trouvent dans `User::SCHEMA.sql(dialect)`. Voir [Constructeur de requêtes](queries).
+Appelez `to_sql(Dialect::Postgres)` (ou `Dialect::Sqlite`, `Dialect::MySql`) sur n'importe quel builder de requête, de modification ou de suppression ; `to_sql_with_params` renvoie en plus les valeurs liées. Les instructions utilisées par `find`, `insert`, `update`, `delete` et `upsert` se trouvent dans `User::SCHEMA.sql(dialect)`. Redis et MongoDB n'utilisent pas le SQL ; leurs pages expliquent ce qu'ils font à la place. Voir [Constructeur de requêtes](queries).
 
 ## Memoire crée-t-il ou met-il à jour mes tables automatiquement ?
 
@@ -129,7 +136,7 @@ Non. La crate est compilée avec `#![forbid(unsafe_code)]` : elle ne peut donc c
 Les contributions de toutes tailles sont les bienvenues : signalements de bugs, corrections de documentation, traductions et nouvelles fonctionnalités.
 
 1. Forkez `https://github.com/maxlestage/Memoire` et clonez-le.
-2. Lancez les tests : `cargo test --workspace --features memory,sqlite` (définissez `MEMOIRE_PG_URL` avec une URL PostgreSQL pour inclure PostgreSQL).
+2. Lancez les tests : `cargo test --workspace --features memory,sqlite`. Pour inclure les backends serveur, activez toutes les features et faites pointer `MEMOIRE_PG_URL`, `MEMOIRE_MYSQL_URL`, `MEMOIRE_REDIS_URL` et `MEMOIRE_MONGO_URL` vers des serveurs de test (MongoDB en replica set).
 3. Avant d'ouvrir une pull request, lancez `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` et les tests.
 4. Ajoutez les tests de comportement dans `crates/memoire-orm/tests/common/mod.rs`, pour qu'ils s'exécutent sur tous les backends.
 5. La documentation se trouve dans `docs/en`, `docs/fr` et `docs/es` : mettez à jour les trois, ou ouvrez une issue pour que quelqu'un se charge de la traduction.

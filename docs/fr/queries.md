@@ -190,8 +190,10 @@ La sensibilité à la casse est la même sur tous les backends gérés par Memoi
 | SQLite | Sensible à la casse (Memoire active `case_sensitive_like`) | Insensible à la casse pour les lettres ASCII uniquement (`LOWER()`) |
 | PostgreSQL | Sensible à la casse | Insensible à la casse (`ILIKE` natif) |
 | MySQL / MariaDB | Sensible à la casse (Memoire crée les tables avec `utf8mb4_bin`) | Insensible à la casse (`LOWER()`) |
+| Redis | Sensible à la casse (même moteur que le moteur en mémoire) | Insensible à la casse (Unicode) |
+| MongoDB | Sensible à la casse (expression régulière ancrée) | Insensible à la casse (expression régulière avec l'option `i`, Unicode) |
 
-> **Remarque** Sur SQLite, `icontains("émi")` ne trouve pas `"Émile"`, car le `LOWER()` de SQLite ne modifie que les lettres ASCII. Le moteur en mémoire et PostgreSQL gèrent les lettres accentuées.
+> **Remarque** Sur SQLite, `icontains("émi")` ne trouve pas `"Émile"`, car le `LOWER()` de SQLite ne modifie que les lettres ASCII. Tous les autres backends gèrent les lettres accentuées.
 
 ### Comparer deux colonnes
 
@@ -252,6 +254,9 @@ Les bases de données ne sont pas d'accord sur la place des valeurs `NULL` lors 
 | Moteur en mémoire | NULL en dernier | NULL en premier |
 | PostgreSQL | NULL en dernier | NULL en premier |
 | SQLite | NULL en premier | NULL en dernier |
+| MySQL / MariaDB | NULL en premier | NULL en dernier |
+| Redis | NULL en dernier | NULL en premier |
+| MongoDB | NULL en premier | NULL en dernier |
 
 Rendez-le explicite avec `nulls_first()` ou `nulls_last()` pour obtenir le même résultat partout :
 
@@ -438,7 +443,7 @@ let doubled = User::query().filter(User::SCORE.mul(2.0).gt(Expr::val(5.0))).all(
 
 ## Voir le SQL
 
-`to_sql(dialect)` génère le SQL de la requête pour PostgreSQL, SQLite ou MySQL sans l'exécuter. `to_sql_with_params` renvoie en plus les valeurs liées :
+`to_sql(dialect)` génère le SQL de la requête pour PostgreSQL, SQLite ou MySQL sans l'exécuter (Redis et MongoDB n'utilisent pas le SQL, mais `to_sql` reste un moyen pratique de voir ce que signifie une requête). `to_sql_with_params` renvoie en plus les valeurs liées :
 
 ```rust
 let q = User::query()

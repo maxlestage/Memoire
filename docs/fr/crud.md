@@ -35,7 +35,7 @@ pub struct Tag {
 }
 ```
 
-Chaque méthode prend `&db`, qui peut être n'importe quel handle de base de données (`MemoryDb`, `SqliteDb`, `PgPool`) ou une [transaction](transactions) ouverte.
+Chaque méthode prend `&db`, qui peut être n'importe quel handle de base de données (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) ou une [transaction](transactions) ouverte.
 
 ## Créer
 
@@ -70,12 +70,12 @@ let inserted = User::insert_many(&db, &users).await?;
 assert_eq!(inserted, 1000);
 ```
 
-Sur les bases de données SQL, cela envoie un `INSERT ... VALUES (...), (...), ...` multi-lignes par lot. La taille des lots est calculée pour rester sous la limite de paramètres liés de la base de données (32 766 pour SQLite, 65 535 pour PostgreSQL), et un lot contient au plus 10 000 lignes : même les très grandes slices sont donc gérées automatiquement.
+Sur les bases de données SQL, cela envoie un `INSERT ... VALUES (...), (...), ...` multi-lignes par lot. La taille des lots est calculée pour rester sous la limite de paramètres liés de la base de données (32 766 pour SQLite, 65 535 pour PostgreSQL et MySQL), et un lot contient au plus 10 000 lignes : même les très grandes slices sont donc gérées automatiquement. Redis écrit chaque lot avec un seul script atomique, et MongoDB avec un seul appel `insertMany`.
 
 Ce qu'il faut savoir sur `insert_many` :
 
 - Les clés générées ne sont **pas** relues : les structs de votre slice gardent `id: 0`. Interrogez à nouveau les lignes si vous avez besoin de leurs ids, ou insérez-les une par une avec `insert`.
-- Chaque lot est atomique : si une ligne échoue (par exemple un e-mail en double), rien de ce lot n'est stocké.
+- Chaque lot est atomique : si une ligne échoue (par exemple un e-mail en double), rien de ce lot n'est stocké. (Sur un serveur MongoDB autonome, qui n'a pas de transactions, Memoire supprime au mieux les documents déjà insérés.)
 - Quand la slice dépasse la taille d'un lot, les lots précédents restent stockés si un lot suivant échoue. Enveloppez l'appel dans une [transaction](transactions) pour que toute l'opération se fasse en mode tout ou rien. Une transaction rend aussi les insertions en masse beaucoup plus rapides sur SQLite.
 
 ## Lire
@@ -195,7 +195,7 @@ tag.upsert(&db).await?; // crée "rust", ou met à jour son label
 Tag { slug: "orm".into(), label: "ORM".into() }.upsert(&db).await?;
 ```
 
-Sur les bases de données SQL, c'est une seule requête (`INSERT ... ON CONFLICT (key) DO UPDATE` sur SQLite et PostgreSQL) : c'est donc sûr même quand deux programmes font un upsert sur la même clé au même moment.
+La correspondance se fait uniquement sur la clé primaire, et l'opération est sûre même quand deux programmes font un upsert sur la même clé au même moment (`INSERT ... ON CONFLICT (key) DO UPDATE` sur SQLite et PostgreSQL, `INSERT ... ON DUPLICATE KEY UPDATE` ou une insertion suivie d'une modification sur MySQL, un script Lua sur Redis, `replaceOne` avec `upsert` sur MongoDB). Si la ligne a une nouvelle clé mais une valeur `unique` qui appartient à une autre ligne, `upsert` échoue avec `Error::UniqueViolation` sur tous les backends.
 
 > **Attention** `upsert` stocke toujours la clé présente dans votre struct, même pour une clé `auto_increment`. Un upsert de `User { id: 0, ... }` crée une ligne dont l'id vaut `0`. Utilisez `insert` pour les nouvelles lignes des modèles auto-incrémentés, et `upsert` pour les clés naturelles (slugs, codes, UUID) ou les lignes dont vous connaissez l'id. Sur PostgreSQL, notez aussi que faire un upsert de nouvelles lignes avec des ids explicites ne fait pas avancer la séquence des ids : un `insert` ultérieur peut donc entrer en collision avec elles.
 
@@ -219,7 +219,7 @@ println!("removed {removed} inactive user(s)");
 
 > **Attention** `User::delete_many().execute(&db)` sans filtre supprime **toutes les lignes** de la table.
 
-Si d'autres tables référencent les lignes supprimées avec `on_delete = "cascade"`, la base de données supprime aussi ces lignes-là (sur SQLite et PostgreSQL ; le moteur en mémoire n'applique pas les clés étrangères).
+Si d'autres tables référencent les lignes supprimées avec `on_delete = "cascade"`, la base de données supprime aussi ces lignes-là (sur SQLite, PostgreSQL et MySQL ; le moteur en mémoire, Redis et MongoDB n'appliquent pas les clés étrangères).
 
 ## Gérer les erreurs
 
@@ -235,7 +235,7 @@ Chaque opération renvoie un `memoire_orm::Result<T>`, alias de `Result<T, memoi
 | `Error::Conversion(message)` | Une valeur n'a pas pu être convertie (en dehors d'une colonne précise) |
 | `Error::NoSuchTable(name)` | La table n'existe pas |
 | `Error::TableExists(name)` | `create_table` sur une table qui existe déjà |
-| `Error::Unsupported(message)` | Le backend ne sait pas faire cela (par exemple du SQL brut sur le moteur en mémoire) |
+| `Error::Unsupported(message)` | Le backend ne sait pas faire cela (par exemple du SQL brut sur Redis, ou une transaction sur un serveur MongoDB autonome) |
 | `Error::Conflict(table)` | Une transaction est entrée en collision avec une transaction concurrente ; on peut réessayer sans risque |
 | `Error::TransactionFinished` | La transaction a déjà été validée (commit) ou annulée (rollback) |
 | `Error::Migration { version, name, source }` | Une migration a échoué ; `source` contient la cause |

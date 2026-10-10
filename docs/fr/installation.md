@@ -21,7 +21,18 @@ cargo add tokio --features macros,rt-multi-thread
 
 # PostgreSQL via TLS (bases hébergées comme Heroku Postgres)
 cargo add memoire-orm --features postgres-tls
+
+# MySQL / MariaDB (ajoutez "mysql-tls" pour TLS)
+cargo add memoire-orm --features mysql
+
+# Redis (ajoutez "redis-tls" pour les URL rediss://)
+cargo add memoire-orm --features redis
+
+# MongoDB
+cargo add memoire-orm --features mongodb
 ```
+
+Tous les backends serveur (PostgreSQL, MySQL/MariaDB, Redis, MongoDB) ont aussi besoin de Tokio : `cargo add tokio --features macros,rt-multi-thread`.
 
 Vous pouvez aussi modifier `Cargo.toml` à la main :
 
@@ -31,7 +42,7 @@ memoire-orm = { version = "0.1", features = ["sqlite"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-> **Remarque** Tokio n'est *obligatoire* que pour PostgreSQL. Les exemples de cette documentation utilisent `#[tokio::main]` parce que c'est la configuration la plus courante, mais les backends mémoire et SQLite fonctionnent sans (voir « Runtime async » plus bas).
+> **Remarque** Tokio n'est *obligatoire* que pour les backends serveur. Les exemples de cette documentation utilisent `#[tokio::main]` parce que c'est la configuration la plus courante, mais les backends mémoire et SQLite fonctionnent sans (voir « Runtime async » plus bas).
 
 ## Features
 
@@ -41,12 +52,17 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `sqlite` | non | `SqliteDb`, une base SQLite embarquée (SQLite est compilé avec la crate) |
 | `postgres` | non | `PgPool`, un pool de connexions PostgreSQL (nécessite Tokio) |
 | `postgres-tls` | non | Connexions PostgreSQL chiffrées avec `rustls` (`sslmode=require`, `verify-full`...), indispensables pour Heroku Postgres et la plupart des bases hébergées. Implique `postgres` |
+| `mysql` | non | `MySqlPool`, un pool de connexions MySQL et MariaDB (nécessite Tokio) |
+| `mysql-tls` | non | Connexions MySQL chiffrées avec `rustls` (`?require_ssl=true`). Implique `mysql` |
+| `redis` | non | `RedisDb`, des tables stockées dans Redis (nécessite Tokio ; inclut `memory`) |
+| `redis-tls` | non | URL `rediss://` avec `rustls` ; ajoutez `#insecure` pour les certificats auto-signés. Implique `redis` |
+| `mongodb` | non | `MongoDb`, des collections MongoDB via le driver officiel (nécessite Tokio ; inclut `memory`) |
 | `chrono` | non | Colonnes de date et d'heure : `NaiveDateTime`, `DateTime<Utc>`, `NaiveDate`, `NaiveTime` |
 | `uuid` | non | Colonnes `uuid::Uuid` |
 | `json` | non | Colonnes JSON : `serde_json::Value` et `Json<T>` pour n'importe quel type `serde` |
 | `full` | non | Tout ce qui précède |
 
-> **Remarque** Pour les backends MySQL/MariaDB, Redis et MongoDB, consultez leurs pages : [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb).
+Chaque backend est décrit sur sa propre page : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb).
 
 Les features s'additionnent, vous pouvez donc les combiner librement :
 
@@ -62,7 +78,7 @@ Si vous n'avez pas du tout besoin du moteur en mémoire, désactivez les feature
 memoire-orm = { version = "0.1", default-features = false, features = ["sqlite"] }
 ```
 
-> **Astuce** Gardez `memory` activée même si la production utilise SQLite ou PostgreSQL : vos tests unitaires seront rapides et sans aucune configuration. Vous pouvez ne l'activer que pour les tests grâce à `[dev-dependencies]`.
+> **Astuce** Gardez `memory` activée même si la production utilise une autre base de données : vos tests unitaires seront rapides et sans aucune configuration. Vous pouvez ne l'activer que pour les tests grâce à `[dev-dependencies]`.
 
 ### Crates supplémentaires pour les types de colonnes
 
@@ -85,7 +101,7 @@ Chaque appel à la base de données dans Memoire est une `async fn` : vous devez
 |---|---|
 | `MemoryDb` | N'importe quel exécuteur (Tokio, async-std, smol...) ou aucun avec `memoire_orm::block_on` |
 | `SqliteDb` | N'importe quel exécuteur ou aucun avec `memoire_orm::block_on` |
-| `PgPool` | Tokio (les E/S réseau et le pool de connexions tournent sur Tokio) |
+| `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb` | Tokio (leurs E/S réseau et leurs pools de connexions tournent sur Tokio) |
 
 Les backends mémoire et SQLite n'attendent jamais le réseau : leurs futures se terminent dès qu'elles sont pollées. C'est pourquoi Memoire fournit un petit utilitaire, `memoire_orm::block_on`, qui exécute une future sur le thread courant. C'est pratique dans les programmes synchrones, les outils en ligne de commande, les tests et WebAssembly :
 
@@ -109,7 +125,7 @@ fn main() -> memoire_orm::Result<()> {
 }
 ```
 
-> **Attention** N'utilisez pas `block_on` avec `PgPool` : PostgreSQL a besoin d'un runtime Tokio en cours d'exécution. Utilisez `#[tokio::main]` (ou `#[tokio::test]` dans les tests).
+> **Attention** N'utilisez pas `block_on` avec `PgPool`, `MySqlPool`, `RedisDb` ou `MongoDb` : ils ont besoin d'un runtime Tokio en cours d'exécution. Utilisez `#[tokio::main]` (ou `#[tokio::test]` dans les tests).
 
 ## WebAssembly
 
@@ -120,7 +136,7 @@ rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown
 ```
 
-Dans le navigateur, vous pouvez piloter les futures avec `memoire_orm::block_on` ou avec `wasm-bindgen-futures`. Les backends `sqlite` et `postgres` ne sont pas disponibles sur `wasm32`. Pour plus de détails, consultez [Moteur en mémoire](memory).
+Dans le navigateur, vous pouvez piloter les futures avec `memoire_orm::block_on` ou avec `wasm-bindgen-futures`. Les autres backends (SQLite, PostgreSQL, MySQL, Redis et MongoDB) ne sont pas disponibles sur `wasm32`. Pour plus de détails, consultez [Moteur en mémoire](memory).
 
 ## Vérifier que tout fonctionne
 
@@ -167,11 +183,11 @@ async fn main() -> memoire_orm::Result<()> {
 |---|---|
 | Version minimale de Rust (MSRV) | 1.88 |
 | Outils nécessaires à la compilation | Un compilateur C lorsque la feature `sqlite` est activée (SQLite est compilé depuis les sources) |
-| Dépendances à l'exécution | Aucune pour la mémoire et SQLite ; un serveur PostgreSQL accessible pour `postgres` |
+| Dépendances à l'exécution | Aucune pour la mémoire et SQLite ; un serveur accessible pour PostgreSQL, MySQL/MariaDB, Redis ou MongoDB |
 | Licence | MIT OR Apache-2.0 |
 
 ## Étapes suivantes
 
 - [Démarrage rapide](quick-start) : construisez une petite application à partir de zéro.
 - [Modèles](models) : décrivez vos tables.
-- [SQLite](sqlite) et [PostgreSQL](postgres) : la configuration propre à chaque backend.
+- Configuration des backends : [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis), [MongoDB](mongodb).

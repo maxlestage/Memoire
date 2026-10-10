@@ -26,12 +26,13 @@ Chaque instruction est préparée une seule fois par connexion, puis réutilisé
 |---|---|
 | SQLite | Jusqu'à 256 instructions par connexion |
 | PostgreSQL | Toutes les instructions, par connexion, avec remise à zéro après 1 024 instructions distinctes |
+| MySQL / MariaDB | Jusqu'à 256 instructions par connexion |
 
 Comme le builder produit le même texte SQL pour des requêtes de même forme (les valeurs sont toujours des paramètres), une requête exécutée dans une boucle n'est analysée et planifiée qu'une seule fois.
 
 ### Des insertions en masse en peu d'instructions
 
-`insert_many` transforme une slice de lignes en instructions `INSERT ... VALUES (...), (...), ...` multi-lignes. Chaque instruction transporte autant de lignes que la base de données le permet : le nombre de paramètres liés reste sous la limite (32 766 sur SQLite, 65 535 sur PostgreSQL), avec au plus 10 000 lignes par instruction. Insérer 1 000 lignes dans une transaction de cette façon est environ 4 fois plus rapide qu'une boucle d'insertions ligne par ligne écrite à la main avec `rusqlite` (voir [Benchmarks](benchmarks)).
+`insert_many` transforme une slice de lignes en instructions `INSERT ... VALUES (...), (...), ...` multi-lignes. Chaque instruction transporte autant de lignes que la base de données le permet : le nombre de paramètres liés reste sous la limite (32 766 sur SQLite, 65 535 sur PostgreSQL et MySQL), avec au plus 10 000 lignes par instruction. Sur Redis, un lot correspond à un seul script atomique, et sur MongoDB à un seul appel `insertMany`. Insérer 1 000 lignes dans une transaction de cette façon est environ 4 fois plus rapide qu'une boucle d'insertions ligne par ligne écrite à la main avec `rusqlite` (voir [Benchmarks](benchmarks)).
 
 ### Un moteur en mémoire conçu sur mesure
 
@@ -42,6 +43,14 @@ Comme le builder produit le même texte SQL pour des requêtes de même forme (l
 - Les jointures sur égalité de colonnes s'exécutent sous forme de hash joins.
 - `order_by` + `limit` sélectionne les premières lignes sans tout trier.
 - Les transactions utilisent des snapshots en copy-on-write : en démarrer une ne coûte presque rien, et une table n'est copiée que lorsque la transaction y écrit pour la première fois.
+
+### Redis : les recherches par clé d'abord
+
+`RedisDb` ne lit que les lignes dont il a besoin quand vous recherchez par clé primaire (`find`, ou un filtre avec `eq`/`is_in` sur la clé) et compte avec `HLEN`. Chaque écriture, même un lot de milliers de lignes, est appliquée par un seul script Lua atomique. Les autres requêtes lisent la table entière et s'exécutent sur le moteur en mémoire. Voir [Redis](redis).
+
+### MongoDB : le serveur se charge du filtrage
+
+`MongoDb` traduit les filtres, le tri, `limit` et `offset` en un seul `find` natif, compte avec `countDocuments`, et exécute `update_many`/`delete_many` sous forme de commandes uniques côté serveur. Les jointures ne récupèrent que les documents dont les clés correspondent. Voir [MongoDB](mongodb).
 
 ### Léger par construction
 
@@ -104,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Indexer les colonnes sur lesquelles vous cherchez
 
-Ajoutez `#[memoire(index)]` aux colonnes sur lesquelles vous filtrez, joignez ou triez souvent, en particulier les clés étrangères. Les colonnes `unique` sont indexées automatiquement. Sur le moteur en mémoire, les recherches sur la clé primaire et les colonnes `unique` utilisent des index de hachage.
+Ajoutez `#[memoire(index)]` aux colonnes sur lesquelles vous filtrez, joignez ou triez souvent, en particulier les clés étrangères. Les colonnes `unique` sont indexées automatiquement. MongoDB crée les mêmes index sur ses collections. Le moteur en mémoire maintient des index de hachage sur la clé primaire et les colonnes `unique`, et Redis retrouve directement les lignes par clé primaire ; `index` n'a d'effet sur aucun des deux.
 
 ### Éviter les requêtes N+1
 
@@ -129,7 +138,7 @@ Cette approche reste rapide quelle que soit la page. Réservez `paginate` (qui e
 
 ### Réutiliser le handle de base de données
 
-Ouvrez la base de données (ou le pool PostgreSQL) une seule fois au démarrage et partagez-la : cloner un `MemoryDb`, un `SqliteDb` ou un `PgPool` ne coûte presque rien (pour les backends MySQL/MariaDB, Redis et MongoDB, consultez leurs pages : [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb)). Ouvrir un nouveau pool à chaque requête jette les connexions et les caches d'instructions. Dimensionnez le pool PostgreSQL selon ce que votre serveur autorise (voir [PostgreSQL](postgres)).
+Ouvrez la base de données une seule fois au démarrage et partagez-la : cloner n'importe quel handle (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) ne coûte presque rien, et les clones partagent les mêmes connexions. Ouvrir un nouveau pool à chaque requête jette les connexions et les caches d'instructions. Dimensionnez le pool PostgreSQL selon ce que votre serveur autorise (voir [PostgreSQL](postgres)).
 
 ### Mesurer en mode release
 
