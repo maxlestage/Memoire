@@ -35,7 +35,7 @@ pub struct Tag {
 }
 ```
 
-Every method takes `&db`, which can be any database handle (`MemoryDb`, `SqliteDb`, `PgPool`) or an open [transaction](transactions).
+Every method takes `&db`, which can be any database handle (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) or an open [transaction](transactions).
 
 ## Create
 
@@ -70,12 +70,12 @@ let inserted = User::insert_many(&db, &users).await?;
 assert_eq!(inserted, 1000);
 ```
 
-On SQL databases this sends one multi-row `INSERT ... VALUES (...), (...), ...` per batch. Batches are sized to stay under the database's limit on bound parameters (32,766 for SQLite, 65,535 for PostgreSQL) and hold at most 10,000 rows, so even huge slices are handled automatically.
+On SQL databases this sends one multi-row `INSERT ... VALUES (...), (...), ...` per batch. Batches are sized to stay under the database's limit on bound parameters (32,766 for SQLite, 65,535 for PostgreSQL and MySQL) and hold at most 10,000 rows, so even huge slices are handled automatically. Redis writes each batch with one atomic script, and MongoDB with one `insertMany` call.
 
 Things to know about `insert_many`:
 
 - Generated keys are **not** read back: the structs in your slice keep `id: 0`. Query the rows again if you need their ids, or insert one by one with `insert`.
-- Each batch is atomic: if a row fails (for example a duplicate email), nothing from that batch is stored.
+- Each batch is atomic: if a row fails (for example a duplicate email), nothing from that batch is stored. (On a standalone MongoDB server, which has no transactions, Memoire removes the already inserted documents on a best-effort basis.)
 - When the slice is bigger than one batch, earlier batches stay stored if a later one fails. Wrap the call in a [transaction](transactions) to make the whole operation all-or-nothing. A transaction also makes bulk inserts much faster on SQLite.
 
 ## Read
@@ -195,9 +195,11 @@ tag.upsert(&db).await?; // creates "rust", or updates its label
 Tag { slug: "orm".into(), label: "ORM".into() }.upsert(&db).await?;
 ```
 
-On SQL databases it is a single statement (`INSERT ... ON CONFLICT (key) DO UPDATE` on SQLite and PostgreSQL), so it is safe even when two programs upsert the same key at the same time.
+It is a single atomic operation on every backend (`INSERT ... ON CONFLICT (key) DO UPDATE` on SQLite and PostgreSQL, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL, a Lua script on Redis, `replaceOne` with `upsert` on MongoDB), so it is safe even when two programs upsert the same key at the same time.
 
 > **Warning** `upsert` always stores the key that is in your struct, even for an `auto_increment` key. Upserting `User { id: 0, ... }` creates a row whose id is `0`. Use `insert` for new rows of auto-increment models, and `upsert` for natural keys (slugs, codes, UUIDs) or rows you know the id of. On PostgreSQL, also note that upserting new rows with explicit ids does not advance the id sequence, so a later `insert` can collide with them.
+
+> **Warning** On MySQL and MariaDB, an upserted row whose `unique` value (an email, say) belongs to *another* row updates that other row instead of failing. The other backends return `Error::UniqueViolation`. See [MySQL & MariaDB](mysql).
 
 ## Delete
 
@@ -219,7 +221,7 @@ println!("removed {removed} inactive user(s)");
 
 > **Warning** `User::delete_many().execute(&db)` without a filter deletes **every row** of the table.
 
-If other tables reference the deleted rows with `on_delete = "cascade"`, the database deletes those too (on SQLite and PostgreSQL; the in-memory engine does not enforce foreign keys).
+If other tables reference the deleted rows with `on_delete = "cascade"`, the database deletes those too (on SQLite, PostgreSQL and MySQL; the in-memory engine, Redis and MongoDB do not enforce foreign keys).
 
 ## Handling errors
 
@@ -235,7 +237,7 @@ Every operation returns `memoire_orm::Result<T>`, an alias for `Result<T, memoir
 | `Error::Conversion(message)` | A value could not be converted (outside of a specific column) |
 | `Error::NoSuchTable(name)` | The table does not exist |
 | `Error::TableExists(name)` | `create_table` on a table that already exists |
-| `Error::Unsupported(message)` | The backend cannot do this (for example raw SQL on the memory engine) |
+| `Error::Unsupported(message)` | The backend cannot do this (for example raw SQL on Redis, or a transaction on a standalone MongoDB server) |
 | `Error::Conflict(table)` | A transaction collided with a concurrent one; retrying is safe |
 | `Error::TransactionFinished` | The transaction was already committed or rolled back |
 | `Error::Migration { version, name, source }` | A migration failed; `source` holds the cause |

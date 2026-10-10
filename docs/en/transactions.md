@@ -57,7 +57,7 @@ The three steps:
 
 `commit` and `rollback` consume the transaction, so the compiler stops you from using it afterwards.
 
-`begin` is part of the `Database` trait, implemented by `MemoryDb`, `SqliteDb` and `PgPool`. Writing `D: Database` makes `transfer` work with all three.
+`begin` is part of the `Database` trait, implemented by all six backends (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`). Writing `D: Database` makes `transfer` work with every one of them.
 
 ## Dropping a transaction rolls it back
 
@@ -97,14 +97,18 @@ async fn open_family_accounts(db: &MemoryDb) -> memoire_orm::Result<()> {
 
 ## Behaviour on each backend
 
-| | In-memory engine | SQLite | PostgreSQL |
-|---|---|---|---|
-| How it works | Private copy-on-write snapshot | Holds the single connection | Holds one pooled connection |
-| Other code during the transaction | Runs normally, sees only committed data | **Waits** until the transaction ends | Runs on other connections, sees only committed data |
-| Conflicting writers | Detected at `commit`: `Error::Conflict` | Impossible: transactions run one at a time | Waits for row locks; serialization failures and deadlocks give `Error::Conflict` |
-| Dropped without commit | Changes discarded immediately | `ROLLBACK` runs immediately | `ROLLBACK` sent in the background (needs Tokio) |
+| Backend | How it works | Other code meanwhile | Conflicting writers | `create_table` / `drop_table` inside |
+|---|---|---|---|---|
+| In-memory engine | Private copy-on-write snapshot | Runs normally, sees only committed data | Detected at `commit` (per table): `Error::Conflict` | Part of the transaction |
+| SQLite | Holds the single connection | **Waits** until the transaction ends | Impossible: transactions run one at a time | Part of the transaction |
+| PostgreSQL | Holds one pooled connection | Runs on other connections, sees only committed data | Row locks; serialization failures and deadlocks: `Error::Conflict` | Part of the transaction |
+| MySQL / MariaDB | Holds one pooled connection | Runs on other connections, sees only committed data | Row locks; deadlocks and lock timeouts: `Error::Conflict` | **Committed immediately**, cannot be rolled back |
+| Redis | Snapshot of each table it uses; one atomic script at `commit` | Runs normally, sees only committed data | Detected at `commit` (per table): `Error::Conflict` | Part of the transaction |
+| MongoDB | Real multi-document transaction (replica set or sharded cluster only) | Runs normally, sees only committed data | Write conflicts: `Error::Conflict` | Run outside the transaction |
 
-### In-memory engine: snapshots and conflicts
+On every backend, a transaction dropped without `commit` leaves no change behind: the memory engine, Redis and SQLite discard it immediately, PostgreSQL and MySQL roll it back when its connection returns to the pool, and MongoDB aborts it.
+
+### In-memory engine and Redis: snapshots and conflicts
 
 `MemoryDb::begin` takes a snapshot of the database. The transaction reads and writes its own copy (tables are only copied when first written), so it never sees concurrent changes and nobody sees its changes before `commit`.
 
@@ -127,6 +131,8 @@ Good to know:
 - A transaction that only reads never conflicts.
 - Any write to the table counts, including writes made directly on `db` outside a transaction.
 
+`RedisDb` transactions work the same way: each table is read once, when the transaction first uses it, and `commit` writes every change with one atomic Lua script, or fails with `Error::Conflict` if one of the written tables changed in the meantime. See [Redis](redis).
+
 ### Retrying on conflict
 
 A conflict is not a bug: it means "someone else changed this data while you were working; start again from fresh data". Because a failed transaction applies nothing, retrying is always safe. Wrap the whole transaction in a loop:
@@ -144,7 +150,7 @@ async fn transfer_with_retry<D: Database>(db: &D, from: i64, to: i64, amount: i6
 }
 ```
 
-Retry the *whole* function, including the reads: the new attempt must start a new transaction and see the latest data. The same loop works on PostgreSQL, where serialization failures and deadlocks are reported as `Error::Conflict` too.
+Retry the *whole* function, including the reads: the new attempt must start a new transaction and see the latest data. The same loop works on every backend: PostgreSQL and MySQL report deadlocks (and PostgreSQL serialization failures) as `Error::Conflict`, and so does MongoDB for write conflicts.
 
 ### SQLite: one transaction at a time
 
@@ -177,6 +183,18 @@ Other tasks or threads that use the same `SqliteDb` simply wait until the transa
   At `REPEATABLE READ` and `SERIALIZABLE`, PostgreSQL may abort a transaction that collides with another one. Memoire reports it as `Error::Conflict`, so the retry loop above applies unchanged. Deadlocks are reported the same way.
 - A dropped transaction is rolled back in the background on the Tokio runtime. Without a runtime, the connection is closed instead, which also cancels the transaction.
 - Using `&db` instead of `&tx` inside a transaction does not block, but it runs on another connection: it does not see the transaction's uncommitted changes and is not part of it.
+
+### MySQL and MariaDB: pooled connections
+
+`MySqlPool::begin` also keeps one pooled connection for the transaction, at the server's default isolation level (`REPEATABLE READ` for InnoDB). Deadlocks and lock wait timeouts are reported as `Error::Conflict`.
+
+> **Warning** MySQL commits automatically before and after every schema change (`CREATE TABLE`, `DROP TABLE`, `ALTER TABLE`...). Such a statement inside a transaction cannot be rolled back, it also commits what the transaction did before it, and the statements after it are no longer part of a transaction. See [MySQL & MariaDB](mysql).
+
+### MongoDB: replica sets only
+
+On a replica set or a sharded cluster (MongoDB Atlas included), `MongoDb::begin` starts a real multi-document transaction: its reads see its own writes, and a write conflict with another transaction is reported as `Error::Conflict`, sometimes by the conflicting statement itself rather than by `commit`. The retry loop above handles both. Creating and dropping collections happens outside the transaction.
+
+A standalone MongoDB server has no transactions: `begin()` returns `Error::Unsupported`, and `db.supports_transactions()` tells you in advance. See [MongoDB](mongodb).
 
 ## Limitations
 

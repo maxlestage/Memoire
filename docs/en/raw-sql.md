@@ -1,10 +1,10 @@
 # Raw SQL
 
-The query builder covers everyday needs, but sometimes you want to write SQL yourself: a database-specific feature, a complex report, a self-join, a maintenance command. This page shows how to run raw SQL safely with SQLite and PostgreSQL and how to decode its results.
+The query builder covers everyday needs, but sometimes you want to write SQL yourself: a database-specific feature, a complex report, a self-join, a maintenance command. This page shows how to run raw SQL safely with SQLite, PostgreSQL and MySQL/MariaDB, and how to decode its results.
 
 ## Two methods
 
-Every SQL backend (and every transaction) has two methods, provided by the `Executor` trait:
+Every SQL backend (`SqliteDb`, `PgPool`, `MySqlPool`) and its transactions have two methods, provided by the `Executor` trait:
 
 | Method | For | Returns |
 |---|---|---|
@@ -170,13 +170,40 @@ A few type rules are useful to know:
 - When PostgreSQL cannot guess a parameter's type, add a cast: `SELECT $1::text`.
 - A type Memoire does not know (for example `INTERVAL`) gives an error: cast it to text in SQL (`duration::text`).
 
-## Not available on the in-memory engine
+## MySQL and MariaDB notes
 
-`MemoryDb` does not understand SQL: `raw` and `raw_execute` return `Error::Unsupported`. Code that must also run on the memory engine (tests, WebAssembly) should stick to the query builder.
+MySQL uses `?` placeholders, like SQLite:
+
+```rust
+async fn mysql_example(db: &MySqlPool) -> memoire_orm::Result<()> {
+    let rows: Vec<(String, i64)> = db
+        .raw("SELECT name, salary FROM employees WHERE salary > ? ORDER BY name", &params![50_000])
+        .await?;
+    let total: Vec<i64> = db.raw("SELECT SUM(salary) FROM employees", &[]).await?;
+    println!("{rows:?} {total:?}");
+    Ok(())
+}
+```
+
+- `DECIMAL` values (including `SUM` of an integer column) are decoded as exact text: read them as `String`, `f64`, or `i64` when they hold whole numbers.
+- `raw` and `raw_execute` run one statement at a time; migration scripts (`Migration::sql`) may contain several.
+- `BOOLEAN` columns are `TINYINT(1)`: they read as `bool` or as an integer.
+
+## Not available on the in-memory engine, Redis and MongoDB
+
+`MemoryDb`, `RedisDb` and `MongoDb` do not understand SQL: `raw` and `raw_execute` return `Error::Unsupported`. Code that must also run on these backends (tests on `MemoryDb`, for example) should stick to the query builder. For native Redis commands or MongoDB aggregation pipelines, use their escape hatches below.
 
 ## Escape hatches
 
-When you need a feature of the underlying driver itself, both SQL backends let you reach it.
+When you need a feature of the underlying driver itself, every backend lets you reach it:
+
+| Backend | Escape hatch | Gives you |
+|---|---|---|
+| `SqliteDb` | `db.with_connection(\|conn\| ...)` | The `rusqlite::Connection` |
+| `PgPool` | `db.pool()` | The `deadpool_postgres::Pool` |
+| `MySqlPool` | `db.pool()` | The `mysql_async::Pool` (see [MySQL & MariaDB](mysql)) |
+| `RedisDb` | `db.connection()` | A `redis::aio::ConnectionManager` (see [Redis](redis)) |
+| `MongoDb` | `db.database()` | The `mongodb::Database` (see [MongoDB](mongodb)) |
 
 ### The SQLite connection
 
@@ -215,5 +242,5 @@ async fn pool_tools(db: &PgPool) -> memoire_orm::Result<()> {
 ## Next steps
 
 - [Query builder](queries): most queries do not need raw SQL.
-- [SQLite](sqlite) and [PostgreSQL](postgres): backend details and type mappings.
+- [SQLite](sqlite), [PostgreSQL](postgres) and [MySQL & MariaDB](mysql): backend details and type mappings.
 - [Migrations](migrations): run SQL scripts as versioned schema changes.

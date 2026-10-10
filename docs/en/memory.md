@@ -1,6 +1,6 @@
 # In-memory engine
 
-`MemoryDb` is a database engine written in pure Rust that keeps every table in memory. It needs no file, no server and no async runtime, it runs the same queries as SQLite and PostgreSQL, and it even works in WebAssembly. It is enabled by default (feature `memory`).
+`MemoryDb` is a database engine written in pure Rust that keeps every table in memory. It needs no file, no server and no async runtime, it runs the same queries as the other backends, and it even works in WebAssembly. It is enabled by default (feature `memory`).
 
 ## When to use it
 
@@ -83,11 +83,13 @@ The engine does not generate or parse SQL. It interprets Memoire's query structu
 | `group_by`, `distinct` | Hash maps |
 | Transactions | Copy-on-write snapshots |
 
+The [Redis](redis) backend evaluates queries with this same engine, and [MongoDB](mongodb) uses it to finish joins, `GROUP BY` and aggregates, so they share its semantics.
+
 > **Note** `#[memoire(index)]` only affects SQL databases. The memory engine keeps hash indexes for the primary key and `unique` columns.
 
 ## SQL semantics
 
-The engine follows SQL rules, so tests on `MemoryDb` behave like production on SQLite or PostgreSQL:
+The engine follows SQL rules, so tests on `MemoryDb` behave like production on the other backends:
 
 - **Three-valued logic:** comparisons with `NULL` are neither true nor false; use `is_null()`.
 - **NULL ordering like PostgreSQL:** NULLs come last in ascending order and first in descending order (`nulls_first()`/`nulls_last()` override this).

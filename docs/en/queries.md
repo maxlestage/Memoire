@@ -190,8 +190,10 @@ Case sensitivity is the same on every backend Memoire runs:
 | SQLite | Case-sensitive (Memoire enables `case_sensitive_like`) | Case-insensitive for ASCII letters only (`LOWER()`) |
 | PostgreSQL | Case-sensitive | Case-insensitive (native `ILIKE`) |
 | MySQL / MariaDB | Case-sensitive (Memoire creates tables with `utf8mb4_bin`) | Case-insensitive (`LOWER()`) |
+| Redis | Case-sensitive (same engine as in-memory) | Case-insensitive (Unicode) |
+| MongoDB | Case-sensitive (anchored regular expression) | Case-insensitive (regular expression with the `i` option, Unicode) |
 
-> **Note** On SQLite, `icontains("émi")` does not match `"Émile"`, because SQLite's `LOWER()` only changes ASCII letters. The memory engine and PostgreSQL handle accented letters.
+> **Note** On SQLite, `icontains("émi")` does not match `"Émile"`, because SQLite's `LOWER()` only changes ASCII letters. All the other backends handle accented letters.
 
 ### Comparing two columns
 
@@ -252,6 +254,9 @@ Databases disagree on where `NULL` values appear when sorting:
 | In-memory engine | NULLs last | NULLs first |
 | PostgreSQL | NULLs last | NULLs first |
 | SQLite | NULLs first | NULLs last |
+| MySQL / MariaDB | NULLs first | NULLs last |
+| Redis | NULLs last | NULLs first |
+| MongoDB | NULLs first | NULLs last |
 
 Make it explicit with `nulls_first()` or `nulls_last()` to get the same result everywhere:
 
@@ -438,7 +443,7 @@ let doubled = User::query().filter(User::SCORE.mul(2.0).gt(Expr::val(5.0))).all(
 
 ## Seeing the SQL
 
-`to_sql(dialect)` renders the query for PostgreSQL, SQLite or MySQL without running it. `to_sql_with_params` also returns the bound values:
+`to_sql(dialect)` renders the query for PostgreSQL, SQLite or MySQL without running it (Redis and MongoDB do not use SQL, but `to_sql` is still a handy way to see what a query means). `to_sql_with_params` also returns the bound values:
 
 ```rust
 let q = User::query()

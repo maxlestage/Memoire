@@ -63,7 +63,7 @@ The examples below use this data:
 
 Comments: "Nice" and "Great" on "Hello", "Hmm" on "Bob's".
 
-> **Note** Foreign keys are enforced by SQLite and PostgreSQL. The in-memory engine accepts the declaration but does not check it and does not cascade deletes, so test cascade behaviour on a SQL backend.
+> **Note** Foreign keys are enforced by SQLite, PostgreSQL and MySQL. The in-memory engine, Redis and MongoDB accept the declaration but do not check it and do not cascade deletes, so test cascade behaviour on a SQL backend.
 
 ## Inner join: rows that have a match
 
@@ -248,7 +248,7 @@ Carol: 0 post(s)
 
 Two queries in total, however many users there are. The same pattern works for any depth: load the comments of all those posts with a third query.
 
-> **Tip** If the list of ids can be very long (tens of thousands), split it into chunks of a few thousand ids, because databases limit how many parameters one statement may have (32,766 on SQLite, 65,535 on PostgreSQL).
+> **Tip** If the list of ids can be very long (tens of thousands), split it into chunks of a few thousand ids, because databases limit how many parameters one statement may have (32,766 on SQLite, 65,535 on PostgreSQL and MySQL).
 
 ## Many-to-many relations
 
@@ -289,8 +289,8 @@ Memoire models have a single-column primary key, so the link table gets its own 
 
 ## Tips and limitations
 
-- **Keep join conditions simple.** A single column equality such as `Post::AUTHOR_ID.eq_col(User::ID)` is the fast path everywhere; the in-memory engine runs it as a hash join. Put the other conditions in `filter`. (For a left join, a condition in `filter` and the same condition in the join condition give different results: the first removes rows, the second only removes matches.)
-- **No self-joins.** A table cannot appear twice in one query (for example "users and their manager, who is also a user"), because Memoire does not generate table aliases. The in-memory engine returns `Error::Unsupported`, and SQL databases reject the statement. Use [raw SQL](raw-sql) with aliases, or two queries.
+- **Keep join conditions simple.** A single column equality such as `Post::AUTHOR_ID.eq_col(User::ID)` is the fast path everywhere; the in-memory engine (also used by Redis) runs it as a hash join, and MongoDB only fetches the documents whose join key matches. Put the other conditions in `filter`. (For a left join, a condition in `filter` and the same condition in the join condition give different results: the first removes rows, the second only removes matches.)
+- **No self-joins.** A table cannot appear twice in one query (for example "users and their manager, who is also a user"), because Memoire does not generate table aliases. The in-memory engine, Redis and MongoDB return `Error::Unsupported`, and SQL databases reject the statement. Use [raw SQL](raw-sql) with aliases on a SQL database, or two queries.
 - **At most five models per tuple.** Joins with `inner_join`/`left_join` return up to five models. `join` (filter only) has no such limit.
 
 ## Next steps

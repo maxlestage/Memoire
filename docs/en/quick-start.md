@@ -322,6 +322,32 @@ The second run found the three tasks saved by the first one: your data now lives
 
 > **Tip** To go back to the in-memory engine (in tests, for example), replace the two lines in `main` with `let db = MemoryDb::new(); db.create_table::<Task>().await?;`. Nothing else changes.
 
+### Using another database
+
+The same `run` function works with every backend. Enable the feature, and change the line that opens the database:
+
+| Database | Feature | Open it in `main` |
+|---|---|---|
+| In-memory | `memory` (default) | `let db = MemoryDb::new();` |
+| SQLite | `sqlite` | `let db = SqliteDb::open("tasks.db")?;` |
+| PostgreSQL | `postgres` | `let db = PgPool::connect("postgres://user:password@localhost/tasks").await?;` |
+| MySQL / MariaDB | `mysql` | `let db = MySqlPool::connect("mysql://user:password@localhost:3306/tasks").await?;` |
+| Redis | `redis` | `let db = RedisDb::connect("redis://127.0.0.1:6379").await?;` |
+| MongoDB | `mongodb` | `let db = MongoDb::connect("mongodb://localhost:27017/tasks").await?;` |
+
+For example, with MongoDB:
+
+```rust
+#[tokio::main]
+async fn main() -> memoire_orm::Result<()> {
+    let db = MongoDb::connect("mongodb://localhost:27017/tasks").await?;
+    db.create_table_if_not_exists::<Task>().await?;
+    run(&db).await
+}
+```
+
+The server backends need a running server; each backend page explains how to start one locally.
+
 ## What you learned
 
 | Task | Code |
