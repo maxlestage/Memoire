@@ -1,3 +1,4 @@
+#![cfg(feature = "memory")]
 mod common;
 
 use memoire_orm::MemoryDb;

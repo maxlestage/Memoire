@@ -57,7 +57,9 @@
 //! | `postgres` | | PostgreSQL backend (`PgPool`, requires Tokio) |
 //! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
 //! | `mysql` | | MySQL / MariaDB backend (`MySqlPool`, requires Tokio) |
+//! | `mysql-tls` | | TLS for MySQL / MariaDB (rustls) |
 //! | `redis` | | Redis backend (`RedisDb`, requires Tokio) |
+//! | `redis-tls` | | TLS for Redis (`rediss://`) |
 //! | `mongodb` | | MongoDB backend (`MongoDb`, requires Tokio) |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
