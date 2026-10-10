@@ -31,7 +31,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TRUNK_VERSION: "0.21.14"
 
 jobs:
   build:
@@ -78,18 +77,28 @@ jobs:
         with:
           workspaces: site
 
-      - name: Install trunk
+      - name: Install wasm-bindgen (the version in site/Cargo.lock)
         if: steps.check.outputs.enabled == 'true'
+        working-directory: site
         run: |
-          curl -sSfL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar -xz -C "$HOME/.cargo/bin"
-          trunk --version
+          v=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$v/wasm-bindgen-$v-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C "$HOME/.cargo/bin"
+          wasm-bindgen --version
 
-      # base_path is "/<repo>" for https://<owner>.github.io/<repo>/, and empty
-      # with a custom domain.
+      # BASE_PATH is "/<repo>" for https://<owner>.github.io/<repo>/, and empty
+      # with a custom domain. Every page is rendered by the site's own server code
+      # (active) and written to a file; the PWA manifest and the service worker too.
       - name: Build the site
         if: steps.check.outputs.enabled == 'true'
-        run: site/build-static.sh "${{ steps.pages.outputs.base_path }}" "${{ steps.pages.outputs.base_url }}"
+        working-directory: site
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+          wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+          cargo run -- export dist-static
 
       - uses: actions/upload-pages-artifact@v4
         if: steps.check.outputs.enabled == 'true'
@@ -113,7 +122,7 @@ jobs:
         env:
           SITE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
-          for page in "" docs/quick-start; do
+          for page in "" en/ fr/docs/quick-start/ es/playground/ en/manifest.webmanifest sw.js; do
             for attempt in $(seq 1 20); do
               code=$(curl -s -o /dev/null -w '%{http_code}' "${SITE_URL}${page}")
               [ "$code" = "200" ] && break

@@ -1,8 +1,10 @@
-# Keep the build context small: site/, server/, docs/ and the ORM crates are needed.
+# Keep the build context small: site/, docs/ and the ORM crates are needed.
 .git
 .github
 **/target
+site/pkg
 site/dist
+site/dist-static
 **/*.br
 **/*.gz
 **/node_modules
@@ -11,4 +13,4 @@ site/dist
 .idea
 .vscode
 
-# Keep docs/ (embedded into the site at compile time), site/, server/ and crates/.
+# Keep docs/ (embedded into the server at compile time), site/ and crates/.

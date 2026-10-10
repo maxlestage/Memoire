@@ -91,14 +91,8 @@ pub const FEATURE_SNIPPETS: [(&str, &str); 8] = [
         "rust",
         "User::query()\n    .filter(User::AGE.ge(18) & User::NAME.contains(\"li\"))\n    .order_by(User::NAME.asc())",
     ),
-    (
-        "rust",
-        "let adults: Vec<User> = User::query()\n    .limit(20)\n    .all(&db)\n    .await?;",
-    ),
-    (
-        "rust",
-        "let db = MemoryDb::new();\n// or SqliteDb::open(\"app.db\")?\n// or PgPool::connect(url).await?",
-    ),
+    ("rust", "let adults: Vec<User> = User::query()\n    .limit(20)\n    .all(&db)\n    .await?;"),
+    ("rust", "let db = MemoryDb::new();\n// or SqliteDb::open(\"app.db\")?\n// or PgPool::connect(url).await?"),
     ("rust", "let db = MemoryDb::new();\ndb.create_table::<User>().await?;"),
     ("rust", "let tx = db.begin().await?;\nalice.update(&tx).await?;\ntx.commit().await?;"),
     (

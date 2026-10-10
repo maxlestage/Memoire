@@ -41,11 +41,34 @@ check is green, then the website is redeployed. Open your pull request as a *dra
 
 ## Website
 
+The website (`site/`) is written with [active](https://github.com/maxlestage/Active): the
+server renders every page, the islands (playground, code tabs, docs search) and the page
+motion run in the browser as WebAssembly, and the site is a PWA (manifest and offline service
+worker). It embeds `docs/{en,fr,es}` at compile time.
+
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-cd site && trunk serve
+cargo install wasm-bindgen-cli --version 0.2.129   # the version in site/Cargo.lock
+cd site
+# Browser bundle (rebuild it after changing an island or src/client/)
+cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+cargo run                                          # http://localhost:8080
+BASE_PATH=/Memoire cargo run -- export dist-static  # the static site, as on GitHub Pages
 ```
+
+Before opening a pull request that touches the site (the CI runs the same):
+
+```bash
+cd site
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
+cargo test        # with pkg/ built: pages, SEO, PWA, static export, docs in every language
+```
+
+To add a documentation page, write `docs/en/<slug>.md`, `docs/fr/<slug>.md` and
+`docs/es/<slug>.md`, then list it in `site/src/docs.rs` and `site/src/server/docs.rs`.
 
 ## License
 

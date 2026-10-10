@@ -136,23 +136,28 @@ API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 crates/memoire-orm/          the ORM (published on crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] and #[derive(FromRow)]
 docs/{en,fr,es}/             documentation (rendered by the website)
-site/                        presentation website — Yew + WebAssembly
-server/                      tiny Rust server that serves the website on Heroku
+site/                        presentation website, written with active (server + WebAssembly islands, PWA)
 Dockerfile, heroku.yml, app.json   one-click Heroku deployment
 .github/workflows/           CI, auto-merge, Heroku and GitHub Pages deployment, crates.io publishing
 ```
 
 ## The website
 
-The presentation site is written in Rust with [Yew](https://yew.rs) and compiled to WebAssembly.
-It includes the full documentation in three languages and a live playground running the
-in-memory engine directly in your browser. Every page is prerendered at build time, so it shows
-in a fraction of a second, before the WebAssembly app has even downloaded.
+The presentation site is written in Rust with [active](https://github.com/maxlestage/Active):
+a small Rust server renders every page (complete SEO tags, in English, French and Spanish),
+and only the interactive parts (the playground, the code tabs, the docs search) wake up in the
+browser as WebAssembly. The playground runs the real in-memory engine in your browser. The site
+is a PWA: install it on your phone's home screen, and once opened it keeps working offline,
+playground included. The same server exports the whole site as static files for GitHub Pages.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-cd site && trunk serve --open
+cargo install wasm-bindgen-cli --version 0.2.129   # the version in site/Cargo.lock
+cd site
+cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+cargo run                                          # http://localhost:8080
+BASE_PATH=/Memoire cargo run -- export dist-static  # static files, as on GitHub Pages
 ```
 
 ## Deploy from your phone 📱

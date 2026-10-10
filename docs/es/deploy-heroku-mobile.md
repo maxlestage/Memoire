@@ -46,7 +46,7 @@ Lo que ocurre entre bastidores:
 
 - `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **container**, un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
 - `heroku.yml` le indica a Heroku que construya el proceso `web` a partir del `Dockerfile` de la raíz del repositorio.
-- El `Dockerfile` compila el sitio web Yew (compilado a WebAssembly con Trunk) y el pequeño servidor web en Rust en una primera etapa, y luego copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
+- El `Dockerfile` compila el sitio web, escrito en Rust con [active](https://github.com/maxlestage/Active), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
 
 > **Nota** El botón despliega el repositorio tal como está en ese momento. Para obtener los cambios posteriores, usa el método 2 o el 3, o vuelve a tocar el botón para crear una aplicación nueva.
 
@@ -112,7 +112,7 @@ A partir de ahí, Heroku construye la imagen a partir de `heroku.yml` y del `Doc
 
 ## GitHub Pages: la opción gratuita
 
-El sitio es una aplicación WebAssembly hecha de archivos estáticos, así que GitHub Pages también puede alojarlo, gratis, en `https://<tu-usuario>.github.io/Memoire/` (para este repositorio: `https://maxlestage.github.io/Memoire/`). Sin cuenta de Heroku y sin secretos: el workflow `.github/workflows/pages.yml` lo compila y lo publica.
+El servidor del sitio también puede escribir cada página, en cada idioma, como archivos estáticos, así que GitHub Pages también puede alojarlo, gratis, en `https://<tu-usuario>.github.io/Memoire/` (para este repositorio: `https://maxlestage.github.io/Memoire/`). Sin cuenta de Heroku y sin secretos: el workflow `.github/workflows/pages.yml` lo compila y lo publica.
 
 Actívalo una sola vez:
 
@@ -127,12 +127,21 @@ A partir de ahí, cada push a `master` que cambie el sitio, la documentación o 
 Qué hace el workflow:
 
 - se omite con el aviso "GitHub Pages deployment skipped" mientras no hayas hecho el paso 2;
-- compila el sitio con `site/build-static.sh`, que lo coloca bajo `/Memoire/` y prerenderiza cada página en su propio archivo HTML (`docs/models`, `playground`...): cada página se muestra antes incluso de que se descargue la aplicación WebAssembly, los enlaces a cualquier página y las recargas funcionan, y las direcciones desconocidas muestran la página «no encontrada» del sitio;
-- publica el sitio y luego comprueba que la página de inicio y una página de la documentación responden.
+- compila el paquete del navegador y luego ejecuta `memoire-site export`, que escribe cada página en su propio archivo HTML bajo `/Memoire/` (`es/docs/models/`, `en/playground/`...), con el índice de búsqueda, el manifiesto de la aplicación web y el service worker: los enlaces a cualquier página y las recargas funcionan, las direcciones antiguas (`docs/models`...) llevan al idioma del visitante y las direcciones desconocidas muestran la página «no encontrada» del sitio;
+- publica el sitio y luego comprueba que las páginas de inicio, una página de la documentación, el playground, el manifiesto y el service worker responden.
 
 GitHub Pages y Heroku son independientes: puedes usar los dos. La única diferencia es que GitHub Pages no puede enviar las cabeceras de seguridad adicionales (como `Content-Security-Policy`) que añade el servidor de Heroku; el sitio funciona igual.
 
 > **Consejo** Para usar tu propio dominio, configúralo en **Settings → Pages → Custom domain** y vuelve a lanzar el workflow: compilará el sitio para la raíz de ese dominio.
+
+## Instalar el sitio en tu móvil
+
+El sitio es una aplicación web progresiva (PWA), esté alojado donde esté (Heroku o GitHub Pages):
+
+- **Android** (Chrome): abre el sitio, toca el menú **⋮** y luego **Instalar aplicación** (o **Añadir a pantalla de inicio**).
+- **iPhone y iPad** (Safari): abre el sitio, toca **Compartir** y luego **Añadir a pantalla de inicio**.
+
+Desde entonces se abre a pantalla completa desde su icono, como una aplicación. Una vez abierta una página, el sitio sigue funcionando sin red: las páginas de inicio, la primera página de la documentación, el playground y todas las páginas que ya leíste se guardan en el dispositivo. El playground no necesita red: el ORM se ejecuta en la página, compilado a WebAssembly. Una nueva versión del sitio reemplaza la guardada en la siguiente visita con red.
 
 ## Cómo un merge desencadena un despliegue
 

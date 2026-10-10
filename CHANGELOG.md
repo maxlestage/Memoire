@@ -6,7 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- The website is rewritten with [active](https://github.com/maxlestage/Active) (it was a
+  client-side WebAssembly app prerendered at build time): a Rust server renders every page
+  with complete SEO tags (title, description, canonical, `hreflang`, Open Graph, Twitter,
+  JSON-LD, sitemap) in English, French and Spanish (`/en/`, `/fr/`, `/es/`), the
+  documentation is rendered on the server with its search, and only the interactive parts
+  (playground, code tabs, docs search, typing tagline) are hydrated in the browser as
+  WebAssembly islands. The playground still
+  runs `memoire-orm`'s in-memory engine in the browser, and on the server for the first
+  render. The old addresses (`/features`, `/docs/models`…) lead to the visitor's language.
+- The site's server (`site/`, binary `memoire-site`) replaces `server/`; `memoire-site
+  export <dir>` writes the static site for GitHub Pages (replacing `site/build-static.sh`).
+  Heroku keeps building the root `Dockerfile`.
+- Fonts are served by the site itself (no request to Google Fonts).
+
 ### Added
+- The website is a PWA: a web app manifest per language and icons, and an offline service
+  worker. Once opened, the site works without network, playground included.
 - `#[memoire(crate = "path")]` struct attribute for `#[derive(Model)]` and
   `#[derive(FromRow)]`: the generated code finds Memoire through `path` instead of
   `::memoire_orm`, so frameworks that re-export it (such as Paquets) work without a

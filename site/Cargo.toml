@@ -1,48 +1,101 @@
 [package]
 name = "memoire-site"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
-description = "Presentation website and documentation for Memoire ORM (Yew + WebAssembly)"
+description = "Presentation website and documentation of Memoire ORM, written with active: server-rendered pages, WebAssembly islands, installable and offline (PWA)."
 license = "MIT OR Apache-2.0"
 
 # Standalone project: not part of the root workspace.
 [workspace]
 
+# The library holds what both sides share: texts, routes, documentation titles, search
+# and the islands (the playground runs the real ORM). Compiled to WebAssembly it is the
+# browser bundle. The binary is the web server, and `memoire-site export <dir>` writes
+# the whole site as static files (GitHub Pages).
+[lib]
+name = "memoire_site"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "memoire-site"
+path = "src/main.rs"
+
 [dependencies]
-yew = { version = "0.23.0", features = ["csr"] }
-yew-router = "0.20.0"
-# gloo 0.11 is the version yew 0.23 already depends on: using the same one avoids
-# shipping two copies of gloo in the .wasm.
-gloo = { version = "0.11", default-features = false, features = ["events", "timers"] }
-wasm-bindgen = "0.2.129"
-wasm-bindgen-futures = "0.4"
-js-sys = "0.3"
-pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
-# The real ORM, compiled to WebAssembly for the playground (in-memory engine).
+active = { git = "https://github.com/maxlestage/Active" }
+# The real ORM: run by the playground in the browser (WebAssembly) and on the server,
+# which renders the playground's first results.
 memoire-orm = { path = "../crates/memoire-orm", default-features = false, features = ["memory"] }
 
-# Native build only: the prerenderer (`cargo run -- prerender <dist>`) renders
-# every page to HTML at build time with Yew's server renderer.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-yew = { version = "0.23.0", features = ["csr", "ssr"] }
-tokio = { version = "1", features = ["rt"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "tracing"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["compression-br", "compression-gzip", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+# Static files are compressed once (brotli, gzip), not on every request.
+brotli = "9"
+flate2 = "1"
+# Content-Security-Policy: hashes of the inline scripts of each page.
+sha2 = "0.10"
+base64 = "0.22"
 
-[dependencies.web-sys]
-version = "0.3.106"
-features = [
-  "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "CanvasRenderingContext2d",
-  "Node", "NodeList", "DomRect", "DomTokenList", "CssStyleDeclaration", "Event", "EventTarget",
-  "MouseEvent", "PointerEvent", "KeyboardEvent", "InputEvent", "HtmlInputElement", "HtmlSelectElement",
-  "IntersectionObserver", "IntersectionObserverEntry", "IntersectionObserverInit",
-  "MediaQueryList", "Navigator", "Clipboard", "Storage", "Location", "History",
-  "ScrollToOptions", "ScrollBehavior", "ScrollIntoViewOptions", "ScrollLogicalPosition",
-  "Performance", "VisibilityState", "HtmlCollection", "Text", "HtmlTextAreaElement", "Response"
-]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+active = { git = "https://github.com/maxlestage/Active", features = ["client"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+  "AddEventListenerOptions",
+  "CanvasRenderingContext2d",
+  "Clipboard",
+  "CssStyleDeclaration",
+  "Document",
+  "DomRect",
+  "DomTokenList",
+  "Element",
+  "EventTarget",
+  "HtmlCanvasElement",
+  "HtmlDocument",
+  "HtmlElement",
+  "HtmlInputElement",
+  "IntersectionObserver",
+  "IntersectionObserverEntry",
+  "IntersectionObserverInit",
+  "KeyboardEvent",
+  "Location",
+  "MediaQueryList",
+  "MouseEvent",
+  "Navigator",
+  "NodeList",
+  "Performance",
+  "PointerEvent",
+  "Response",
+  "ScrollBehavior",
+  "ScrollIntoViewOptions",
+  "ScrollLogicalPosition",
+  "ScrollToOptions",
+  "Storage",
+  "Window",
+] }
 
-[profile.release]
+[dev-dependencies]
+serde_json = "1"
+
+# Browser bundle: `cargo build --lib --target wasm32-unknown-unknown --profile wasm-release`.
+[profile.wasm-release]
+inherits = "release"
 opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true
+
+# Server.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
 strip = true

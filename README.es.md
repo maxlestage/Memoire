@@ -136,23 +136,29 @@ Referencia de la API: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 crates/memoire-orm/          el ORM (publicado en crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] y #[derive(FromRow)]
 docs/{en,fr,es}/             documentación (mostrada por el sitio web)
-site/                        sitio de presentación — Yew + WebAssembly
-server/                      pequeño servidor Rust que sirve el sitio en Heroku
+site/                        sitio de presentación, escrito con active (servidor + islas WebAssembly, PWA)
 Dockerfile, heroku.yml, app.json   despliegue en Heroku con un clic
 .github/workflows/           CI, fusión automática, despliegue en Heroku y GitHub Pages, publicación en crates.io
 ```
 
 ## El sitio web
 
-El sitio de presentación está escrito en Rust con [Yew](https://yew.rs) y compilado a WebAssembly.
-Incluye toda la documentación en tres idiomas y un playground que ejecuta el motor en memoria
-directamente en tu navegador. Cada página se prerenderiza al compilar, así que aparece en una
-fracción de segundo, antes incluso de que se descargue la aplicación WebAssembly.
+El sitio de presentación está escrito en Rust con [active](https://github.com/maxlestage/Active):
+un pequeño servidor Rust renderiza cada página (etiquetas SEO completas, en inglés, francés y
+español), y solo las partes interactivas (el playground, las pestañas de código, la búsqueda en
+la documentación) se activan en el navegador como WebAssembly. El playground ejecuta el motor en
+memoria real en tu navegador. El sitio es una PWA: instálalo en la pantalla de inicio de tu
+móvil; una vez abierto, sigue funcionando sin conexión, playground incluido. El mismo servidor
+exporta todo el sitio como archivos estáticos para GitHub Pages.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-cd site && trunk serve --open
+cargo install wasm-bindgen-cli --version 0.2.129   # la versión de site/Cargo.lock
+cd site
+cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+cargo run                                          # http://localhost:8080
+BASE_PATH=/Memoire cargo run -- export dist-static  # archivos estáticos, como en GitHub Pages
 ```
 
 ## Desplegar desde el móvil 📱

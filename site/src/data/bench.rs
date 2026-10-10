@@ -79,7 +79,11 @@ pub const BENCHMARKS: &[BenchEntry] = &[
         baseline: 308.0,
     },
     BenchEntry {
-        label: ["Find by primary key (SQLite)", "Recherche par clé primaire (SQLite)", "Búsqueda por clave primaria (SQLite)"],
+        label: [
+            "Find by primary key (SQLite)",
+            "Recherche par clé primaire (SQLite)",
+            "Búsqueda por clave primaria (SQLite)",
+        ],
         value: 961.0,
         unit: "ns",
         baseline: 746.0,
@@ -95,7 +99,11 @@ pub const BENCHMARKS: &[BenchEntry] = &[
         baseline: 0.0,
     },
     BenchEntry {
-        label: ["Build & render a SELECT to SQL", "Construire et rendre un SELECT en SQL", "Construir y renderizar un SELECT a SQL"],
+        label: [
+            "Build & render a SELECT to SQL",
+            "Construire et rendre un SELECT en SQL",
+            "Construir y renderizar un SELECT a SQL",
+        ],
         value: 446.0,
         unit: "ns",
         baseline: 0.0,
