@@ -51,6 +51,13 @@ jobs:
             echo "GitHub Pages: ${build_type}"
             echo "::notice title=GitHub Pages deployment skipped::Turn GitHub Pages on once: Settings → Pages → Build and deployment → Source: GitHub Actions (see docs/en/deploy-heroku-mobile.md)."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### ⚠️ Not deployed: GitHub Pages is not turned on yet"
+              echo
+              echo "1. Open https://github.com/${GITHUB_REPOSITORY}/settings/pages"
+              echo "2. Under **Build and deployment → Source**, choose **GitHub Actions**."
+              echo "3. Run this workflow again: **Actions → Deploy to GitHub Pages → Run workflow**."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - uses: actions/checkout@v5
