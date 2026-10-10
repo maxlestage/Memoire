@@ -24,15 +24,15 @@
 | ⚡ **Compile-time SQL** | `#[derive(Model)]` renders every primary-key statement (`find`, `insert`, `update`, `delete`, `upsert`) for PostgreSQL, SQLite and MySQL while your code compiles. |
 | 🛡️ **Type-safe queries** | `User::AGE.gt(18)` compiles, `User::AGE.gt("18")` does not. Combine conditions with `&`, `\|` and `!`. |
 | 🧬 **Zero-cost row mapping** | Rows are decoded by position in a single pass; values are moved, never cloned. |
-| 🗄️ **One API, three backends** | A pure-Rust in-memory engine (runs in WebAssembly!), SQLite and PostgreSQL. |
+| 🗄️ **SQL and NoSQL, one API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
 | 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, normalised errors. |
-| 🦀 **Safe** | `#![forbid(unsafe_code)]`, tested against every backend with the same suite. |
+| 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
 
 ## Quick look
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] }   # or "postgres", "full"
+memoire-orm = { version = "0.1", features = ["sqlite"] }   # or "postgres", "mysql", "redis", "mongodb", "full"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -52,7 +52,7 @@ pub struct User {
 
 #[tokio::main]
 async fn main() -> memoire_orm::Result<()> {
-    let db = SqliteDb::open("app.db")?;          // MemoryDb::new(), PgPool::connect(url).await?
+    let db = SqliteDb::open("app.db")?;          // or MemoryDb, PgPool, MySqlPool, RedisDb, MongoDb
     db.create_table_if_not_exists::<User>().await?;
 
     let mut alice = User { id: 0, email: "alice@rust.dev".into(), name: "Alice".into(), age: Some(31) };
@@ -68,6 +68,17 @@ async fn main() -> memoire_orm::Result<()> {
     Ok(())
 }
 ```
+
+Supported backends (one feature each):
+
+| Backend | Feature | Handle | Notes |
+|---|---|---|---|
+| In-memory | `memory` (default) | `MemoryDb::new()` | pure Rust, runs in WebAssembly, perfect for tests |
+| SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embedded, nothing to install |
+| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
+| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 5.7/8+, MariaDB 10.3+ |
+| Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL key-value, rows stored as JSON |
+| MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documents, real transactions on replica sets |
 
 Run the examples:
 
@@ -103,8 +114,8 @@ The full guide lives in [`docs/`](docs/en) (English, [French](docs/fr), [Spanish
 | [Introduction](docs/en/introduction.md) | [Models](docs/en/models.md) | [In-memory](docs/en/memory.md) | [Why it's fast](docs/en/performance.md) |
 | [Installation](docs/en/installation.md) | [Query builder](docs/en/queries.md) | [SQLite](docs/en/sqlite.md) | [Benchmarks](docs/en/benchmarks.md) |
 | [Quick start](docs/en/quick-start.md) | [CRUD](docs/en/crud.md) | [PostgreSQL](docs/en/postgres.md) | [Deploy from your phone](docs/en/deploy-heroku-mobile.md) |
-| | [Joins & relations](docs/en/relations.md) | [MySQL dialect](docs/en/mysql.md) | [Publish to crates.io](docs/en/publish-crates-io.md) |
-| | [Transactions](docs/en/transactions.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) |
+| | [Joins & relations](docs/en/relations.md) | [MySQL & MariaDB](docs/en/mysql.md) | [Publish to crates.io](docs/en/publish-crates-io.md) |
+| | [Transactions](docs/en/transactions.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) |
 
 API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 
@@ -145,8 +156,8 @@ Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobi
 
 ## Automation
 
-- **CI** (`ci.yml`): formatting, clippy, tests on the memory, SQLite **and** PostgreSQL backends,
-  WebAssembly build, website build.
+- **CI** (`ci.yml`): formatting, clippy, the same test suite on **all six backends** (memory, SQLite,
+  PostgreSQL, MySQL/MariaDB, Redis, MongoDB), every feature on its own, WebAssembly build, website build.
 - **Auto-merge** (`ci.yml`): pull requests to `master` are merged automatically as soon as CI is green
   (and the Heroku deployment is triggered).
 - **Deploy** (`deploy-heroku.yml`): every push to `master` deploys the website to Heroku.

@@ -9,8 +9,10 @@
 //!   does not. Combine conditions with `&`, `|` and `!`.
 //! * **Zero-cost row mapping** — rows are decoded by position in one pass, values
 //!   are moved (never cloned) into your structs, parameters are borrowed.
-//! * **Several backends, one API** — [`MemoryDb`] (pure Rust, runs in WebAssembly),
-//!   `SqliteDb` (feature `sqlite`) and `PgPool` (feature `postgres`).
+//! * **SQL and NoSQL, one API** — [`MemoryDb`] (pure Rust, runs in WebAssembly),
+//!   `SqliteDb` (`sqlite`), `PgPool` (`postgres`), `MySqlPool` (`mysql`),
+//!   `RedisDb` (`redis`) and `MongoDb` (`mongodb`). The same test suite passes on
+//!   all of them.
 //! * **Transactions, migrations, joins, aggregates, pagination, upserts.**
 //! * `#![forbid(unsafe_code)]`.
 //!
@@ -31,7 +33,7 @@
 //! }
 //!
 //! # memoire_orm::block_on(async {
-//! let db = MemoryDb::new(); // or SqliteDb::open("app.db")?, PgPool::connect(url).await?
+//! let db = MemoryDb::new(); // or SqliteDb, PgPool, MySqlPool, RedisDb, MongoDb
 //! db.create_table::<User>().await?;
 //!
 //! let mut alice = User { id: 0, email: "alice@rust.dev".into(), name: "Alice".into(), age: Some(31) };

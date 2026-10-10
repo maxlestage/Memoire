@@ -24,15 +24,15 @@
 | ⚡ **SQL generado en compilación** | `#[derive(Model)]` genera todas las sentencias por clave primaria (`find`, `insert`, `update`, `delete`, `upsert`) para PostgreSQL, SQLite y MySQL mientras tu código compila. |
 | 🛡️ **Consultas con tipado seguro** | `User::AGE.gt(18)` compila, `User::AGE.gt("18")` no. Combina condiciones con `&`, `\|` y `!`. |
 | 🧬 **Mapeo sin sobrecoste** | Las filas se decodifican por posición en una sola pasada; los valores se mueven, nunca se copian. |
-| 🗄️ **Una API, tres motores** | Un motor en memoria 100 % Rust (¡que funciona incluso en WebAssembly!), SQLite y PostgreSQL. |
+| 🗄️ **SQL y NoSQL, una sola API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria 100 % Rust (¡que funciona incluso en WebAssembly!). |
 | 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, errores unificados. |
-| 🦀 **Seguro** | `#![forbid(unsafe_code)]`, probado en cada motor con la misma batería de pruebas. |
+| 🦀 **Seguro** | `#![forbid(unsafe_code)]`, la misma batería de pruebas pasa en los seis motores. |
 
 ## Vistazo rápido
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] }   # o "postgres", "full"
+memoire-orm = { version = "0.1", features = ["sqlite"] }   # o "postgres", "mysql", "redis", "mongodb", "full"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -52,7 +52,7 @@ pub struct User {
 
 #[tokio::main]
 async fn main() -> memoire_orm::Result<()> {
-    let db = SqliteDb::open("app.db")?;          // MemoryDb::new(), PgPool::connect(url).await?
+    let db = SqliteDb::open("app.db")?;          // o MemoryDb, PgPool, MySqlPool, RedisDb, MongoDb
     db.create_table_if_not_exists::<User>().await?;
 
     let mut alice = User { id: 0, email: "alice@rust.dev".into(), name: "Alice".into(), age: Some(31) };
@@ -68,6 +68,17 @@ async fn main() -> memoire_orm::Result<()> {
     Ok(())
 }
 ```
+
+Motores compatibles (una feature cada uno):
+
+| Motor | Feature | Conexión | Notas |
+|---|---|---|---|
+| En memoria | `memory` (por defecto) | `MemoryDb::new()` | 100 % Rust, funciona en WebAssembly, ideal para pruebas |
+| SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embebido, nada que instalar |
+| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
+| MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 5.7/8+, MariaDB 10.3+ |
+| Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL clave-valor, filas guardadas en JSON |
+| MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documentos, transacciones reales en replica sets |
 
 Ejecutar los ejemplos:
 
@@ -103,8 +114,8 @@ La guía completa está en [`docs/es`](docs/es) (también en [inglés](docs/en) 
 | [Introducción](docs/es/introduction.md) | [Modelos](docs/es/models.md) | [En memoria](docs/es/memory.md) | [Por qué es rápido](docs/es/performance.md) |
 | [Instalación](docs/es/installation.md) | [Constructor de consultas](docs/es/queries.md) | [SQLite](docs/es/sqlite.md) | [Benchmarks](docs/es/benchmarks.md) |
 | [Inicio rápido](docs/es/quick-start.md) | [CRUD](docs/es/crud.md) | [PostgreSQL](docs/es/postgres.md) | [Desplegar desde el móvil](docs/es/deploy-heroku-mobile.md) |
-| | [Uniones y relaciones](docs/es/relations.md) | [Dialecto MySQL](docs/es/mysql.md) | [Publicar en crates.io](docs/es/publish-crates-io.md) |
-| | [Transacciones](docs/es/transactions.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) |
+| | [Uniones y relaciones](docs/es/relations.md) | [MySQL y MariaDB](docs/es/mysql.md) | [Publicar en crates.io](docs/es/publish-crates-io.md) |
+| | [Transacciones](docs/es/transactions.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) |
 
 Referencia de la API: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 
@@ -145,8 +156,8 @@ Guía paso a paso: [docs/es/deploy-heroku-mobile.md](docs/es/deploy-heroku-mobil
 
 ## Automatización
 
-- **CI** (`ci.yml`): formato, clippy, pruebas en los motores en memoria, SQLite **y** PostgreSQL,
-  compilación WebAssembly, compilación del sitio.
+- **CI** (`ci.yml`): formato, clippy, la misma batería de pruebas en **los seis motores** (memoria, SQLite,
+  PostgreSQL, MySQL/MariaDB, Redis, MongoDB), cada feature por separado, compilación WebAssembly, compilación del sitio.
 - **Fusión automática** (`ci.yml`): las pull requests hacia `master` se fusionan automáticamente en cuanto la CI
   está en verde (y se lanza el despliegue en Heroku).
 - **Despliegue** (`deploy-heroku.yml`): cada push a `master` despliega el sitio en Heroku.
