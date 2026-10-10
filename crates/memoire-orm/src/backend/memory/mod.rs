@@ -30,19 +30,55 @@ use eval::{Ctx, Group, Key, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
 type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 type Set<K> = HashSet<K, foldhash::fast::RandomState>;
 
+/// Checks the width of a row and its `NOT NULL` constraints.
+pub(crate) fn validate_row(schema: &TableSchema, row: &[Value]) -> Result<()> {
+    if row.len() != schema.columns.len() {
+        return Err(Error::Conversion(format!(
+            "`{}` expects {} values, got {}",
+            schema.name,
+            schema.columns.len(),
+            row.len()
+        )));
+    }
+    for (c, v) in schema.columns.iter().zip(row) {
+        if v.is_null() && !c.nullable && !c.auto_increment {
+            return Err(Error::Constraint(format!(
+                "NULL value in column `{}.{}` violates the NOT NULL constraint",
+                schema.name, c.name
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
-struct Table {
-    schema: &'static TableSchema,
-    rows: Vec<Vec<Value>>,
+pub(crate) struct Table {
+    pub(crate) schema: &'static TableSchema,
+    pub(crate) rows: Vec<Vec<Value>>,
     pk: Map<Key, usize>,
     /// `(column index, value -> row)` for `UNIQUE` columns.
     uniques: Vec<(usize, Map<Key, usize>)>,
-    next_id: i64,
+    pub(crate) next_id: i64,
     version: u64,
 }
 
 impl Table {
-    fn new(schema: &'static TableSchema, version: u64) -> Self {
+    /// Builds a table from existing rows (used by the Redis and MongoDB
+    /// backends to evaluate queries on loaded data).
+    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    pub(crate) fn from_rows(schema: &'static TableSchema, rows: Vec<Vec<Value>>, last_id: i64) -> Self {
+        let mut t = Table::new(schema, 0);
+        t.rows = rows;
+        t.rebuild_indexes();
+        t.next_id = last_id.saturating_add(1).max(1);
+        for i in 0..t.rows.len() {
+            let key = t.rows[i][schema.primary_key].clone();
+            t.bump_next_id(&key);
+        }
+        t
+    }
+
+    pub(crate) fn new(schema: &'static TableSchema, version: u64) -> Self {
         Table {
             schema,
             rows: Vec::new(),
@@ -81,24 +117,7 @@ impl Table {
     }
 
     fn check_row(&self, row: &[Value]) -> Result<()> {
-        if row.len() != self.schema.columns.len() {
-            return Err(Error::Conversion(format!(
-                "`{}` expects {} values, got {}",
-                self.name(),
-                self.schema.columns.len(),
-                row.len()
-            )));
-        }
-        for (c, v) in self.schema.columns.iter().zip(row) {
-            if v.is_null() && !c.nullable {
-                return Err(Error::Constraint(format!(
-                    "NULL value in column `{}.{}` violates the NOT NULL constraint",
-                    self.name(),
-                    c.name
-                )));
-            }
-        }
-        Ok(())
+        validate_row(self.schema, row)
     }
 
     fn index_row(&mut self, idx: usize) {
@@ -140,7 +159,7 @@ impl Table {
     }
 
     /// Inserts a row; generates the key when `generate` is set.
-    fn insert(&mut self, mut row: Vec<Value>, generate: bool) -> Result<Value> {
+    pub(crate) fn insert(&mut self, mut row: Vec<Value>, generate: bool) -> Result<Value> {
         let pk = self.schema.primary_key;
         if generate && self.schema.auto_increment() {
             row.get_mut(pk)
@@ -232,7 +251,7 @@ impl Table {
         Ok(n)
     }
 
-    fn remove_rows(&mut self, mut idxs: Vec<usize>) -> u64 {
+    pub(crate) fn remove_rows(&mut self, mut idxs: Vec<usize>) -> u64 {
         if idxs.is_empty() {
             return 0;
         }
@@ -267,12 +286,32 @@ impl Table {
 }
 
 #[derive(Clone, Default)]
-struct State {
+pub(crate) struct State {
     tables: Map<String, Arc<Table>>,
     clock: u64,
 }
 
 impl State {
+    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    pub(crate) fn put(&mut self, table: Table) {
+        self.tables.insert(table.schema.name.to_owned(), Arc::new(table));
+    }
+
+    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    pub(crate) fn get(&self, name: &str) -> Option<&Table> {
+        self.tables.get(name).map(|t| &**t)
+    }
+
+    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    pub(crate) fn get_mut(&mut self, name: &str) -> Option<&mut Table> {
+        self.tables.get_mut(name).map(Arc::make_mut)
+    }
+
+    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    pub(crate) fn remove(&mut self, name: &str) -> bool {
+        self.tables.remove(name).is_some()
+    }
+
     fn table(&self, name: &str) -> Result<&Table> {
         self.tables.get(name).map(|t| &**t).ok_or_else(|| Error::NoSuchTable(name.to_owned()))
     }
@@ -695,7 +734,7 @@ fn delete(state: &mut State, d: &DeleteAst) -> Result<u64> {
     Ok(state.table_mut(d.table.name)?.remove_rows(idxs))
 }
 
-fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
+pub(crate) fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
     let t = state.table_mut(ins.table.name)?;
     // All or nothing: validate on a scratch copy only if a row fails.
     let snapshot_len = t.rows.len();
@@ -713,7 +752,7 @@ fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
 }
 
 /// Executes a write statement. Returns the result and the written table.
-fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, Option<String>)> {
+pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, Option<String>)> {
     let done =
         |n: u64, table: &str| Ok((ExecResult { rows_affected: n, last_insert_id: None }, Some(table.to_owned())));
     match *q {
@@ -787,7 +826,7 @@ fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, Option<Strin
     }
 }
 
-fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
+pub(crate) fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
     match *q {
         Query::Select(s) => select(state, s),
         Query::FindByKey { table, key } => {
@@ -801,7 +840,7 @@ fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
     }
 }
 
-fn decode<O: FromRow>(rows: Vec<Vec<Value>>) -> Result<Vec<O>> {
+pub(crate) fn decode<O: FromRow>(rows: Vec<Vec<Value>>) -> Result<Vec<O>> {
     rows.into_iter().map(|r| O::from_row(&mut ValueRow(r), 0)).collect()
 }
 

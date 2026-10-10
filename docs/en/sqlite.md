@@ -116,7 +116,7 @@ SQLite has only a few storage types, so Memoire converts richer Rust types:
 
 Reading converts back automatically, so your structs always get proper Rust types.
 
-> **Warning** Text values are compared as text. `NaiveDateTime` is written so that text order matches time order, but `DateTime<Utc>` is written with a variable number of fractional digits followed by `Z`, so filters such as `gt` and `order_by` on a `DateTime<Utc>` column can give a wrong order when values have different sub-second precision. On SQLite, prefer `NaiveDateTime` (holding UTC times) for timestamp columns you filter or sort on, or store whole seconds.
+> **Note** Dates and times are stored as fixed-width ISO 8601 text (nanosecond precision, `Z` suffix for `DateTime<Utc>`), so text order matches time order: `gt`, `between` and `order_by` work on every date/time column.
 
 ### Auto-increment keys
 
