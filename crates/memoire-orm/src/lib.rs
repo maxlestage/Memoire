@@ -58,6 +58,7 @@
 //! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
 //! | `mysql` | | MySQL / MariaDB backend (`MySqlPool`, requires Tokio) |
 //! | `redis` | | Redis backend (`RedisDb`, requires Tokio) |
+//! | `mongodb` | | MongoDB backend (`MongoDb`, requires Tokio) |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |
@@ -102,6 +103,8 @@ pub use memoire_orm_derive::{FromRow, Model};
 
 #[cfg(feature = "memory")]
 pub use backend::memory::{MemoryDb, MemoryTransaction};
+#[cfg(feature = "mongodb")]
+pub use backend::mongodb::{MongoDb, MongoTransaction};
 #[cfg(feature = "mysql")]
 pub use backend::mysql::{MySqlPool, MySqlTransaction};
 #[cfg(feature = "postgres")]
@@ -117,6 +120,8 @@ pub mod prelude {
     pub use crate::Json;
     #[cfg(feature = "memory")]
     pub use crate::MemoryDb;
+    #[cfg(feature = "mongodb")]
+    pub use crate::MongoDb;
     #[cfg(feature = "mysql")]
     pub use crate::MySqlPool;
     #[cfg(feature = "postgres")]

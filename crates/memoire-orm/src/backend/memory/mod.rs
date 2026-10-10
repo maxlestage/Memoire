@@ -26,6 +26,8 @@ use crate::schema::{Dialect, TableSchema};
 use crate::value::Value;
 
 use eval::{Ctx, Group, Key, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
+#[cfg(feature = "mongodb")]
+pub(crate) use eval::{Tok as LikeTok, tokenize as like_tokens};
 
 type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 type Set<K> = HashSet<K, foldhash::fast::RandomState>;
@@ -302,12 +304,12 @@ impl State {
         self.tables.get(name).map(|t| &**t)
     }
 
-    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    #[cfg_attr(not(feature = "redis"), allow(dead_code))]
     pub(crate) fn get_mut(&mut self, name: &str) -> Option<&mut Table> {
         self.tables.get_mut(name).map(Arc::make_mut)
     }
 
-    #[cfg_attr(not(any(feature = "redis", feature = "mongodb")), allow(dead_code))]
+    #[cfg_attr(not(feature = "redis"), allow(dead_code))]
     pub(crate) fn remove(&mut self, name: &str) -> bool {
         self.tables.remove(name).is_some()
     }
