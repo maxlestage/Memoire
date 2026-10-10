@@ -13,8 +13,9 @@
   does not. Combine conditions with `&`, `|` and `!`.
 - **Zero-cost row mapping** — rows are decoded by position in one pass and values
   are moved (never cloned) into your structs.
-- **One API, several backends** — an in-memory engine written in pure Rust (it even
-  runs in WebAssembly), SQLite and PostgreSQL.
+- **SQL and NoSQL, one API** — PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and
+  an in-memory engine written in pure Rust (it even runs in WebAssembly). The same test
+  suite passes on all six.
 - **Batteries included** — transactions, migrations, joins, aggregates,
   `GROUP BY`, pagination, upserts, normalised errors.
 - `#![forbid(unsafe_code)]`.
@@ -23,7 +24,7 @@
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "full"
+memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "mysql", "redis", "mongodb", "full"
 ```
 
 | Feature | Default | What you get |
@@ -32,6 +33,9 @@ memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "full"
 | `sqlite` | | `SqliteDb` (SQLite is compiled in, nothing to install) |
 | `postgres` | | `PgPool` (tokio-postgres + connection pool, needs Tokio) |
 | `postgres-tls` | | TLS for PostgreSQL with rustls (`sslmode=require`, `verify-full`…) — Heroku Postgres |
+| `mysql` / `mysql-tls` | | `MySqlPool` for MySQL 5.7/8+ and MariaDB 10.3+ (mysql_async) |
+| `redis` / `redis-tls` | | `RedisDb`: NoSQL key-value store, rows as JSON, atomic Lua writes |
+| `mongodb` | | `MongoDb`: NoSQL documents, filters run in MongoDB, real transactions |
 | `chrono` / `uuid` / `json` | | date-time, UUID and JSON column types |
 | `full` | | everything |
 
@@ -53,7 +57,7 @@ pub struct User {
 
 #[tokio::main]
 async fn main() -> memoire_orm::Result<()> {
-    let db = MemoryDb::new(); // or SqliteDb::open("app.db")?, PgPool::connect(url).await?
+    let db = MemoryDb::new(); // or SqliteDb, PgPool, MySqlPool, RedisDb, MongoDb
     db.create_table::<User>().await?;
 
     let mut alice = User { id: 0, email: "alice@rust.dev".into(), name: "Alice".into(), age: Some(31) };
