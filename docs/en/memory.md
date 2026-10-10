@@ -75,17 +75,18 @@ The engine does not generate or parse SQL. It interprets Memoire's query structu
 | Operation | Strategy |
 |---|---|
 | `find`, `get`, `update`, `delete` by key | Hash index on the primary key: constant time |
-| Filters such as `eq` or `is_in` on the primary key or a `unique` column | Hash index lookup instead of a full scan |
-| Other filters | One pass over the rows, with the condition compiled once per query (column positions resolved in advance, long `IN` lists turned into hash sets, `LIKE` patterns pre-analysed) |
-| Joins on `a.column = b.column` | Hash join (or a direct lookup when the joined column is a key or `unique`) |
+| Filters such as `eq` or `is_in` on the primary key, a `unique` or an `index` column | Hash index lookup instead of a full scan |
+| Other filters | A vectorised pass: the condition is split into its `AND` terms and each one filters the rows with a loop specialised for its column and constant; numeric columns are read from a contiguous typed copy (about 1 ns per row). Other conditions (`OR`, `LIKE`, functions...) are compiled once per query |
+| Joins on `a.column = b.column` | Hash join (or a direct lookup when the joined column is a key, `unique` or `index`) |
 | Other join conditions | Nested loop |
-| `order_by` + `limit` | Partial selection of the top rows instead of sorting everything |
+| `order_by` + `limit` | Partial selection of the top rows on packed integer keys, instead of sorting everything |
+| `count` | Counts the matching rows without building them |
 | `group_by`, `distinct` | Hash maps |
 | Transactions | Copy-on-write snapshots |
 
 The [Redis](redis) backend evaluates queries with this same engine, and [MongoDB](mongodb) uses it to finish joins, `GROUP BY` and aggregates, so they share its semantics.
 
-> **Note** `#[memoire(index)]` creates a real index on SQL databases and MongoDB, but the memory engine ignores it: it keeps hash indexes for the primary key and `unique` columns only.
+> **Note** `#[memoire(index)]` columns get a hash index here too, as on SQL databases and MongoDB. The indexes store row positions only, so keys are never copied.
 
 ## SQL semantics
 

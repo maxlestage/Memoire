@@ -1502,6 +1502,7 @@ dependencies = [
  "criterion",
  "deadpool-postgres",
  "foldhash",
+ "hashbrown 0.16.1",
  "memoire-orm-derive",
  "mongodb",
  "mysql_async",

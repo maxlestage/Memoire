@@ -75,17 +75,18 @@ Le moteur ne génère ni n'analyse de SQL. Il interprète directement les struct
 | Opération | Stratégie |
 |---|---|
 | `find`, `get`, `update`, `delete` par clé | Index de hachage sur la clé primaire : temps constant |
-| Filtres comme `eq` ou `is_in` sur la clé primaire ou sur une colonne `unique` | Recherche dans l'index de hachage au lieu d'un parcours complet |
-| Autres filtres | Une seule passe sur les lignes, avec une condition compilée une fois par requête (positions des colonnes résolues à l'avance, longues listes `IN` transformées en hash sets, motifs `LIKE` pré-analysés) |
-| Jointures sur `a.column = b.column` | Hash join (ou recherche directe quand la colonne jointe est une clé ou une colonne `unique`) |
+| Filtres comme `eq` ou `is_in` sur la clé primaire, une colonne `unique` ou `index` | Recherche dans l'index de hachage au lieu d'un parcours complet |
+| Autres filtres | Une passe vectorisée : la condition est découpée en ses termes `AND`, et chacun filtre les lignes avec une boucle spécialisée pour sa colonne et sa constante ; les colonnes numériques sont lues dans une copie typée contiguë (environ 1 ns par ligne). Les autres conditions (`OR`, `LIKE`, fonctions…) sont compilées une fois par requête |
+| Jointures sur `a.column = b.column` | Hash join (ou recherche directe quand la colonne jointe est une clé, une colonne `unique` ou `index`) |
 | Autres conditions de jointure | Boucles imbriquées |
-| `order_by` + `limit` | Sélection partielle des premières lignes au lieu de tout trier |
+| `order_by` + `limit` | Sélection partielle des premières lignes sur des clés entières compactes, au lieu de tout trier |
+| `count` | Compte les lignes qui correspondent sans les construire |
 | `group_by`, `distinct` | Tables de hachage |
 | Transactions | Snapshots en copy-on-write |
 
 Le backend [Redis](redis) évalue les requêtes avec ce même moteur, et [MongoDB](mongodb) l'utilise pour terminer les jointures, les `GROUP BY` et les agrégats : ils partagent donc sa sémantique.
 
-> **Remarque** `#[memoire(index)]` crée un vrai index sur les bases de données SQL et sur MongoDB, mais le moteur en mémoire l'ignore : il maintient des index de hachage uniquement pour la clé primaire et les colonnes `unique`.
+> **Remarque** Les colonnes `#[memoire(index)]` ont ici aussi un index de hachage, comme sur les bases de données SQL et MongoDB. Les index ne stockent que des positions de lignes : les clés ne sont jamais copiées.
 
 ## Sémantique SQL
 

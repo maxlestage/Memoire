@@ -5,7 +5,6 @@
 //! at compile time by `#[derive(Model)]`.
 
 use std::borrow::Cow;
-use std::fmt::Write as _;
 
 use crate::ast::{DeleteAst, InsertAst, JoinKind, Projection, Query, SelectAst, UpdateAst};
 use crate::error::{Error, Result};
@@ -33,13 +32,33 @@ impl Rendered<'_> {
 pub fn quote_ident(dialect: Dialect, ident: &str, out: &mut String) {
     let q = if dialect == Dialect::MySql { '`' } else { '"' };
     out.push(q);
-    for c in ident.chars() {
-        if c == q {
-            out.push(q);
+    if ident.contains(q) {
+        for c in ident.chars() {
+            if c == q {
+                out.push(q);
+            }
+            out.push(c);
         }
-        out.push(c);
+    } else {
+        out.push_str(ident);
     }
     out.push(q);
+}
+
+/// Appends `n` in decimal (placeholders: `$12`), without the formatting machinery.
+#[inline]
+fn push_number(out: &mut String, mut n: u64) {
+    let mut digits = [0u8; 20];
+    let mut at = digits.len();
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    out.push_str(std::str::from_utf8(&digits[at..]).unwrap_or_default());
 }
 
 struct Writer<'a> {
@@ -50,7 +69,7 @@ struct Writer<'a> {
 
 impl<'a> Writer<'a> {
     fn new(d: Dialect, capacity: usize) -> Self {
-        Writer { d, sql: String::with_capacity(capacity), params: Vec::new() }
+        Writer { d, sql: String::with_capacity(capacity), params: Vec::with_capacity(8) }
     }
 
     #[inline]
@@ -68,7 +87,8 @@ impl<'a> Writer<'a> {
         self.params.push(v);
         match self.d {
             Dialect::Postgres => {
-                let _ = write!(self.sql, "${}", self.params.len());
+                self.sql.push('$');
+                push_number(&mut self.sql, self.params.len() as u64);
             }
             _ => self.sql.push('?'),
         }
@@ -288,7 +308,8 @@ impl<'a> Writer<'a> {
     fn limit_offset(&mut self, limit: Option<u64>, offset: Option<u64>) {
         match (limit, offset) {
             (Some(l), _) => {
-                let _ = write!(self.sql, " LIMIT {l}");
+                self.push(" LIMIT ");
+                push_number(&mut self.sql, l);
             }
             (None, Some(_)) => match self.d {
                 Dialect::Sqlite => self.push(" LIMIT -1"),
@@ -298,7 +319,8 @@ impl<'a> Writer<'a> {
             (None, None) => {}
         }
         if let Some(o) = offset {
-            let _ = write!(self.sql, " OFFSET {o}");
+            self.push(" OFFSET ");
+            push_number(&mut self.sql, o);
         }
     }
 
@@ -608,4 +630,16 @@ pub fn create_table(t: &TableSchema, d: Dialect, if_not_exists: bool) -> Vec<Str
     out.push(s);
     out.extend(extra);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn push_number_writes_decimal() {
+        for n in [0u64, 7, 10, 99, 12345, u64::MAX] {
+            let mut s = String::new();
+            super::push_number(&mut s, n);
+            assert_eq!(s, n.to_string());
+        }
+    }
 }

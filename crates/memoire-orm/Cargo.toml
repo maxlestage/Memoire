@@ -21,7 +21,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["memory"]
 ## In-memory storage engine (pure Rust, works on wasm32).
-memory = ["dep:parking_lot", "dep:foldhash"]
+memory = ["dep:parking_lot", "dep:foldhash", "dep:hashbrown"]
 ## SQLite backend (via rusqlite, SQLite is compiled in).
 sqlite = ["dep:rusqlite", "dep:async-lock"]
 ## PostgreSQL backend (tokio-postgres + deadpool connection pool).
@@ -57,6 +57,7 @@ thiserror = "2"
 
 parking_lot = { version = "0.12", optional = true }
 foldhash = { version = "0.2", optional = true }
+hashbrown = { version = "0.16", optional = true, default-features = false }
 
 rusqlite = { version = "0.40", optional = true, features = ["bundled"] }
 async-lock = { version = "3", optional = true }

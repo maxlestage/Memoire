@@ -38,10 +38,10 @@ Because the builder produces the same SQL text for queries of the same shape (va
 
 `MemoryDb` does not parse SQL at all: it executes the query structures directly.
 
-- Hash indexes on the primary key and `unique` columns: lookups by key take constant time.
-- Filters are compiled once per query (column positions resolved, long `IN` lists turned into hash sets, `LIKE` patterns pre-analysed) before scanning.
+- Hash indexes on the primary key, `unique` and `index` columns, storing row positions only: lookups take constant time and keys are never copied.
+- Filters are vectorised: split into their `AND` terms, each applied by a loop specialised for its column and constant. Numeric columns are read from contiguous typed copies, at about 1 ns per row. Other conditions (`OR`, `LIKE`, functions...) are compiled once per query.
 - Joins on column equality run as hash joins.
-- `order_by` + `limit` selects the top rows without sorting everything.
+- `order_by` + `limit` selects the top rows on packed integer keys, without sorting everything; `count` counts without building rows, and results are decoded straight from the stored rows.
 - Transactions use copy-on-write snapshots: starting one is cheap, and a table is copied only when the transaction first writes to it.
 
 ### Redis: key lookups first
@@ -113,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Index the columns you search
 
-Add `#[memoire(index)]` to columns you filter, join or sort on often, foreign keys in particular. `unique` columns are indexed automatically. MongoDB creates the same indexes on its collections. The in-memory engine keeps hash indexes on the primary key and `unique` columns, and Redis looks rows up by primary key directly; `index` has no effect on either.
+Add `#[memoire(index)]` to columns you filter, join or sort on often, foreign keys in particular. `unique` columns are indexed automatically. MongoDB creates the same indexes on its collections. The in-memory engine indexes the primary key, `unique` and `index` columns too (an equality filter or a join on them is a lookup, not a scan); Redis looks rows up by primary key directly, so `index` has no effect there.
 
 ### Avoid N+1 queries
 

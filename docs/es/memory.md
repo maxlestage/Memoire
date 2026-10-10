@@ -75,17 +75,18 @@ El motor no genera ni analiza SQL. Interpreta directamente las estructuras de co
 | Operación | Estrategia |
 |---|---|
 | `find`, `get`, `update`, `delete` por clave | Índice hash sobre la clave primaria: tiempo constante |
-| Filtros como `eq` o `is_in` sobre la clave primaria o una columna `unique` | Búsqueda en el índice hash en lugar de un recorrido completo |
-| Otros filtros | Una pasada sobre las filas, con la condición compilada una vez por consulta (posiciones de columna resueltas de antemano, listas `IN` largas convertidas en conjuntos hash, patrones `LIKE` analizados previamente) |
-| Joins sobre `a.column = b.column` | Hash join (o una búsqueda directa cuando la columna unida es una clave o `unique`) |
+| Filtros como `eq` o `is_in` sobre la clave primaria, una columna `unique` o `index` | Búsqueda en el índice hash en lugar de un recorrido completo |
+| Otros filtros | Una pasada vectorizada: la condición se divide en sus términos `AND` y cada uno filtra las filas con un bucle especializado para su columna y su constante; las columnas numéricas se leen de una copia tipada contigua (unos 1 ns por fila). Las demás condiciones (`OR`, `LIKE`, funciones...) se compilan una vez por consulta |
+| Joins sobre `a.column = b.column` | Hash join (o una búsqueda directa cuando la columna unida es una clave, `unique` o `index`) |
 | Otras condiciones de join | Bucle anidado |
-| `order_by` + `limit` | Selección parcial de las primeras filas en lugar de ordenarlo todo |
+| `order_by` + `limit` | Selección parcial de las primeras filas sobre claves enteras compactas, en lugar de ordenarlo todo |
+| `count` | Cuenta las filas que coinciden sin construirlas |
 | `group_by`, `distinct` | Tablas hash |
 | Transacciones | Instantáneas con copia en escritura (copy-on-write) |
 
 El backend [Redis](redis) evalúa las consultas con este mismo motor, y [MongoDB](mongodb) lo usa para completar los joins, los `GROUP BY` y los agregados, así que comparten su semántica.
 
-> **Nota** `#[memoire(index)]` crea un índice real en las bases de datos SQL y en MongoDB, pero el motor en memoria lo ignora: solo mantiene índices hash para la clave primaria y las columnas `unique`.
+> **Nota** Las columnas `#[memoire(index)]` también tienen aquí un índice hash, como en las bases de datos SQL y en MongoDB. Los índices solo guardan posiciones de filas: las claves nunca se copian.
 
 ## Semántica SQL
 

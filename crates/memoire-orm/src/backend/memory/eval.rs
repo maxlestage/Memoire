@@ -61,7 +61,11 @@ pub(crate) struct Key(pub Value);
 
 impl Key {
     fn tag(&self) -> (u8, KeyRepr<'_>) {
-        match &self.0 {
+        Key::tag_of(&self.0)
+    }
+
+    fn tag_of(v: &Value) -> (u8, KeyRepr<'_>) {
+        match v {
             Value::Null => (0, KeyRepr::None),
             Value::Bool(b) => (1, KeyRepr::Int(*b as i64)),
             Value::I32(v) => (2, KeyRepr::Int(*v as i64)),
@@ -102,6 +106,25 @@ enum KeyRepr<'a> {
     #[allow(dead_code)]
     Str2(String),
     Bytes(&'a [u8]),
+}
+
+/// A borrowed [`Key`]: hashes like the key of the same value, without a copy.
+pub(crate) struct KeyRef<'a>(pub &'a Value);
+
+impl Hash for KeyRef<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Key::tag_of(self.0).hash(state);
+    }
+}
+
+/// Equality of index keys (`1 = 1.0`, like SQL; NULL equals NULL here).
+#[inline]
+pub(crate) fn key_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::I64(x), Value::I64(y)) => x == y,
+        (Value::Text(x), Value::Text(y)) => x == y,
+        _ => Key::tag_of(a) == Key::tag_of(b),
+    }
 }
 
 impl PartialEq for Key {
@@ -184,7 +207,11 @@ pub(crate) fn order_cmp(a: &Value, b: &Value, order: &Order) -> Ordering {
         (true, true) => return Ordering::Equal,
         (true, false) => return if nulls_first { Ordering::Less } else { Ordering::Greater },
         (false, true) => return if nulls_first { Ordering::Greater } else { Ordering::Less },
-        (false, false) => compare(a, b).unwrap_or_else(|| type_rank(a).cmp(&type_rank(b))),
+        (false, false) => compare(a, b).unwrap_or_else(|| match (a.as_f64(), b.as_f64()) {
+            // NaN: larger than every other number, like PostgreSQL (a total order).
+            (Some(x), Some(y)) => x.is_nan().cmp(&y.is_nan()).then_with(|| x.total_cmp(&y)),
+            _ => type_rank(a).cmp(&type_rank(b)),
+        }),
     };
     if order.desc { ord.reverse() } else { ord }
 }

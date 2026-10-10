@@ -38,10 +38,10 @@ Comme le builder produit le même texte SQL pour des requêtes de même forme (l
 
 `MemoryDb` n'analyse pas du tout de SQL : il exécute directement les structures de requête.
 
-- Index de hachage sur la clé primaire et les colonnes `unique` : les recherches par clé se font en temps constant.
-- Les filtres sont compilés une fois par requête (positions des colonnes résolues, longues listes `IN` transformées en hash sets, motifs `LIKE` pré-analysés) avant le parcours.
+- Index de hachage sur la clé primaire et les colonnes `unique` et `index`, qui ne stockent que des positions de lignes : les recherches se font en temps constant et les clés ne sont jamais copiées.
+- Les filtres sont vectorisés : découpés en leurs termes `AND`, chacun appliqué par une boucle spécialisée pour sa colonne et sa constante. Les colonnes numériques sont lues dans des copies typées contiguës, à environ 1 ns par ligne. Les autres conditions (`OR`, `LIKE`, fonctions…) sont compilées une fois par requête.
 - Les jointures sur égalité de colonnes s'exécutent sous forme de hash joins.
-- `order_by` + `limit` sélectionne les premières lignes sans tout trier.
+- `order_by` + `limit` sélectionne les premières lignes sur des clés entières compactes, sans tout trier ; `count` compte sans construire de lignes, et les résultats sont décodés directement depuis les lignes stockées.
 - Les transactions utilisent des snapshots en copy-on-write : en démarrer une ne coûte presque rien, et une table n'est copiée que lorsque la transaction y écrit pour la première fois.
 
 ### Redis : les recherches par clé d'abord
@@ -113,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Indexer les colonnes sur lesquelles vous cherchez
 
-Ajoutez `#[memoire(index)]` aux colonnes sur lesquelles vous filtrez, joignez ou triez souvent, en particulier les clés étrangères. Les colonnes `unique` sont indexées automatiquement. MongoDB crée les mêmes index sur ses collections. Le moteur en mémoire maintient des index de hachage sur la clé primaire et les colonnes `unique`, et Redis retrouve directement les lignes par clé primaire ; `index` n'a d'effet sur aucun des deux.
+Ajoutez `#[memoire(index)]` aux colonnes sur lesquelles vous filtrez, joignez ou triez souvent, en particulier les clés étrangères. Les colonnes `unique` sont indexées automatiquement. MongoDB crée les mêmes index sur ses collections. Le moteur en mémoire indexe lui aussi la clé primaire et les colonnes `unique` et `index` (un filtre d'égalité ou une jointure sur elles devient une recherche, pas un parcours) ; Redis retrouve directement les lignes par clé primaire, donc `index` n'y a pas d'effet.
 
 ### Éviter les requêtes N+1
 

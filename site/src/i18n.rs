@@ -408,7 +408,7 @@ static EN: Texts = Texts {
     perf_why: &EN_WHY,
     perf_results_title: "Benchmark results",
     perf_method_title: "Methodology",
-    perf_method_text: "Benchmarks are written with Criterion and live in the repository. Each figure is the median of many iterations on the same machine, and the baseline is measured in the same run so the comparison stays fair.",
+    perf_method_text: "Benchmarks are written with Criterion and live in the repository. Each figure is the median of many iterations on the same machine, and the baseline (hand-written code doing the same work, or the previous version of the in-memory engine) is measured on the same machine with the same benchmark, so the comparison stays fair.",
     perf_read_more: "Read the performance guide",
 
     fp_title: "Features",
@@ -622,7 +622,7 @@ static FR: Texts = Texts {
     perf_why: &FR_WHY,
     perf_results_title: "Résultats des benchmarks",
     perf_method_title: "Méthodologie",
-    perf_method_text: "Les benchmarks sont écrits avec Criterion et se trouvent dans le dépôt. Chaque chiffre est la médiane de nombreuses itérations sur la même machine, et la référence est mesurée dans la même exécution pour une comparaison équitable.",
+    perf_method_text: "Les benchmarks sont écrits avec Criterion et se trouvent dans le dépôt. Chaque chiffre est la médiane de nombreuses itérations sur la même machine, et la référence (du code écrit à la main qui fait le même travail, ou la version précédente du moteur en mémoire) est mesurée sur la même machine avec le même benchmark, pour une comparaison équitable.",
     perf_read_more: "Lire le guide performance",
 
     fp_title: "Fonctionnalités",
@@ -836,7 +836,7 @@ static ES: Texts = Texts {
     perf_why: &ES_WHY,
     perf_results_title: "Resultados de los benchmarks",
     perf_method_title: "Metodología",
-    perf_method_text: "Los benchmarks están escritos con Criterion y viven en el repositorio. Cada cifra es la mediana de muchas iteraciones en la misma máquina, y la referencia se mide en la misma ejecución para que la comparación sea justa.",
+    perf_method_text: "Los benchmarks están escritos con Criterion y viven en el repositorio. Cada cifra es la mediana de muchas iteraciones en la misma máquina, y la referencia (código escrito a mano que hace el mismo trabajo, o la versión anterior del motor en memoria) se mide en la misma máquina con el mismo benchmark, para que la comparación sea justa.",
     perf_read_more: "Leer la guía de rendimiento",
 
     fp_title: "Funciones",
