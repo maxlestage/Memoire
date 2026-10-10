@@ -199,7 +199,7 @@ fn mysql_sql() {
 
 ```text
 SELECT `products`.`id`, `products`.`sku`, `products`.`name`, `products`.`price_cents` FROM `products` WHERE `products`.`price_cents` < ? ORDER BY `products`.`name` ASC LIMIT 20
-[I32(1000)]
+[I64(1000)]
 INSERT INTO `products` (`sku`, `name`, `price_cents`) VALUES (?, ?, ?)
 CREATE TABLE `products` (
     `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
