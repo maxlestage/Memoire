@@ -55,6 +55,7 @@
 //! | `memory` | yes | In-memory engine ([`MemoryDb`]) |
 //! | `sqlite` | | SQLite backend (`SqliteDb`) |
 //! | `postgres` | | PostgreSQL backend (`PgPool`, requires Tokio) |
+//! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |

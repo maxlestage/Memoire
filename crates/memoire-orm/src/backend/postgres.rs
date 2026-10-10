@@ -427,6 +427,84 @@ async fn pg_execute(client: &ClientWrapper, query: &Query<'_>) -> Result<ExecRes
     }
 }
 
+/// Parses a connection string. tokio-postgres only understands `disable`,
+/// `prefer` and `require`, so libpq's `verify-ca` / `verify-full` are mapped to
+/// `require` + certificate verification.
+fn parse_config(url: &str) -> Result<(tokio_postgres::Config, bool)> {
+    let verify = url.contains("sslmode=verify-full") || url.contains("sslmode=verify-ca");
+    let normalized =
+        url.replace("sslmode=verify-full", "sslmode=require").replace("sslmode=verify-ca", "sslmode=require");
+    let cfg: tokio_postgres::Config = normalized.parse().map_err(map_err)?;
+    Ok((cfg, verify))
+}
+
+#[cfg(feature = "postgres-tls")]
+mod tls {
+    use std::sync::Arc;
+
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+    use tokio_postgres_rustls::MakeRustlsConnect;
+
+    /// libpq's `sslmode=require` / `prefer`: the connection is encrypted but the
+    /// server certificate is not checked (managed services such as Heroku
+    /// Postgres use certificates that are not publicly trusted).
+    #[derive(Debug)]
+    struct EncryptOnly(Arc<CryptoProvider>);
+
+    impl ServerCertVerifier for EncryptOnly {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
+        ) -> Result<ServerCertVerified, rustls::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.0.signature_verification_algorithms.supported_schemes()
+        }
+    }
+
+    pub(super) fn client_config(verify: bool) -> Result<ClientConfig, rustls::Error> {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let builder = ClientConfig::builder_with_provider(provider.clone()).with_safe_default_protocol_versions()?;
+        Ok(if verify {
+            let roots = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+            builder.with_root_certificates(roots).with_no_client_auth()
+        } else {
+            builder.dangerous().with_custom_certificate_verifier(Arc::new(EncryptOnly(provider))).with_no_client_auth()
+        })
+    }
+
+    pub(super) fn connector(config: ClientConfig) -> MakeRustlsConnect {
+        MakeRustlsConnect::new(config)
+    }
+}
+
 /// A pool of PostgreSQL connections.
 ///
 /// ```no_run
@@ -437,9 +515,9 @@ async fn pg_execute(client: &ClientWrapper, query: &Query<'_>) -> Result<ExecRes
 /// ```
 ///
 /// Connections are opened lazily and recycled. Cloning the pool is cheap.
-/// TLS is not built in: for managed databases that require it, build a
-/// `deadpool_postgres::Pool` with the TLS connector of your choice and wrap it
-/// with [`PgPool::from_pool`].
+/// Enable the `postgres-tls` feature for encrypted connections (required by
+/// Heroku Postgres and most managed databases), or build your own
+/// `deadpool_postgres::Pool` and wrap it with [`PgPool::from_pool`].
 #[derive(Clone)]
 pub struct PgPool {
     pool: Pool,
@@ -462,9 +540,50 @@ impl PgPool {
     }
 
     /// Like [`connect`](Self::connect) with an explicit maximum pool size.
+    ///
+    /// TLS follows the `sslmode` parameter of the URL (with the `postgres-tls`
+    /// feature): `disable`, `prefer` (default: try TLS, fall back to plain
+    /// text), `require` (encrypted, certificate not checked, like libpq),
+    /// `verify-ca` / `verify-full` (certificate checked against the Mozilla
+    /// root store).
     pub async fn connect_with(url: &str, max_size: usize) -> Result<Self> {
-        let cfg: tokio_postgres::Config = url.parse().map_err(map_err)?;
-        let manager = Manager::from_config(cfg, NoTls, ManagerConfig { recycling_method: RecyclingMethod::Fast });
+        let (cfg, verify) = parse_config(url)?;
+        let manager_config = ManagerConfig { recycling_method: RecyclingMethod::Fast };
+        let manager = if cfg.get_ssl_mode() == tokio_postgres::config::SslMode::Disable {
+            Manager::from_config(cfg, NoTls, manager_config)
+        } else {
+            Self::tls_manager(cfg, verify, manager_config)?
+        };
+        Self::from_manager(manager, max_size).await
+    }
+
+    #[cfg(feature = "postgres-tls")]
+    fn tls_manager(cfg: tokio_postgres::Config, verify: bool, manager_config: ManagerConfig) -> Result<Manager> {
+        let tls = tls::client_config(verify).map_err(|e| Error::Pool(format!("TLS configuration: {e}")))?;
+        Ok(Manager::from_config(cfg, tls::connector(tls), manager_config))
+    }
+
+    #[cfg(not(feature = "postgres-tls"))]
+    fn tls_manager(cfg: tokio_postgres::Config, verify: bool, manager_config: ManagerConfig) -> Result<Manager> {
+        if verify || cfg.get_ssl_mode() == tokio_postgres::config::SslMode::Require {
+            return Err(Error::Unsupported(
+                "this connection string requires TLS: enable the `postgres-tls` feature of memoire-orm".into(),
+            ));
+        }
+        Ok(Manager::from_config(cfg, NoTls, manager_config))
+    }
+
+    /// Connects with TLS using your own `rustls` configuration (custom root
+    /// certificates, client certificates...).
+    #[cfg(feature = "postgres-tls")]
+    pub async fn connect_with_rustls(url: &str, max_size: usize, tls: rustls::ClientConfig) -> Result<Self> {
+        let (cfg, _) = parse_config(url)?;
+        let manager =
+            Manager::from_config(cfg, tls::connector(tls), ManagerConfig { recycling_method: RecyclingMethod::Fast });
+        Self::from_manager(manager, max_size).await
+    }
+
+    async fn from_manager(manager: Manager, max_size: usize) -> Result<Self> {
         let pool = Pool::builder(manager).max_size(max_size.max(1)).build().map_err(pool_err)?;
         drop(pool.get().await.map_err(pool_err)?);
         Ok(PgPool { pool })

@@ -101,27 +101,6 @@ impl Table {
         Ok(())
     }
 
-    /// Checks unique constraints of `row`, ignoring the row at `ignore`.
-    fn check_unique(&self, row: &[Value], ignore: Option<usize>) -> Result<()> {
-        let pk = self.schema.primary_key;
-        if let Some(i) = self.pk.get(&Key(row[pk].clone()))
-            && Some(*i) != ignore
-        {
-            return Err(self.violation(pk));
-        }
-        for (col, map) in &self.uniques {
-            if row[*col].is_null() {
-                continue;
-            }
-            if let Some(i) = map.get(&Key(row[*col].clone()))
-                && Some(*i) != ignore
-            {
-                return Err(self.violation(*col));
-            }
-        }
-        Ok(())
-    }
-
     fn index_row(&mut self, idx: usize) {
         let row = &self.rows[idx];
         self.pk.insert(Key(row[self.schema.primary_key].clone()), idx);

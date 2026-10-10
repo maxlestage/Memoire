@@ -26,5 +26,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Versioned migrations (`Migrator`, `Migration`).
 - Normalised errors (`NotFound`, `UniqueViolation`, `Constraint`, `NoSuchTable`,
   `TableExists`, `Conflict`, ...) across every backend.
+- `postgres-tls` feature: rustls-based TLS honouring `sslmode`
+  (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) and
+  `PgPool::connect_with_rustls` for custom certificates.
 - `chrono`, `uuid` and `json` (`Json<T>`) features.
 - Criterion benchmarks against hand-written `rusqlite`.

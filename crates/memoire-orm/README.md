@@ -31,6 +31,7 @@ memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "full"
 | `memory` | ✓ | `MemoryDb`, a pure-Rust in-memory engine (also on `wasm32`) |
 | `sqlite` | | `SqliteDb` (SQLite is compiled in, nothing to install) |
 | `postgres` | | `PgPool` (tokio-postgres + connection pool, needs Tokio) |
+| `postgres-tls` | | TLS for PostgreSQL with rustls (`sslmode=require`, `verify-full`…) — Heroku Postgres |
 | `chrono` / `uuid` / `json` | | date-time, UUID and JSON column types |
 | `full` | | everything |
 
