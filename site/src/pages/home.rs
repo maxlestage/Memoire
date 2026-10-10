@@ -86,7 +86,7 @@ fn Stats() -> Html {
     let t = use_lang().lang.t();
     let stats: [(f64, &str, &str); 4] = [
         (100.0, "%", t.stat_rust),
-        (4.0, "", t.stat_backends),
+        (6.0, "", t.stat_backends),
         (3.0, "", t.stat_dialects),
         (docs::page_count() as f64, "", t.stat_guides),
     ];

@@ -10,20 +10,42 @@ use crate::components::{
     tilt_card::TiltCard,
 };
 use crate::data::samples::FEATURE_SNIPPETS;
+use crate::docs::CATEGORIES;
 use crate::highlight::highlight;
 use crate::i18n::use_lang;
 
-const BACKEND_ICONS: [Icon; 4] = [Icon::Cpu, Icon::Database, Icon::Database, Icon::Layers];
-const BACKEND_CODE: [&str; 4] = [
-    "MemoryDb::new()",
-    "SqliteDb::open(\"app.db\")?",
-    "PgPool::connect(url).await?",
-    "WHERE `users`.`age` >= ?",
+/// Same order as `Texts::backends`.
+const BACKEND_ICONS: [Icon; 6] = [
+    Icon::Cpu,
+    Icon::Database,
+    Icon::Database,
+    Icon::Database,
+    Icon::Zap,
+    Icon::Layers,
+];
+
+/// A constructor (rendered as code) where the API is known, otherwise a short tag.
+enum BackendHint {
+    Code(&'static str),
+    /// `[en, fr, es]`
+    Tag([&'static str; 3]),
+}
+
+const BACKEND_HINTS: [BackendHint; 6] = [
+    BackendHint::Code("MemoryDb::new()"),
+    BackendHint::Code("SqliteDb::open(\"app.db\")?"),
+    BackendHint::Code("PgPool::connect(url).await?"),
+    BackendHint::Tag(["SQL · MySQL · MariaDB"; 3]),
+    BackendHint::Tag(["NoSQL · key-value", "NoSQL · clé-valeur", "NoSQL · clave-valor"]),
+    BackendHint::Tag(["NoSQL · documents", "NoSQL · documents", "NoSQL · documentos"]),
 ];
 
 #[component]
 pub fn FeaturesPage() -> Html {
-    let t = use_lang().lang.t();
+    let lang = use_lang().lang;
+    let t = lang.t();
+    // "Backends" / "Bases de données" / "Bases de datos": same wording as the docs category.
+    let backends_eyebrow = CATEGORIES[2].title[lang.idx()];
     html! {
         <>
             <section class="page-hero container">
@@ -57,14 +79,17 @@ pub fn FeaturesPage() -> Html {
             </section>
 
             <section class="section container">
-                <SectionHead eyebrow="Backends" title={t.backends_title} subtitle={AttrValue::from(t.backends_subtitle)} />
+                <SectionHead eyebrow={backends_eyebrow} title={t.backends_title} subtitle={AttrValue::from(t.backends_subtitle)} />
                 <div class="backends-grid">
                     { for t.backends.iter().enumerate().map(|(i, b)| html! {
                         <Reveal anim="scale-in" delay={(i as u32) * 90}>
                             <TiltCard class="backend-card">
                                 <div class={classes!("feature-icon", format!("fi-{}", i % 4))}>{ BACKEND_ICONS[i].html() }</div>
                                 <h3>{ b.title }</h3>
-                                <code class="backend-code">{ BACKEND_CODE[i] }</code>
+                                { match BACKEND_HINTS[i] {
+                                    BackendHint::Code(code) => html! { <code class="backend-code">{ code }</code> },
+                                    BackendHint::Tag(tag) => html! { <span class="backend-tag">{ tag[lang.idx()] }</span> },
+                                } }
                                 <p>{ b.desc }</p>
                             </TiltCard>
                         </Reveal>

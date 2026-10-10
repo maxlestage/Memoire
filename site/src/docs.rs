@@ -74,7 +74,9 @@ pub static CATEGORIES: &[DocCategory] = &[
             page!("memory", "In-memory engine", "Moteur en mémoire", "Motor en memoria"),
             page!("sqlite", "SQLite", "SQLite", "SQLite"),
             page!("postgres", "PostgreSQL", "PostgreSQL", "PostgreSQL"),
-            page!("mysql", "MySQL dialect", "Dialecte MySQL", "Dialecto MySQL"),
+            page!("mysql", "MySQL & MariaDB", "MySQL & MariaDB", "MySQL & MariaDB"),
+            page!("redis", "Redis", "Redis", "Redis"),
+            page!("mongodb", "MongoDB (NoSQL)", "MongoDB (NoSQL)", "MongoDB (NoSQL)"),
         ],
     },
     DocCategory {
@@ -239,7 +241,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 20);
+        assert_eq!(page_count(), 22);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

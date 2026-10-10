@@ -46,6 +46,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `json` | no | JSON columns: `serde_json::Value` and `Json<T>` for any `serde` type |
 | `full` | no | All of the above |
 
+> **Note** MySQL/MariaDB, Redis and MongoDB backends: see their pages, [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
+
 Features add up, so you can combine them freely:
 
 ```toml

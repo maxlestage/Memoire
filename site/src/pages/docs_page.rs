@@ -223,7 +223,7 @@ pub fn DocsPage(props: &DocsPageProps) -> Html {
     // ---- Sidebar -------------------------------------------------------
     let sidebar_body = if !query.trim().is_empty() {
         if results.is_empty() {
-            html! { <p class="search-empty">{ format!("{} « {} »", t.docs_no_results, query.trim()) }</p> }
+            html! { <p class="search-empty">{ format!("{} “{}”", t.docs_no_results, query.trim()) }</p> }
         } else {
             html! {
                 <div class="search-results">

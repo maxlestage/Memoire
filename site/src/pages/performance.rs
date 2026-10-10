@@ -8,12 +8,14 @@ use crate::components::{
     bench_bars::BenchBars, icons::Icon, reveal::Reveal, section::SectionHead, tilt_card::TiltCard,
 };
 use crate::data::samples;
+use crate::docs;
 use crate::highlight::highlight;
 use crate::i18n::use_lang;
 
 #[component]
 pub fn PerformancePage() -> Html {
-    let t = use_lang().lang.t();
+    let lang = use_lang().lang;
+    let t = lang.t();
     let rust = highlight(
         "User::query()\n    .filter(User::AGE.ge(18) & User::NAME.contains(\"li\"))\n    .order_by(User::NAME.asc())\n    .limit(20)",
         "rust",
@@ -72,7 +74,7 @@ pub fn PerformancePage() -> Html {
                             { Icon::Book.html() }<span>{ t.perf_read_more }</span>
                         </Link<Route>>
                         <Link<Route> to={Route::Doc { slug: "benchmarks".into() }} classes={classes!("btn", "btn-ghost", "magnetic")}>
-                            { Icon::Activity.html() }<span>{ "Benchmarks" }</span>
+                            { Icon::Activity.html() }<span>{ docs::title("benchmarks", lang) }</span>
                         </Link<Route>>
                     </div>
                 </Reveal>

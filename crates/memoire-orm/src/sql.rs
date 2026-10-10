@@ -488,6 +488,7 @@ fn column_sql_type(c: &ColumnDef, d: Dialect) -> &'static str {
         (ColumnType::Date, Dialect::Sqlite) => "TEXT",
         (ColumnType::Date, _) => "DATE",
         (ColumnType::Time, Dialect::Sqlite) => "TEXT",
+        (ColumnType::Time, Dialect::MySql) => "TIME(6)",
         (ColumnType::Time, _) => "TIME",
         (ColumnType::Json, Dialect::Postgres) => "JSONB",
         (ColumnType::Json, Dialect::Sqlite) => "TEXT",
@@ -599,6 +600,10 @@ pub fn create_table(t: &TableSchema, d: Dialect, if_not_exists: bool) -> Vec<Str
         }
     }
     s.push_str("\n)");
+    if d == Dialect::MySql {
+        // Case-sensitive, byte-ordered comparisons like every other backend.
+        s.push_str(" DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin");
+    }
     let mut out = Vec::with_capacity(1 + extra.len());
     out.push(s);
     out.extend(extra);

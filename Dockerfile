@@ -9,7 +9,8 @@
 # Stage 1 builds the Yew/WebAssembly site with Trunk and the tiny axum server;
 # stage 2 only ships the server binary + the static files (no Rust toolchain).
 
-ARG RUST_VERSION=1
+# Pinned toolchain = reproducible deploys. Bump deliberately (and test) when needed.
+ARG RUST_VERSION=1.99
 ARG TRUNK_VERSION=0.21.14
 
 # ---------------------------------------------------------------------------
@@ -20,16 +21,13 @@ ARG TRUNK_VERSION
 ENV CARGO_TERM_COLOR=never \
     CARGO_NET_RETRY=5
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl brotli \
- && rm -rf /var/lib/apt/lists/*
-
 RUN rustup target add wasm32-unknown-unknown
 
 # Trunk from its prebuilt release binary (much faster than `cargo install trunk`).
-RUN curl -fsSL --retry 3 \
-      "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-    | tar -xz -C /usr/local/bin trunk \
+# ADD downloads it, so the build needs no extra system packages.
+ADD https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz /tmp/trunk.tar.gz
+RUN tar -xzf /tmp/trunk.tar.gz -C /usr/local/bin trunk \
+ && rm /tmp/trunk.tar.gz \
  && trunk --version
 
 WORKDIR /app
@@ -57,12 +55,9 @@ RUN cd site \
  && touch src/main.rs \
  && trunk build --release
 
-# Pre-compress static files; the server serves .br / .gz siblings when the
-# browser accepts them.
-RUN find site/dist -type f \
-      \( -name '*.wasm' -o -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.txt' \) \
-      -exec gzip -9 -k -f {} \; \
-      -exec brotli -q 11 -k -f {} \;
+# Pre-compress static files (.br + .gz); the server sends them when the browser
+# accepts them. Done by the server binary itself: no brotli/gzip tools needed.
+RUN ./server/target/release/memoire-site-server precompress site/dist
 
 # ---------------------------------------------------------------------------
 # 2. Runtime

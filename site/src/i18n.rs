@@ -195,7 +195,7 @@ pub struct Texts {
     pub fp_subtitle: &'static str,
     pub backends_title: &'static str,
     pub backends_subtitle: &'static str,
-    pub backends: &'static [Step; 4],
+    pub backends: &'static [Step; 6],
 
     // CTA
     pub cta_title: &'static str,
@@ -293,8 +293,8 @@ static EN_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Multiple backends",
-        desc: "SQLite, PostgreSQL, MySQL dialect and an in-memory engine.",
-        detail: "Write your models and queries once. Switch from MemoryDb in tests to SqliteDb or PgPool in production by changing a single line.",
+        desc: "SQL + NoSQL: PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine (WASM).",
+        detail: "Six backends behind one API, SQL and NoSQL alike. Write your models once, use MemoryDb in tests, then PostgreSQL, MySQL/MariaDB, SQLite, Redis or MongoDB in production.",
     },
     Feature {
         title: "In-memory engine, even in WASM",
@@ -317,7 +317,7 @@ static EN_STEPS: [Step; 4] = [
     Step { title: "Define", desc: "Write a plain Rust struct that describes your table." },
     Step { title: "Derive", desc: "Add #[derive(Model)]: columns, keys and SQL are generated at compile time." },
     Step { title: "Query", desc: "Compose type-safe queries with filters, ordering and limits." },
-    Step { title: "Ship", desc: "Run on SQLite, PostgreSQL, MySQL or in memory, from servers to WebAssembly." },
+    Step { title: "Ship", desc: "Run on PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB or in memory, from servers to WebAssembly." },
 ];
 
 static EN_WHY: [Step; 4] = [
@@ -327,11 +327,13 @@ static EN_WHY: [Step; 4] = [
     Step { title: "Async without overhead", desc: "Operations are async end to end and never block your executor threads." },
 ];
 
-static EN_BACKENDS: [Step; 4] = [
-    Step { title: "In-memory", desc: "MemoryDb::new(): instant, zero-setup, perfect for tests and WebAssembly." },
-    Step { title: "SQLite", desc: "SqliteDb::open(\"app.db\"): a single file, ideal for apps, CLIs and edge." },
-    Step { title: "PostgreSQL", desc: "PgPool::connect(url): pooled connections for production workloads." },
-    Step { title: "MySQL dialect", desc: "Generates MySQL-flavoured SQL: backtick identifiers and ? placeholders." },
+static EN_BACKENDS: [Step; 6] = [
+    Step { title: "In-memory", desc: "Instant and zero-setup: perfect for tests, demos and WebAssembly." },
+    Step { title: "SQLite", desc: "A single file, ideal for apps, command-line tools and the edge." },
+    Step { title: "PostgreSQL", desc: "Pooled connections for production workloads." },
+    Step { title: "MySQL & MariaDB", desc: "A real driver for MySQL and MariaDB, with backtick identifiers and ? placeholders." },
+    Step { title: "Redis", desc: "Keep your models in Redis, the fast NoSQL key-value store." },
+    Step { title: "MongoDB", desc: "Map your models to MongoDB collections and documents (NoSQL)." },
 ];
 
 static EN: Texts = Texts {
@@ -350,12 +352,12 @@ static EN: Texts = Texts {
     hero_badge: "Pure Rust · Async · WebAssembly-ready",
     hero_title_1: "The Rust ORM",
     hero_title_2: "built for speed.",
-    hero_subtitle: "Memoire ORM turns plain Rust structs into type-safe, compile-time checked queries for SQLite, PostgreSQL, MySQL, and an in-memory engine that even runs in your browser.",
+    hero_subtitle: "Memoire ORM turns plain Rust structs into type-safe, compile-time checked queries for PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine that even runs in your browser.",
     hero_taglines: &[
         "Type-safe queries.",
         "SQL generated at compile time.",
         "Zero-cost row mapping.",
-        "One API, four backends.",
+        "SQL and NoSQL, one API.",
         "Runs in WebAssembly.",
     ],
     hero_cta_primary: "Get started",
@@ -371,8 +373,8 @@ static EN: Texts = Texts {
     stat_guides: "Documentation guides",
 
     marquee_items: &[
-        "PostgreSQL", "SQLite", "MySQL", "In-memory", "WebAssembly", "async / await",
-        "Migrations", "Transactions", "Derive macros", "Type-safe filters", "Zero-cost mapping",
+        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "In-memory", "WebAssembly",
+        "async / await", "Migrations", "Transactions", "Derive macros", "Type-safe filters",
     ],
 
     features_eyebrow: "Features",
@@ -411,8 +413,8 @@ static EN: Texts = Texts {
 
     fp_title: "Features",
     fp_subtitle: "Everything Memoire ORM gives you, explained simply.",
-    backends_title: "One API, four backends",
-    backends_subtitle: "Pick the storage that fits; your models and queries stay the same.",
+    backends_title: "One API, six backends",
+    backends_subtitle: "SQL or NoSQL: pick the storage that fits, your models stay the same.",
     backends: &EN_BACKENDS,
 
     cta_title: "Ready to make your data fly?",
@@ -475,7 +477,7 @@ static EN: Texts = Texts {
     nf_home: "Back home",
     nf_docs: "Browse the docs",
 
-    meta_description: "Memoire ORM: a blazing-fast, pure-Rust ORM with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly.",
+    meta_description: "Memoire ORM: a blazing-fast, pure-Rust ORM for SQL and NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB) with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly.",
 };
 
 // ---------------------------------------------------------------------------
@@ -505,8 +507,8 @@ static FR_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Plusieurs bases",
-        desc: "SQLite, PostgreSQL, dialecte MySQL et un moteur en mémoire.",
-        detail: "Écrivez vos modèles et requêtes une seule fois. Passez de MemoryDb dans les tests à SqliteDb ou PgPool en production en changeant une seule ligne.",
+        desc: "SQL + NoSQL : PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire (WASM).",
+        detail: "Six bases derrière une seule API, SQL comme NoSQL. Écrivez vos modèles une fois, utilisez MemoryDb dans les tests, puis PostgreSQL, MySQL/MariaDB, SQLite, Redis ou MongoDB en production.",
     },
     Feature {
         title: "Moteur en mémoire, même en WASM",
@@ -529,7 +531,7 @@ static FR_STEPS: [Step; 4] = [
     Step { title: "Définir", desc: "Écrivez une simple struct Rust qui décrit votre table." },
     Step { title: "Dériver", desc: "Ajoutez #[derive(Model)] : colonnes, clés et SQL sont générés à la compilation." },
     Step { title: "Interroger", desc: "Composez des requêtes typées avec filtres, tri et limites." },
-    Step { title: "Livrer", desc: "Déployez sur SQLite, PostgreSQL, MySQL ou en mémoire, du serveur au WebAssembly." },
+    Step { title: "Livrer", desc: "Déployez sur PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB ou en mémoire, du serveur au WebAssembly." },
 ];
 
 static FR_WHY: [Step; 4] = [
@@ -539,11 +541,13 @@ static FR_WHY: [Step; 4] = [
     Step { title: "Async sans surcoût", desc: "Les opérations sont asynchrones de bout en bout et ne bloquent jamais vos threads." },
 ];
 
-static FR_BACKENDS: [Step; 4] = [
-    Step { title: "En mémoire", desc: "MemoryDb::new() : instantané, sans configuration, idéal pour les tests et le WebAssembly." },
-    Step { title: "SQLite", desc: "SqliteDb::open(\"app.db\") : un seul fichier, parfait pour les apps, les CLI et l'edge." },
-    Step { title: "PostgreSQL", desc: "PgPool::connect(url) : un pool de connexions pour la production." },
-    Step { title: "Dialecte MySQL", desc: "Génère du SQL au format MySQL : identifiants entre backticks et paramètres ?." },
+static FR_BACKENDS: [Step; 6] = [
+    Step { title: "En mémoire", desc: "Instantané et sans configuration : idéal pour les tests, les démos et le WebAssembly." },
+    Step { title: "SQLite", desc: "Un seul fichier, parfait pour les apps, les outils en ligne de commande et l'edge." },
+    Step { title: "PostgreSQL", desc: "Un pool de connexions pour la production." },
+    Step { title: "MySQL & MariaDB", desc: "Un vrai pilote pour MySQL et MariaDB, avec identifiants entre backticks et paramètres ?." },
+    Step { title: "Redis", desc: "Stockez vos modèles dans Redis, la base NoSQL clé-valeur ultra-rapide." },
+    Step { title: "MongoDB", desc: "Associez vos modèles aux collections et documents MongoDB (NoSQL)." },
 ];
 
 static FR: Texts = Texts {
@@ -562,12 +566,12 @@ static FR: Texts = Texts {
     hero_badge: "100 % Rust · Async · Prêt pour WebAssembly",
     hero_title_1: "L'ORM Rust",
     hero_title_2: "taillé pour la vitesse.",
-    hero_subtitle: "Memoire ORM transforme de simples structs Rust en requêtes typées et vérifiées à la compilation, pour SQLite, PostgreSQL, MySQL et un moteur en mémoire qui tourne même dans votre navigateur.",
+    hero_subtitle: "Memoire ORM transforme de simples structs Rust en requêtes typées et vérifiées à la compilation, pour PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire qui tourne même dans votre navigateur.",
     hero_taglines: &[
         "Des requêtes typées.",
         "Du SQL généré à la compilation.",
         "Un mapping sans surcoût.",
-        "Une API, quatre bases.",
+        "SQL et NoSQL, une seule API.",
         "Compatible WebAssembly.",
     ],
     hero_cta_primary: "Commencer",
@@ -583,8 +587,8 @@ static FR: Texts = Texts {
     stat_guides: "Guides de documentation",
 
     marquee_items: &[
-        "PostgreSQL", "SQLite", "MySQL", "En mémoire", "WebAssembly", "async / await",
-        "Migrations", "Transactions", "Macros derive", "Filtres typés", "Mapping sans surcoût",
+        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "En mémoire", "WebAssembly",
+        "async / await", "Migrations", "Transactions", "Macros derive", "Filtres typés",
     ],
 
     features_eyebrow: "Fonctionnalités",
@@ -623,8 +627,8 @@ static FR: Texts = Texts {
 
     fp_title: "Fonctionnalités",
     fp_subtitle: "Tout ce que Memoire ORM vous apporte, expliqué simplement.",
-    backends_title: "Une API, quatre bases",
-    backends_subtitle: "Choisissez le stockage adapté : vos modèles et vos requêtes ne changent pas.",
+    backends_title: "Une API, six bases",
+    backends_subtitle: "SQL ou NoSQL : choisissez le stockage adapté, vos modèles ne changent pas.",
     backends: &FR_BACKENDS,
 
     cta_title: "Prêt à faire décoller vos données ?",
@@ -687,7 +691,7 @@ static FR: Texts = Texts {
     nf_home: "Retour à l'accueil",
     nf_docs: "Parcourir la doc",
 
-    meta_description: "Memoire ORM : un ORM 100 % Rust ultra-rapide, avec SQL généré à la compilation, requêtes typées et moteur en mémoire compatible WebAssembly.",
+    meta_description: "Memoire ORM : un ORM 100 % Rust ultra-rapide pour SQL et NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), avec SQL généré à la compilation, requêtes typées et moteur en mémoire compatible WebAssembly.",
 };
 
 // ---------------------------------------------------------------------------
@@ -717,8 +721,8 @@ static ES_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Varias bases de datos",
-        desc: "SQLite, PostgreSQL, dialecto MySQL y un motor en memoria.",
-        detail: "Escribe tus modelos y consultas una sola vez. Pasa de MemoryDb en los tests a SqliteDb o PgPool en producción cambiando una sola línea.",
+        desc: "SQL + NoSQL: PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria (WASM).",
+        detail: "Seis bases de datos tras una sola API, tanto SQL como NoSQL. Escribe tus modelos una vez, usa MemoryDb en los tests y luego PostgreSQL, MySQL/MariaDB, SQLite, Redis o MongoDB en producción.",
     },
     Feature {
         title: "Motor en memoria, incluso en WASM",
@@ -741,7 +745,7 @@ static ES_STEPS: [Step; 4] = [
     Step { title: "Definir", desc: "Escribe una struct de Rust normal que describa tu tabla." },
     Step { title: "Derivar", desc: "Añade #[derive(Model)]: columnas, claves y SQL se generan al compilar." },
     Step { title: "Consultar", desc: "Compón consultas con tipos seguros, con filtros, orden y límites." },
-    Step { title: "Desplegar", desc: "Funciona con SQLite, PostgreSQL, MySQL o en memoria, del servidor a WebAssembly." },
+    Step { title: "Desplegar", desc: "Funciona con PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB o en memoria, del servidor a WebAssembly." },
 ];
 
 static ES_WHY: [Step; 4] = [
@@ -751,11 +755,13 @@ static ES_WHY: [Step; 4] = [
     Step { title: "Async sin sobrecoste", desc: "Las operaciones son asíncronas de principio a fin y nunca bloquean los hilos del ejecutor." },
 ];
 
-static ES_BACKENDS: [Step; 4] = [
-    Step { title: "En memoria", desc: "MemoryDb::new(): instantáneo, sin configuración, perfecto para tests y WebAssembly." },
-    Step { title: "SQLite", desc: "SqliteDb::open(\"app.db\"): un solo archivo, ideal para apps, CLI y edge." },
-    Step { title: "PostgreSQL", desc: "PgPool::connect(url): conexiones agrupadas para cargas de producción." },
-    Step { title: "Dialecto MySQL", desc: "Genera SQL al estilo MySQL: identificadores con backticks y parámetros ?." },
+static ES_BACKENDS: [Step; 6] = [
+    Step { title: "En memoria", desc: "Instantáneo y sin configuración: perfecto para tests, demos y WebAssembly." },
+    Step { title: "SQLite", desc: "Un solo archivo, ideal para apps, herramientas de línea de comandos y edge." },
+    Step { title: "PostgreSQL", desc: "Conexiones agrupadas para cargas de producción." },
+    Step { title: "MySQL & MariaDB", desc: "Un driver real para MySQL y MariaDB, con identificadores entre backticks y parámetros ?." },
+    Step { title: "Redis", desc: "Guarda tus modelos en Redis, el rápido almacén NoSQL clave-valor." },
+    Step { title: "MongoDB", desc: "Asocia tus modelos a colecciones y documentos de MongoDB (NoSQL)." },
 ];
 
 static ES: Texts = Texts {
@@ -774,12 +780,12 @@ static ES: Texts = Texts {
     hero_badge: "Rust puro · Async · Listo para WebAssembly",
     hero_title_1: "El ORM de Rust",
     hero_title_2: "hecho para la velocidad.",
-    hero_subtitle: "Memoire ORM convierte structs de Rust normales en consultas con tipos seguros y verificadas al compilar, para SQLite, PostgreSQL, MySQL y un motor en memoria que funciona incluso en tu navegador.",
+    hero_subtitle: "Memoire ORM convierte structs de Rust normales en consultas con tipos seguros y verificadas al compilar, para PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria que funciona incluso en tu navegador.",
     hero_taglines: &[
         "Consultas con tipos seguros.",
         "SQL generado al compilar.",
         "Mapeo de filas sin coste.",
-        "Una API, cuatro bases de datos.",
+        "SQL y NoSQL, una sola API.",
         "Funciona en WebAssembly.",
     ],
     hero_cta_primary: "Empezar",
@@ -795,8 +801,8 @@ static ES: Texts = Texts {
     stat_guides: "Guías de documentación",
 
     marquee_items: &[
-        "PostgreSQL", "SQLite", "MySQL", "En memoria", "WebAssembly", "async / await",
-        "Migraciones", "Transacciones", "Macros derive", "Filtros tipados", "Mapeo sin coste",
+        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "En memoria", "WebAssembly",
+        "async / await", "Migraciones", "Transacciones", "Macros derive", "Filtros tipados",
     ],
 
     features_eyebrow: "Funciones",
@@ -835,8 +841,8 @@ static ES: Texts = Texts {
 
     fp_title: "Funciones",
     fp_subtitle: "Todo lo que te ofrece Memoire ORM, explicado de forma sencilla.",
-    backends_title: "Una API, cuatro bases de datos",
-    backends_subtitle: "Elige el almacenamiento que te convenga: tus modelos y consultas no cambian.",
+    backends_title: "Una API, seis bases de datos",
+    backends_subtitle: "SQL o NoSQL: elige el almacenamiento que te convenga, tus modelos no cambian.",
     backends: &ES_BACKENDS,
 
     cta_title: "¿Listo para que tus datos vuelen?",
@@ -899,5 +905,5 @@ static ES: Texts = Texts {
     nf_home: "Volver al inicio",
     nf_docs: "Ver la documentación",
 
-    meta_description: "Memoire ORM: un ORM ultrarrápido en Rust puro, con SQL generado al compilar, consultas con tipos seguros y un motor en memoria que funciona en WebAssembly.",
+    meta_description: "Memoire ORM: un ORM ultrarrápido en Rust puro para SQL y NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), con SQL generado al compilar, consultas con tipos seguros y un motor en memoria que funciona en WebAssembly.",
 };

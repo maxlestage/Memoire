@@ -181,7 +181,7 @@ Case sensitivity is the same on every backend Memoire runs:
 | In-memory engine | Case-sensitive | Case-insensitive (Unicode) |
 | SQLite | Case-sensitive (Memoire enables `case_sensitive_like`) | Case-insensitive for ASCII letters only (`LOWER()`) |
 | PostgreSQL | Case-sensitive | Case-insensitive (native `ILIKE`) |
-| MySQL (SQL generation) | Depends on the column collation (usually insensitive) | Case-insensitive (`LOWER()`) |
+| MySQL | Depends on the column collation (usually insensitive) | Case-insensitive (`LOWER()`) |
 
 > **Note** On SQLite, `icontains("émi")` does not match `"Émile"`, because SQLite's `LOWER()` only changes ASCII letters. The memory engine and PostgreSQL handle accented letters.
 

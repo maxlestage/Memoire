@@ -56,6 +56,7 @@
 //! | `sqlite` | | SQLite backend (`SqliteDb`) |
 //! | `postgres` | | PostgreSQL backend (`PgPool`, requires Tokio) |
 //! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
+//! | `mysql` | | MySQL / MariaDB backend (`MySqlPool`, requires Tokio) |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |
@@ -100,6 +101,8 @@ pub use memoire_orm_derive::{FromRow, Model};
 
 #[cfg(feature = "memory")]
 pub use backend::memory::{MemoryDb, MemoryTransaction};
+#[cfg(feature = "mysql")]
+pub use backend::mysql::{MySqlPool, MySqlTransaction};
 #[cfg(feature = "postgres")]
 pub use backend::postgres::{PgPool, PgTransaction};
 #[cfg(feature = "sqlite")]
@@ -111,6 +114,8 @@ pub mod prelude {
     pub use crate::Json;
     #[cfg(feature = "memory")]
     pub use crate::MemoryDb;
+    #[cfg(feature = "mysql")]
+    pub use crate::MySqlPool;
     #[cfg(feature = "postgres")]
     pub use crate::PgPool;
     #[cfg(feature = "sqlite")]
