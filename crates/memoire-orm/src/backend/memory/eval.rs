@@ -557,7 +557,7 @@ impl LikeMatcher {
     }
 }
 
-fn tokenize(pattern: &str, escaped: bool) -> Vec<Tok> {
+pub(crate) fn tokenize(pattern: &str, escaped: bool) -> Vec<Tok> {
     let mut toks: Vec<Tok> = Vec::with_capacity(pattern.len());
     let mut it = pattern.chars();
     while let Some(c) = it.next() {

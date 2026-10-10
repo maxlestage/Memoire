@@ -197,11 +197,20 @@ impl Migrator {
         let mut done = Vec::with_capacity(pending.len());
         for m in pending {
             let wrap = |e: Error| Error::Migration { version: m.version, name: m.name.clone(), source: Box::new(e) };
-            let tx = db.begin().await.map_err(wrap)?;
-            m.apply(&tx).await.map_err(wrap)?;
             let mut record = AppliedMigration { version: m.version, name: m.name.clone(), applied_at: now_millis() };
-            record.insert(&tx).await.map_err(wrap)?;
-            tx.commit().await.map_err(wrap)?;
+            match db.begin().await {
+                Ok(tx) => {
+                    m.apply(&tx).await.map_err(wrap)?;
+                    record.insert(&tx).await.map_err(wrap)?;
+                    tx.commit().await.map_err(wrap)?;
+                }
+                // Databases without transactions (standalone MongoDB): apply directly.
+                Err(Error::Unsupported(_)) => {
+                    m.apply(db).await.map_err(wrap)?;
+                    record.insert(db).await.map_err(wrap)?;
+                }
+                Err(e) => return Err(wrap(e)),
+            }
             done.push(m.version);
         }
         Ok(done)

@@ -7,6 +7,7 @@
 //! | `postgres::PgPool` | `postgres` | yes | `tokio-postgres` + pooling |
 //! | `mysql::MySqlPool` | `mysql` | yes | `mysql_async`, MySQL 5.7+/8 and MariaDB 10.3+ |
 //! | `redis::RedisDb` | `redis` | yes | NoSQL key-value store, rows as JSON |
+//! | `mongodb::MongoDb` | `mongodb` | yes | NoSQL document store, official driver |
 
 #[cfg(feature = "memory")]
 pub mod memory;
@@ -22,3 +23,6 @@ pub mod mysql;
 
 #[cfg(feature = "redis")]
 pub mod redis;
+
+#[cfg(feature = "mongodb")]
+pub mod mongodb;
