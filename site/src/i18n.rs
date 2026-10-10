@@ -1,107 +1,17 @@
 //! Internationalisation: every piece of UI text, in English, French and Spanish.
 //!
-//! The current language travels through a Yew context ([`LangContext`]); components
-//! read it with [`use_lang`] and get the matching string table with [`Lang::t`].
+//! Shared by the server (pages) and the browser bundle (islands): [`t`] gives the string
+//! table of a language.
 
-use yew::prelude::*;
+use crate::routes::Lang;
 
-use crate::dom;
-
-const STORAGE_KEY: &str = "memoire-lang";
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Lang {
-    En,
-    Fr,
-    Es,
-}
-
-impl Lang {
-    pub const ALL: [Lang; 3] = [Lang::En, Lang::Fr, Lang::Es];
-
-    /// Index into `[en, fr, es]` arrays (docs titles, contents, bench labels…).
-    pub fn idx(self) -> usize {
-        match self {
-            Lang::En => 0,
-            Lang::Fr => 1,
-            Lang::Es => 2,
-        }
+/// The texts of `lang`.
+pub fn t(lang: Lang) -> &'static Texts {
+    match lang {
+        Lang::En => &EN,
+        Lang::Fr => &FR,
+        Lang::Es => &ES,
     }
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Lang::En => "en",
-            Lang::Fr => "fr",
-            Lang::Es => "es",
-        }
-    }
-
-    pub fn short(self) -> &'static str {
-        match self {
-            Lang::En => "EN",
-            Lang::Fr => "FR",
-            Lang::Es => "ES",
-        }
-    }
-
-    pub fn native_name(self) -> &'static str {
-        match self {
-            Lang::En => "English",
-            Lang::Fr => "Français",
-            Lang::Es => "Español",
-        }
-    }
-
-    pub fn from_code(code: &str) -> Option<Lang> {
-        let code = code.trim().to_ascii_lowercase();
-        let prefix = code.split(['-', '_']).next().unwrap_or_default();
-        match prefix {
-            "en" => Some(Lang::En),
-            "fr" => Some(Lang::Fr),
-            "es" => Some(Lang::Es),
-            _ => None,
-        }
-    }
-
-    /// Saved choice first, then the browser language, then English.
-    pub fn detect() -> Lang {
-        if let Some(lang) = dom::storage_get(STORAGE_KEY).and_then(|c| Lang::from_code(&c)) {
-            return lang;
-        }
-        dom::window()
-            .navigator()
-            .language()
-            .and_then(|l| Lang::from_code(&l))
-            .unwrap_or(Lang::En)
-    }
-
-    /// Persist the choice and update `<html lang>`.
-    pub fn apply(self) {
-        dom::storage_set(STORAGE_KEY, self.code());
-        if let Some(root) = dom::document().document_element() {
-            let _ = root.set_attribute("lang", self.code());
-        }
-    }
-
-    pub fn t(self) -> &'static Texts {
-        match self {
-            Lang::En => &EN,
-            Lang::Fr => &FR,
-            Lang::Es => &ES,
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct LangContext {
-    pub lang: Lang,
-    pub set: Callback<Lang>,
-}
-
-/// Current language + setter. Panics if used outside the provider (programming error).
-#[hook]
-pub fn use_lang() -> LangContext {
-    use_context::<LangContext>().expect("LangContext provider missing")
 }
 
 /// A feature card: short title + one-liner + longer explanation for /features.
@@ -237,7 +147,8 @@ pub struct Texts {
     pub pg_rows: &'static str,
     pub pg_no_rows: &'static str,
     pub pg_exec: &'static str,
-    pub pg_mock_note: &'static str,
+    pub pg_on_server: &'static str,
+    pub pg_offline_note: &'static str,
 
     // Docs
     pub docs_title: &'static str,
@@ -250,6 +161,7 @@ pub struct Texts {
     pub docs_edit: &'static str,
     pub docs_min_read: &'static str,
     pub docs_menu: &'static str,
+    pub docs_clear: &'static str,
     pub docs_not_found_title: &'static str,
     pub docs_not_found_text: &'static str,
     pub callout_note: &'static str,
@@ -261,6 +173,11 @@ pub struct Texts {
     pub nf_text: &'static str,
     pub nf_home: &'static str,
     pub nf_docs: &'static str,
+
+    // Offline page and language choice
+    pub offline_title: &'static str,
+    pub offline_text: &'static str,
+    pub choose_language: &'static str,
 
     // Meta
     pub meta_description: &'static str,
@@ -317,21 +234,39 @@ static EN_STEPS: [Step; 4] = [
     Step { title: "Define", desc: "Write a plain Rust struct that describes your table." },
     Step { title: "Derive", desc: "Add #[derive(Model)]: columns, keys and SQL are generated at compile time." },
     Step { title: "Query", desc: "Compose type-safe queries with filters, ordering and limits." },
-    Step { title: "Ship", desc: "Run on PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB or in memory, from servers to WebAssembly." },
+    Step {
+        title: "Ship",
+        desc: "Run on PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB or in memory, from servers to WebAssembly.",
+    },
 ];
 
 static EN_WHY: [Step; 4] = [
-    Step { title: "SQL built at compile time", desc: "Table and column metadata come from the derive macro, so there is nothing to discover at runtime." },
-    Step { title: "Monomorphised row mapping", desc: "Each model gets its own mapping code: no reflection, no boxing on the hot path." },
-    Step { title: "Lean query builder", desc: "Queries are small values assembled in place and rendered once per dialect." },
-    Step { title: "Async without overhead", desc: "Operations are async end to end and never block your executor threads." },
+    Step {
+        title: "SQL built at compile time",
+        desc: "Table and column metadata come from the derive macro, so there is nothing to discover at runtime.",
+    },
+    Step {
+        title: "Monomorphised row mapping",
+        desc: "Each model gets its own mapping code: no reflection, no boxing on the hot path.",
+    },
+    Step {
+        title: "Lean query builder",
+        desc: "Queries are small values assembled in place and rendered once per dialect.",
+    },
+    Step {
+        title: "Async without overhead",
+        desc: "Operations are async end to end and never block your executor threads.",
+    },
 ];
 
 static EN_BACKENDS: [Step; 6] = [
     Step { title: "In-memory", desc: "Instant and zero-setup: perfect for tests, demos and WebAssembly." },
     Step { title: "SQLite", desc: "A single file, ideal for apps, command-line tools and the edge." },
     Step { title: "PostgreSQL", desc: "Pooled connections for production workloads." },
-    Step { title: "MySQL & MariaDB", desc: "A real driver for MySQL and MariaDB, with backtick identifiers and ? placeholders." },
+    Step {
+        title: "MySQL & MariaDB",
+        desc: "A real driver for MySQL and MariaDB, with backtick identifiers and ? placeholders.",
+    },
     Step { title: "Redis", desc: "Keep your models in Redis, the fast NoSQL key-value store." },
     Step { title: "MongoDB", desc: "Map your models to MongoDB collections and documents (NoSQL)." },
 ];
@@ -373,8 +308,19 @@ static EN: Texts = Texts {
     stat_guides: "Documentation guides",
 
     marquee_items: &[
-        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "In-memory", "WebAssembly",
-        "async / await", "Migrations", "Transactions", "Derive macros", "Type-safe filters",
+        "PostgreSQL",
+        "MySQL",
+        "MariaDB",
+        "SQLite",
+        "Redis",
+        "MongoDB",
+        "In-memory",
+        "WebAssembly",
+        "async / await",
+        "Migrations",
+        "Transactions",
+        "Derive macros",
+        "Type-safe filters",
     ],
 
     features_eyebrow: "Features",
@@ -430,7 +376,7 @@ static EN: Texts = Texts {
     footer_issues: "Issues",
     footer_deploy: "Deploy on Heroku",
     footer_rights: "© 2026 Memoire ORM — MIT / Apache-2.0",
-    footer_built: "Built with Rust 🦀 + Yew + WebAssembly",
+    footer_built: "Built with Rust 🦀 + active + WebAssembly",
     back_to_top: "Back to top",
 
     pg_title: "Playground",
@@ -454,7 +400,8 @@ static EN: Texts = Texts {
     pg_rows: "rows",
     pg_no_rows: "No rows match these filters.",
     pg_exec: "Executed in",
-    pg_mock_note: "Preview: the playground currently runs a lightweight mock. The real Memoire in-memory engine compiled to WebAssembly is coming soon.",
+    pg_on_server: "server",
+    pg_offline_note: "Works offline: once this page has loaded, the ORM runs entirely in your browser, no network needed.",
 
     docs_title: "Documentation",
     docs_search: "Search the docs…",
@@ -466,6 +413,7 @@ static EN: Texts = Texts {
     docs_edit: "Edit this page on GitHub",
     docs_min_read: "min read",
     docs_menu: "Docs menu",
+    docs_clear: "Clear",
     docs_not_found_title: "Page not found",
     docs_not_found_text: "This documentation page does not exist (yet). Pick a topic from the menu.",
     callout_note: "Note",
@@ -476,6 +424,10 @@ static EN: Texts = Texts {
     nf_text: "The page you are looking for does not exist or has moved.",
     nf_home: "Back home",
     nf_docs: "Browse the docs",
+
+    offline_title: "You are offline",
+    offline_text: "This page has not been saved on this device yet. The pages you have already opened, the home page and the playground still work without a connection.",
+    choose_language: "Choose your language",
 
     meta_description: "Memoire ORM: a blazing-fast, pure-Rust ORM for SQL and NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB) with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly.",
 };
@@ -529,23 +481,49 @@ static FR_FEATURES: [Feature; 8] = [
 
 static FR_STEPS: [Step; 4] = [
     Step { title: "Définir", desc: "Écrivez une simple struct Rust qui décrit votre table." },
-    Step { title: "Dériver", desc: "Ajoutez #[derive(Model)] : colonnes, clés et SQL sont générés à la compilation." },
+    Step {
+        title: "Dériver", desc: "Ajoutez #[derive(Model)] : colonnes, clés et SQL sont générés à la compilation."
+    },
     Step { title: "Interroger", desc: "Composez des requêtes typées avec filtres, tri et limites." },
-    Step { title: "Livrer", desc: "Déployez sur PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB ou en mémoire, du serveur au WebAssembly." },
+    Step {
+        title: "Livrer",
+        desc: "Déployez sur PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB ou en mémoire, du serveur au WebAssembly.",
+    },
 ];
 
 static FR_WHY: [Step; 4] = [
-    Step { title: "SQL construit à la compilation", desc: "Les métadonnées de table et de colonnes viennent de la macro derive : rien à découvrir à l'exécution." },
-    Step { title: "Mapping monomorphisé", desc: "Chaque modèle a son propre code de mapping : ni réflexion, ni allocation superflue sur le chemin critique." },
-    Step { title: "Constructeur de requêtes léger", desc: "Les requêtes sont de petites valeurs assemblées sur place et rendues une fois par dialecte." },
-    Step { title: "Async sans surcoût", desc: "Les opérations sont asynchrones de bout en bout et ne bloquent jamais vos threads." },
+    Step {
+        title: "SQL construit à la compilation",
+        desc: "Les métadonnées de table et de colonnes viennent de la macro derive : rien à découvrir à l'exécution.",
+    },
+    Step {
+        title: "Mapping monomorphisé",
+        desc: "Chaque modèle a son propre code de mapping : ni réflexion, ni allocation superflue sur le chemin critique.",
+    },
+    Step {
+        title: "Constructeur de requêtes léger",
+        desc: "Les requêtes sont de petites valeurs assemblées sur place et rendues une fois par dialecte.",
+    },
+    Step {
+        title: "Async sans surcoût",
+        desc: "Les opérations sont asynchrones de bout en bout et ne bloquent jamais vos threads.",
+    },
 ];
 
 static FR_BACKENDS: [Step; 6] = [
-    Step { title: "En mémoire", desc: "Instantané et sans configuration : idéal pour les tests, les démos et le WebAssembly." },
-    Step { title: "SQLite", desc: "Un seul fichier, parfait pour les apps, les outils en ligne de commande et l'edge." },
+    Step {
+        title: "En mémoire",
+        desc: "Instantané et sans configuration : idéal pour les tests, les démos et le WebAssembly.",
+    },
+    Step {
+        title: "SQLite",
+        desc: "Un seul fichier, parfait pour les apps, les outils en ligne de commande et l'edge.",
+    },
     Step { title: "PostgreSQL", desc: "Un pool de connexions pour la production." },
-    Step { title: "MySQL & MariaDB", desc: "Un vrai pilote pour MySQL et MariaDB, avec identifiants entre backticks et paramètres ?." },
+    Step {
+        title: "MySQL & MariaDB",
+        desc: "Un vrai pilote pour MySQL et MariaDB, avec identifiants entre backticks et paramètres ?.",
+    },
     Step { title: "Redis", desc: "Stockez vos modèles dans Redis, la base NoSQL clé-valeur ultra-rapide." },
     Step { title: "MongoDB", desc: "Associez vos modèles aux collections et documents MongoDB (NoSQL)." },
 ];
@@ -587,8 +565,19 @@ static FR: Texts = Texts {
     stat_guides: "Guides de documentation",
 
     marquee_items: &[
-        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "En mémoire", "WebAssembly",
-        "async / await", "Migrations", "Transactions", "Macros derive", "Filtres typés",
+        "PostgreSQL",
+        "MySQL",
+        "MariaDB",
+        "SQLite",
+        "Redis",
+        "MongoDB",
+        "En mémoire",
+        "WebAssembly",
+        "async / await",
+        "Migrations",
+        "Transactions",
+        "Macros derive",
+        "Filtres typés",
     ],
 
     features_eyebrow: "Fonctionnalités",
@@ -644,7 +633,7 @@ static FR: Texts = Texts {
     footer_issues: "Tickets",
     footer_deploy: "Déployer sur Heroku",
     footer_rights: "© 2026 Memoire ORM — MIT / Apache-2.0",
-    footer_built: "Construit avec Rust 🦀 + Yew + WebAssembly",
+    footer_built: "Construit avec Rust 🦀 + active + WebAssembly",
     back_to_top: "Retour en haut",
 
     pg_title: "Playground",
@@ -668,7 +657,8 @@ static FR: Texts = Texts {
     pg_rows: "lignes",
     pg_no_rows: "Aucune ligne ne correspond à ces filtres.",
     pg_exec: "Exécuté en",
-    pg_mock_note: "Aperçu : le playground utilise pour l'instant une simulation légère. Le vrai moteur en mémoire de Memoire compilé en WebAssembly arrive bientôt.",
+    pg_on_server: "serveur",
+    pg_offline_note: "Fonctionne hors ligne : une fois cette page chargée, l'ORM tourne entièrement dans votre navigateur, sans réseau.",
 
     docs_title: "Documentation",
     docs_search: "Rechercher dans la doc…",
@@ -680,6 +670,7 @@ static FR: Texts = Texts {
     docs_edit: "Modifier cette page sur GitHub",
     docs_min_read: "min de lecture",
     docs_menu: "Menu de la doc",
+    docs_clear: "Effacer",
     docs_not_found_title: "Page introuvable",
     docs_not_found_text: "Cette page de documentation n'existe pas (encore). Choisissez un sujet dans le menu.",
     callout_note: "Remarque",
@@ -690,6 +681,10 @@ static FR: Texts = Texts {
     nf_text: "La page que vous cherchez n'existe pas ou a été déplacée.",
     nf_home: "Retour à l'accueil",
     nf_docs: "Parcourir la doc",
+
+    offline_title: "Vous êtes hors ligne",
+    offline_text: "Cette page n'a pas encore été enregistrée sur cet appareil. Les pages déjà ouvertes, l'accueil et le playground fonctionnent toujours sans connexion.",
+    choose_language: "Choisissez votre langue",
 
     meta_description: "Memoire ORM : un ORM 100 % Rust ultra-rapide pour SQL et NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), avec SQL généré à la compilation, requêtes typées et moteur en mémoire compatible WebAssembly.",
 };
@@ -745,21 +740,39 @@ static ES_STEPS: [Step; 4] = [
     Step { title: "Definir", desc: "Escribe una struct de Rust normal que describa tu tabla." },
     Step { title: "Derivar", desc: "Añade #[derive(Model)]: columnas, claves y SQL se generan al compilar." },
     Step { title: "Consultar", desc: "Compón consultas con tipos seguros, con filtros, orden y límites." },
-    Step { title: "Desplegar", desc: "Funciona con PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB o en memoria, del servidor a WebAssembly." },
+    Step {
+        title: "Desplegar",
+        desc: "Funciona con PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB o en memoria, del servidor a WebAssembly.",
+    },
 ];
 
 static ES_WHY: [Step; 4] = [
-    Step { title: "SQL construido al compilar", desc: "Los metadatos de tablas y columnas vienen de la macro derive: no hay nada que descubrir en tiempo de ejecución." },
-    Step { title: "Mapeo monomorfizado", desc: "Cada modelo tiene su propio código de mapeo: sin reflexión ni asignaciones innecesarias en la ruta crítica." },
-    Step { title: "Constructor de consultas ligero", desc: "Las consultas son pequeños valores que se ensamblan en el sitio y se renderizan una vez por dialecto." },
-    Step { title: "Async sin sobrecoste", desc: "Las operaciones son asíncronas de principio a fin y nunca bloquean los hilos del ejecutor." },
+    Step {
+        title: "SQL construido al compilar",
+        desc: "Los metadatos de tablas y columnas vienen de la macro derive: no hay nada que descubrir en tiempo de ejecución.",
+    },
+    Step {
+        title: "Mapeo monomorfizado",
+        desc: "Cada modelo tiene su propio código de mapeo: sin reflexión ni asignaciones innecesarias en la ruta crítica.",
+    },
+    Step {
+        title: "Constructor de consultas ligero",
+        desc: "Las consultas son pequeños valores que se ensamblan en el sitio y se renderizan una vez por dialecto.",
+    },
+    Step {
+        title: "Async sin sobrecoste",
+        desc: "Las operaciones son asíncronas de principio a fin y nunca bloquean los hilos del ejecutor.",
+    },
 ];
 
 static ES_BACKENDS: [Step; 6] = [
     Step { title: "En memoria", desc: "Instantáneo y sin configuración: perfecto para tests, demos y WebAssembly." },
     Step { title: "SQLite", desc: "Un solo archivo, ideal para apps, herramientas de línea de comandos y edge." },
     Step { title: "PostgreSQL", desc: "Conexiones agrupadas para cargas de producción." },
-    Step { title: "MySQL & MariaDB", desc: "Un driver real para MySQL y MariaDB, con identificadores entre backticks y parámetros ?." },
+    Step {
+        title: "MySQL & MariaDB",
+        desc: "Un driver real para MySQL y MariaDB, con identificadores entre backticks y parámetros ?.",
+    },
     Step { title: "Redis", desc: "Guarda tus modelos en Redis, el rápido almacén NoSQL clave-valor." },
     Step { title: "MongoDB", desc: "Asocia tus modelos a colecciones y documentos de MongoDB (NoSQL)." },
 ];
@@ -801,8 +814,19 @@ static ES: Texts = Texts {
     stat_guides: "Guías de documentación",
 
     marquee_items: &[
-        "PostgreSQL", "MySQL", "MariaDB", "SQLite", "Redis", "MongoDB", "En memoria", "WebAssembly",
-        "async / await", "Migraciones", "Transacciones", "Macros derive", "Filtros tipados",
+        "PostgreSQL",
+        "MySQL",
+        "MariaDB",
+        "SQLite",
+        "Redis",
+        "MongoDB",
+        "En memoria",
+        "WebAssembly",
+        "async / await",
+        "Migraciones",
+        "Transacciones",
+        "Macros derive",
+        "Filtros tipados",
     ],
 
     features_eyebrow: "Funciones",
@@ -858,7 +882,7 @@ static ES: Texts = Texts {
     footer_issues: "Incidencias",
     footer_deploy: "Desplegar en Heroku",
     footer_rights: "© 2026 Memoire ORM — MIT / Apache-2.0",
-    footer_built: "Hecho con Rust 🦀 + Yew + WebAssembly",
+    footer_built: "Hecho con Rust 🦀 + active + WebAssembly",
     back_to_top: "Volver arriba",
 
     pg_title: "Playground",
@@ -882,7 +906,8 @@ static ES: Texts = Texts {
     pg_rows: "filas",
     pg_no_rows: "Ninguna fila coincide con estos filtros.",
     pg_exec: "Ejecutado en",
-    pg_mock_note: "Vista previa: por ahora el playground usa una simulación ligera. El motor en memoria real de Memoire compilado a WebAssembly llegará pronto.",
+    pg_on_server: "servidor",
+    pg_offline_note: "Funciona sin conexión: una vez cargada esta página, el ORM se ejecuta por completo en tu navegador, sin red.",
 
     docs_title: "Documentación",
     docs_search: "Buscar en la documentación…",
@@ -894,6 +919,7 @@ static ES: Texts = Texts {
     docs_edit: "Editar esta página en GitHub",
     docs_min_read: "min de lectura",
     docs_menu: "Menú de la documentación",
+    docs_clear: "Borrar",
     docs_not_found_title: "Página no encontrada",
     docs_not_found_text: "Esta página de documentación no existe (todavía). Elige un tema en el menú.",
     callout_note: "Nota",
@@ -904,6 +930,10 @@ static ES: Texts = Texts {
     nf_text: "La página que buscas no existe o se ha movido.",
     nf_home: "Volver al inicio",
     nf_docs: "Ver la documentación",
+
+    offline_title: "Estás sin conexión",
+    offline_text: "Esta página aún no se ha guardado en este dispositivo. Las páginas que ya abriste, el inicio y el playground siguen funcionando sin conexión.",
+    choose_language: "Elige tu idioma",
 
     meta_description: "Memoire ORM: un ORM ultrarrápido en Rust puro para SQL y NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), con SQL generado al compilar, consultas con tipos seguros y un motor en memoria que funciona en WebAssembly.",
 };

@@ -46,7 +46,7 @@ What happens behind the scenes:
 
 - `app.json` describes the app for Heroku: its name and description, the **container** stack, one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
 - `heroku.yml` tells Heroku to build the `web` process from the `Dockerfile` at the root of the repository.
-- The `Dockerfile` builds the Yew website (compiled to WebAssembly with Trunk) and the small Rust web server in a first stage, then copies only the server binary and the static files into a slim final image.
+- The `Dockerfile` builds the website, written in Rust with [active](https://github.com/maxlestage/Active), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
 
 > **Note** The button deploys the repository as it is at that moment. To get later changes, use method 2 or 3, or tap the button again to create a fresh app.
 
@@ -112,7 +112,7 @@ Heroku then builds the image from `heroku.yml` and the `Dockerfile` on every pus
 
 ## GitHub Pages: the free option
 
-The website is a WebAssembly app made of static files, so GitHub Pages can host it too, for free, at `https://<your-user>.github.io/Memoire/` (for this repository: `https://maxlestage.github.io/Memoire/`). No Heroku account and no secret: the `.github/workflows/pages.yml` workflow builds and publishes it.
+The website's server can also write every page, in every language, to static files, so GitHub Pages can host it too, for free, at `https://<your-user>.github.io/Memoire/` (for this repository: `https://maxlestage.github.io/Memoire/`). No Heroku account and no secret: the `.github/workflows/pages.yml` workflow builds and publishes it.
 
 Turn it on once:
 
@@ -127,12 +127,21 @@ After that, every push to `master` that changes the website, the docs or the ORM
 What the workflow does:
 
 - it skips with the notice "GitHub Pages deployment skipped" as long as step 2 is not done;
-- it builds the site with `site/build-static.sh`, which places it under `/Memoire/` and prerenders every page into its own HTML file (`docs/models`, `playground`...): each page shows before the WebAssembly app has downloaded, links to any page and refreshes work, and unknown addresses show the site's "page not found";
-- it publishes the site, then checks that the home page and a documentation page answer.
+- it builds the browser bundle, then runs `memoire-site export`, which writes every page into its own HTML file under `/Memoire/` (`en/docs/models/`, `fr/playground/`...), with the search index, the web app manifest and the service worker: links to any page and refreshes work, the old addresses (`docs/models`...) lead to the visitor's language, and unknown addresses show the site's "page not found";
+- it publishes the site, then checks that the home pages, a documentation page, the playground, the manifest and the service worker answer.
 
 GitHub Pages and Heroku are independent: you can use both. The only difference is that GitHub Pages cannot send the extra security headers (such as `Content-Security-Policy`) that the Heroku server adds; the site itself works the same.
 
 > **Tip** To use your own domain, set it under **Settings → Pages → Custom domain**, then run the workflow again: it builds the site for the root of that domain.
+
+## Install the site on your phone
+
+The website is a Progressive Web App, wherever it is hosted (Heroku or GitHub Pages):
+
+- **Android** (Chrome): open the site, tap the **⋮** menu, then **Install app** (or **Add to Home screen**).
+- **iPhone and iPad** (Safari): open the site, tap **Share**, then **Add to Home Screen**.
+
+It then opens full screen from its icon, like an app. Once a page has been opened, the site keeps working without network: the home pages, the first documentation page, the playground and every page you have already read are kept on the device. The playground needs no network at all: the ORM runs in the page, compiled to WebAssembly. A new version of the site replaces the saved one at the next visit with network.
 
 ## How merging triggers a deployment
 

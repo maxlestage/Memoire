@@ -1,34 +1,33 @@
-//! Memoire ORM presentation website (Yew + WebAssembly).
+//! `memoire-site`: the web server (build the browser bundle first, see CONTRIBUTING.md).
+//!
+//! `memoire-site export <dir>`: the whole site as static files in `<dir>`, for GitHub Pages
+//! or any static host. `BASE_PATH` (e.g. `/Memoire`) prefixes every link, `SITE_URL`
+//! (e.g. `https://maxlestage.github.io/Memoire`) makes the absolute URLs.
 
-// The native build is only the prerenderer: browser-only code goes unused there.
-#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-
-mod app;
-mod components;
-mod data;
-mod docs;
-mod dom;
-mod engine;
-mod highlight;
-mod i18n;
-mod markdown;
-mod pages;
 #[cfg(not(target_arch = "wasm32"))]
-mod prerender;
-mod theme;
+#[tokio::main]
+async fn main() {
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("export") => {
+            let dir = args.next().unwrap_or_else(|| "dist".into());
+            let base = std::env::var("BASE_PATH").unwrap_or_default();
+            let site_url = std::env::var("SITE_URL").ok();
+            match memoire_site::server::export::export(std::path::Path::new(&dir), &base, site_url).await {
+                Ok(files) => println!("{files} files written to {dir}"),
+                Err(error) => {
+                    eprintln!("export failed: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(other) => {
+            eprintln!("unknown command {other:?}: run without arguments to serve, or `export <dir>`");
+            std::process::exit(2);
+        }
+        None => memoire_site::server::run().await,
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
-fn main() {
-    dom::init_settled();
-    docs::adopt_embedded_sources();
-    match dom::document().get_element_by_id("app") {
-        Some(root) => yew::Renderer::<app::App>::with_root(root).render(),
-        None => yew::Renderer::<app::App>::new().render(),
-    };
-}
-
-/// Native build: the build-time prerenderer (see `prerender.rs`).
-#[cfg(not(target_arch = "wasm32"))]
-fn main() {
-    prerender::main();
-}
+fn main() {}

@@ -16,7 +16,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TRUNK_VERSION: "0.21.14"
 
 jobs:
   lint:
@@ -171,32 +170,41 @@ jobs:
       - run: cargo publish --workspace --dry-run
 
   site:
-    name: Website (Yew + server)
+    name: Website (active + PWA)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            site
-            server
-      - name: Install trunk
+          workspaces: site
+      - name: Install wasm-bindgen (the version in site/Cargo.lock)
         run: |
-          curl -sSfL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar -xz -C "$HOME/.cargo/bin"
-          trunk --version
-      - name: Site unit tests (every documentation page exists in every language)
-        working-directory: site
+          v=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$v/wasm-bindgen-$v-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C "$HOME/.cargo/bin"
+          wasm-bindgen --version
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy (server, export, tests)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (browser bundle, wasm32)
+        run: cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
+      - name: Build the browser bundle (WebAssembly islands, the ORM included)
+        run: |
+          cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+          wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+      - name: Tests (pages, SEO, PWA, static export, every documentation page in every language)
         run: cargo test
-      - name: Build and prerender the site (Heroku, served at the root)
-        run: site/build-static.sh "" "" dist
-      - name: Build and prerender the site for GitHub Pages (served under /Memoire/)
-        run: site/build-static.sh /Memoire
-      - name: Build the server
-        working-directory: server
+      - name: Static export for GitHub Pages (served under /Memoire/)
+        run: BASE_PATH=/Memoire SITE_URL=https://maxlestage.github.io/Memoire cargo run -- export dist-static
+      - name: Build the server (release, as on Heroku)
         run: cargo build --release
 
   # Pull requests targeting master are merged automatically once every check

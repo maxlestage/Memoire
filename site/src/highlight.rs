@@ -17,8 +17,7 @@ fn lang_of(name: &str) -> Lang {
     match name.trim().to_ascii_lowercase().as_str() {
         "rust" | "rs" => Lang::Rust,
         "toml" => Lang::Toml,
-        "bash" | "sh" | "shell" | "console" | "zsh" | "terminal" | "dockerfile" | "yaml"
-        | "yml" => Lang::Bash,
+        "bash" | "sh" | "shell" | "console" | "zsh" | "terminal" | "dockerfile" | "yaml" | "yml" => Lang::Bash,
         "sql" | "postgres" | "postgresql" | "mysql" | "sqlite" => Lang::Sql,
         "json" | "jsonc" => Lang::Json,
         _ => Lang::Plain,
@@ -26,33 +25,95 @@ fn lang_of(name: &str) -> Lang {
 }
 
 const RUST_KW: &[&str] = &[
-    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
-    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
-    "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true",
-    "type", "unsafe", "use", "where", "while",
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false", "fn",
+    "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self",
+    "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while",
 ];
 
 const RUST_PRIMS: &[&str] = &[
-    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
-    "f32", "f64", "bool", "char", "str",
+    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64", "bool",
+    "char", "str",
 ];
 
 const BASH_KW: &[&str] = &[
-    "if", "then", "else", "elif", "fi", "for", "in", "do", "done", "while", "case", "esac",
-    "function", "return", "export", "local", "cd", "echo", "sudo", "cargo", "git", "heroku",
-    "rustup", "trunk", "docker", "curl", "npm", "FROM", "RUN", "COPY", "WORKDIR", "CMD", "ENV",
-    "ARG", "EXPOSE", "USER", "AS",
+    "if", "then", "else", "elif", "fi", "for", "in", "do", "done", "while", "case", "esac", "function", "return",
+    "export", "local", "cd", "echo", "sudo", "cargo", "git", "heroku", "rustup", "docker", "curl", "npm", "FROM",
+    "RUN", "COPY", "WORKDIR", "CMD", "ENV", "ARG", "EXPOSE", "USER", "AS",
 ];
 
 const SQL_KW: &[&str] = &[
-    "select", "from", "where", "and", "or", "not", "insert", "into", "values", "update", "set",
-    "delete", "create", "table", "drop", "alter", "add", "column", "primary", "key", "unique",
-    "index", "on", "join", "left", "right", "inner", "outer", "order", "by", "asc", "desc",
-    "limit", "offset", "group", "having", "as", "null", "is", "like", "escape", "in", "between",
-    "begin", "commit", "rollback", "transaction", "returning", "default", "references",
-    "foreign", "if", "exists", "integer", "bigint", "text", "varchar", "boolean", "real",
-    "serial", "bigserial", "autoincrement", "auto_increment", "count", "distinct", "case",
-    "when", "then", "else", "end", "true", "false",
+    "select",
+    "from",
+    "where",
+    "and",
+    "or",
+    "not",
+    "insert",
+    "into",
+    "values",
+    "update",
+    "set",
+    "delete",
+    "create",
+    "table",
+    "drop",
+    "alter",
+    "add",
+    "column",
+    "primary",
+    "key",
+    "unique",
+    "index",
+    "on",
+    "join",
+    "left",
+    "right",
+    "inner",
+    "outer",
+    "order",
+    "by",
+    "asc",
+    "desc",
+    "limit",
+    "offset",
+    "group",
+    "having",
+    "as",
+    "null",
+    "is",
+    "like",
+    "escape",
+    "in",
+    "between",
+    "begin",
+    "commit",
+    "rollback",
+    "transaction",
+    "returning",
+    "default",
+    "references",
+    "foreign",
+    "if",
+    "exists",
+    "integer",
+    "bigint",
+    "text",
+    "varchar",
+    "boolean",
+    "real",
+    "serial",
+    "bigserial",
+    "autoincrement",
+    "auto_increment",
+    "count",
+    "distinct",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "true",
+    "false",
 ];
 
 pub fn escape_html(s: &str) -> String {
@@ -225,15 +286,11 @@ pub fn highlight(code: &str, lang: &str) -> String {
             let start = i;
             let quote = c;
             // TOML / Python-like triple quotes
-            let triple = lang == Lang::Toml
-                && chars.get(i + 1) == Some(&quote)
-                && chars.get(i + 2) == Some(&quote);
+            let triple = lang == Lang::Toml && chars.get(i + 1) == Some(&quote) && chars.get(i + 2) == Some(&quote);
             if triple {
                 i += 3;
                 while i < n
-                    && !(chars[i] == quote
-                        && chars.get(i + 1) == Some(&quote)
-                        && chars.get(i + 2) == Some(&quote))
+                    && !(chars[i] == quote && chars.get(i + 1) == Some(&quote) && chars.get(i + 2) == Some(&quote))
                 {
                     i += 1;
                 }
