@@ -101,6 +101,11 @@ jobs:
           cargo run -p memoire-orm --example blog
           cargo run -p memoire-orm --example sqlite --features sqlite
           DATABASE_URL="$MEMOIRE_PG_URL" cargo run -p memoire-orm --example postgres --features postgres
+      - name: Same code on every backend
+        run: |
+          for url in memory sqlite::memory: "$MEMOIRE_PG_URL" "$MEMOIRE_MYSQL_URL" "$MEMOIRE_REDIS_URL" "$MEMOIRE_MONGO_URL"; do
+            cargo run -p memoire-orm --example any_backend --features full -- "$url"
+          done
 
   features:
     name: Feature combinations
