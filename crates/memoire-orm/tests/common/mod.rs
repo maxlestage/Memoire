@@ -453,7 +453,7 @@ pub mod typed {
             Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap() + chrono::Duration::milliseconds(n as i64 * 1_500 + 7);
         Typed {
             id: uuid::Uuid::from_u128(0x1000 + n as u128),
-            flag: n % 2 == 0,
+            flag: n.is_multiple_of(2),
             small: -(n as i16),
             int: n as i32 * 1000,
             big: i64::MAX - n as i64,
@@ -461,7 +461,7 @@ pub mod typed {
             double: 1.25 * n as f64,
             text: format!("ligne n°{n} — ünïcødé ✓"),
             bytes: vec![0, 255, n as u8, 0x80],
-            maybe: (n % 3 != 0).then(|| format!("maybe {n}")),
+            maybe: (!n.is_multiple_of(3)).then(|| format!("maybe {n}")),
             at,
             local: at.naive_utc() + chrono::Duration::hours(2),
             day: NaiveDate::from_ymd_opt(2026, 3, n + 1).unwrap(),
