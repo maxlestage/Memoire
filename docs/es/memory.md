@@ -1,6 +1,6 @@
 # Motor en memoria
 
-`MemoryDb` es un motor de base de datos escrito en Rust puro que mantiene todas las tablas en memoria. No necesita ningún archivo, ningún servidor ni ningún runtime asíncrono, ejecuta las mismas consultas que SQLite y PostgreSQL, e incluso funciona en WebAssembly. Está activado por defecto (feature `memory`).
+`MemoryDb` es un motor de base de datos escrito en Rust puro que mantiene todas las tablas en memoria. No necesita ningún archivo, ningún servidor ni ningún runtime asíncrono, ejecuta las mismas consultas que los demás backends, e incluso funciona en WebAssembly. Está activado por defecto (feature `memory`).
 
 ## Cuándo usarlo
 
@@ -83,11 +83,13 @@ El motor no genera ni analiza SQL. Interpreta directamente las estructuras de co
 | `group_by`, `distinct` | Tablas hash |
 | Transacciones | Instantáneas con copia en escritura (copy-on-write) |
 
+El backend [Redis](redis) evalúa las consultas con este mismo motor, y [MongoDB](mongodb) lo usa para completar los joins, los `GROUP BY` y los agregados, así que comparten su semántica.
+
 > **Nota** `#[memoire(index)]` solo afecta a las bases de datos SQL. El motor en memoria mantiene índices hash para la clave primaria y las columnas `unique`.
 
 ## Semántica SQL
 
-El motor sigue las reglas de SQL, así que las pruebas sobre `MemoryDb` se comportan como la producción en SQLite o PostgreSQL:
+El motor sigue las reglas de SQL, así que las pruebas sobre `MemoryDb` se comportan como la producción en los demás backends:
 
 - **Lógica trivalente:** las comparaciones con `NULL` no son ni verdaderas ni falsas; usa `is_null()`.
 - **Orden de los NULL como en PostgreSQL:** los NULL van al final en orden ascendente y al principio en orden descendente (`nulls_first()`/`nulls_last()` lo cambian).

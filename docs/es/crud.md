@@ -35,7 +35,7 @@ pub struct Tag {
 }
 ```
 
-Todos los métodos reciben `&db`, que puede ser cualquier manejador de base de datos (`MemoryDb`, `SqliteDb`, `PgPool`) o una [transacción](transactions) abierta.
+Todos los métodos reciben `&db`, que puede ser cualquier manejador de base de datos (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) o una [transacción](transactions) abierta.
 
 ## Crear
 
@@ -70,12 +70,12 @@ let inserted = User::insert_many(&db, &users).await?;
 assert_eq!(inserted, 1000);
 ```
 
-En las bases de datos SQL esto envía un `INSERT ... VALUES (...), (...), ...` de varias filas por lote. El tamaño de los lotes se ajusta para no superar el límite de parámetros enlazados de la base de datos (32 766 en SQLite, 65 535 en PostgreSQL) y cada lote contiene como máximo 10 000 filas, así que incluso los slices enormes se gestionan automáticamente.
+En las bases de datos SQL esto envía un `INSERT ... VALUES (...), (...), ...` de varias filas por lote. El tamaño de los lotes se ajusta para no superar el límite de parámetros enlazados de la base de datos (32 766 en SQLite, 65 535 en PostgreSQL y MySQL) y cada lote contiene como máximo 10 000 filas, así que incluso los slices enormes se gestionan automáticamente. Redis escribe cada lote con un único script atómico, y MongoDB con una sola llamada a `insertMany`.
 
 Lo que debes saber sobre `insert_many`:
 
 - Las claves generadas **no** se leen de vuelta: los structs de tu slice conservan `id: 0`. Vuelve a consultar las filas si necesitas sus ids, o insértalas una a una con `insert`.
-- Cada lote es atómico: si una fila falla (por ejemplo, un email duplicado), no se guarda nada de ese lote.
+- Cada lote es atómico: si una fila falla (por ejemplo, un email duplicado), no se guarda nada de ese lote. (En un servidor MongoDB independiente, que no tiene transacciones, Memoire elimina en la medida de lo posible los documentos ya insertados).
 - Cuando el slice ocupa más de un lote, los lotes anteriores quedan guardados si uno posterior falla. Envuelve la llamada en una [transacción](transactions) para que toda la operación sea de todo o nada. Una transacción también hace que las inserciones masivas sean mucho más rápidas en SQLite.
 
 ## Leer
@@ -195,7 +195,7 @@ tag.upsert(&db).await?; // crea "rust", o actualiza su label
 Tag { slug: "orm".into(), label: "ORM".into() }.upsert(&db).await?;
 ```
 
-En las bases de datos SQL es una sola sentencia (`INSERT ... ON CONFLICT (key) DO UPDATE` en SQLite y PostgreSQL), así que es seguro incluso cuando dos programas hacen upsert de la misma clave al mismo tiempo.
+Solo busca coincidencias por la clave primaria, y es seguro incluso cuando dos programas hacen upsert de la misma clave al mismo tiempo (`INSERT ... ON CONFLICT (key) DO UPDATE` en SQLite y PostgreSQL, `INSERT ... ON DUPLICATE KEY UPDATE` o una inserción seguida de una actualización en MySQL, un script Lua en Redis, `replaceOne` con `upsert` en MongoDB). Si la fila tiene una clave nueva pero un valor `unique` que pertenece a otra fila, `upsert` falla con `Error::UniqueViolation` en todos los backends.
 
 > **Atención** `upsert` siempre guarda la clave que hay en tu struct, incluso con una clave `auto_increment`. Hacer upsert de `User { id: 0, ... }` crea una fila cuyo id es `0`. Usa `insert` para las filas nuevas de modelos con autoincremento, y `upsert` para claves naturales (slugs, códigos, UUID) o filas cuyo id ya conoces. En PostgreSQL, ten en cuenta también que hacer upsert de filas nuevas con ids explícitos no hace avanzar la secuencia de ids, así que un `insert` posterior puede chocar con ellas.
 
@@ -219,7 +219,7 @@ println!("removed {removed} inactive user(s)");
 
 > **Atención** `User::delete_many().execute(&db)` sin filtro elimina **todas las filas** de la tabla.
 
-Si otras tablas hacen referencia a las filas eliminadas con `on_delete = "cascade"`, la base de datos también las elimina (en SQLite y PostgreSQL; el motor en memoria no aplica las claves foráneas).
+Si otras tablas hacen referencia a las filas eliminadas con `on_delete = "cascade"`, la base de datos también las elimina (en SQLite, PostgreSQL y MySQL; el motor en memoria, Redis y MongoDB no aplican las claves foráneas).
 
 ## Gestionar los errores
 
@@ -235,7 +235,7 @@ Todas las operaciones devuelven `memoire_orm::Result<T>`, un alias de `Result<T,
 | `Error::Conversion(message)` | No se ha podido convertir un valor (fuera de una columna concreta) |
 | `Error::NoSuchTable(name)` | La tabla no existe |
 | `Error::TableExists(name)` | `create_table` sobre una tabla que ya existe |
-| `Error::Unsupported(message)` | El backend no puede hacer esto (por ejemplo, SQL sin procesar en el motor en memoria) |
+| `Error::Unsupported(message)` | El backend no puede hacer esto (por ejemplo, SQL sin procesar en Redis, o una transacción en un servidor MongoDB independiente) |
 | `Error::Conflict(table)` | Una transacción ha chocado con otra concurrente; se puede reintentar con seguridad |
 | `Error::TransactionFinished` | La transacción ya se había confirmado o revertido |
 | `Error::Migration { version, name, source }` | Ha fallado una migración; `source` contiene la causa |

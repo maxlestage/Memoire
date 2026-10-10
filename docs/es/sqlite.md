@@ -108,10 +108,10 @@ SQLite solo tiene unos pocos tipos de almacenamiento, así que Memoire convierte
 | `String` | `TEXT` | `'hello'` |
 | `Vec<u8>` | `BLOB` | bytes sin procesar |
 | `uuid::Uuid` | `TEXT` | `'67e55044-10b1-426f-9247-bb680e5fe0c8'` |
-| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250'` |
-| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250Z'` |
+| `chrono::NaiveDateTime` | `TEXT` | `'2026-10-10 14:30:00.250000000'` |
+| `chrono::DateTime<Utc>` | `TEXT` (RFC 3339) | `'2026-10-10T14:30:00.250000000Z'` |
 | `chrono::NaiveDate` | `TEXT` | `'2026-10-10'` |
-| `chrono::NaiveTime` | `TEXT` | `'14:30:00'` |
+| `chrono::NaiveTime` | `TEXT` | `'14:30:00.000000000'` |
 | `serde_json::Value`, `Json<T>` | `TEXT` | `'{"theme":"dark"}'` |
 
 Al leer, la conversión inversa es automática, así que tus structs siempre reciben los tipos de Rust adecuados.
@@ -154,7 +154,7 @@ Los errores de SQLite se traducen a las variantes de error comunes de Memoire:
 ## Lo que debes saber
 
 - **`LIKE` distingue mayúsculas y minúsculas** (Memoire activa `case_sensitive_like`). `ilike` e `icontains` no las distinguen solo para las letras ASCII: `icontains("é")` no coincide con `"É"`.
-- **Orden de los NULL:** SQLite coloca los NULL al principio en orden ascendente, a diferencia de PostgreSQL y del motor en memoria. Usa `nulls_first()`/`nulls_last()` para obtener resultados portables.
+- **Orden de los NULL:** SQLite coloca los NULL al principio en orden ascendente, igual que MySQL y MongoDB pero a diferencia de PostgreSQL, Redis y el motor en memoria. Usa `nulls_first()`/`nulls_last()` para obtener resultados portables.
 - **El SQL sin procesar** usa marcadores `?`. Consulta [SQL sin procesar](raw-sql).
 - **Acceso directo:** `db.with_connection(|conn| ...)` te da la `rusqlite::Connection` para todo lo que Memoire no cubre (copias de seguridad, pragmas, funciones personalizadas). Consulta [SQL sin procesar](raw-sql).
 

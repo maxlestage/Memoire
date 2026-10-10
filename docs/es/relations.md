@@ -63,7 +63,7 @@ Los ejemplos siguientes usan estos datos:
 
 Comentarios: "Nice" y "Great" en "Hello", "Hmm" en "Bob's".
 
-> **Nota** SQLite y PostgreSQL aplican las claves foráneas. El motor en memoria acepta la declaración, pero no la comprueba ni elimina en cascada, así que prueba el comportamiento en cascada en un backend SQL.
+> **Nota** SQLite, PostgreSQL y MySQL aplican las claves foráneas. El motor en memoria, Redis y MongoDB aceptan la declaración, pero no la comprueban ni eliminan en cascada, así que prueba el comportamiento en cascada en un backend SQL.
 
 ## Inner join: filas que tienen correspondencia
 
@@ -248,7 +248,7 @@ Carol: 0 post(s)
 
 Dos consultas en total, haya los usuarios que haya. El mismo patrón sirve para cualquier profundidad: carga los comentarios de todos esos posts con una tercera consulta.
 
-> **Consejo** Si la lista de ids puede ser muy larga (decenas de miles), divídela en bloques de unos pocos miles de ids, porque las bases de datos limitan cuántos parámetros puede tener una sentencia (32 766 en SQLite, 65 535 en PostgreSQL).
+> **Consejo** Si la lista de ids puede ser muy larga (decenas de miles), divídela en bloques de unos pocos miles de ids, porque las bases de datos limitan cuántos parámetros puede tener una sentencia (32 766 en SQLite, 65 535 en PostgreSQL y MySQL).
 
 ## Relaciones muchos a muchos
 
@@ -289,8 +289,8 @@ Los modelos de Memoire tienen una clave primaria de una sola columna, así que l
 
 ## Consejos y limitaciones
 
-- **Mantén simples las condiciones de los joins.** Una igualdad entre dos columnas como `Post::AUTHOR_ID.eq_col(User::ID)` es el camino rápido en todas partes; el motor en memoria la ejecuta como un hash join. Pon las demás condiciones en `filter`. (En un left join, una condición en `filter` y la misma condición en la condición del join dan resultados distintos: la primera elimina filas, la segunda solo elimina correspondencias).
-- **Sin auto-joins.** Una tabla no puede aparecer dos veces en la misma consulta (por ejemplo, "los usuarios y su responsable, que también es un usuario"), porque Memoire no genera alias de tabla. El motor en memoria devuelve `Error::Unsupported` y las bases de datos SQL rechazan la sentencia. Usa [SQL sin procesar](raw-sql) con alias, o dos consultas.
+- **Mantén simples las condiciones de los joins.** Una igualdad entre dos columnas como `Post::AUTHOR_ID.eq_col(User::ID)` es el camino rápido en todas partes; el motor en memoria (que también usa Redis) la ejecuta como un hash join, y MongoDB solo recupera los documentos cuya clave de join coincide. Pon las demás condiciones en `filter`. (En un left join, una condición en `filter` y la misma condición en la condición del join dan resultados distintos: la primera elimina filas, la segunda solo elimina correspondencias).
+- **Sin auto-joins.** Una tabla no puede aparecer dos veces en la misma consulta (por ejemplo, "los usuarios y su responsable, que también es un usuario"), porque Memoire no genera alias de tabla. El motor en memoria, Redis y MongoDB devuelven `Error::Unsupported`, y las bases de datos SQL rechazan la sentencia. Usa [SQL sin procesar](raw-sql) con alias en una base de datos SQL, o dos consultas.
 - **Como máximo cinco modelos por tupla.** Los joins con `inner_join`/`left_join` devuelven hasta cinco modelos. `join` (solo para filtrar) no tiene ese límite.
 
 ## Próximos pasos

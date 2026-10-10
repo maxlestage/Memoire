@@ -190,8 +190,10 @@ La distinción entre mayúsculas y minúsculas es la misma en todos los backends
 | SQLite | Distingue mayúsculas y minúsculas (Memoire activa `case_sensitive_like`) | No las distingue, solo para letras ASCII (`LOWER()`) |
 | PostgreSQL | Distingue mayúsculas y minúsculas | No las distingue (`ILIKE` nativo) |
 | MySQL / MariaDB | Distingue mayúsculas y minúsculas (Memoire crea las tablas con `utf8mb4_bin`) | No las distingue (`LOWER()`) |
+| Redis | Distingue mayúsculas y minúsculas (el mismo motor que en memoria) | No las distingue (Unicode) |
+| MongoDB | Distingue mayúsculas y minúsculas (expresión regular anclada) | No las distingue (expresión regular con la opción `i`, Unicode) |
 
-> **Nota** En SQLite, `icontains("émi")` no coincide con `"Émile"`, porque el `LOWER()` de SQLite solo cambia las letras ASCII. El motor en memoria y PostgreSQL gestionan las letras acentuadas.
+> **Nota** En SQLite, `icontains("émi")` no coincide con `"Émile"`, porque el `LOWER()` de SQLite solo cambia las letras ASCII. Todos los demás backends gestionan las letras acentuadas.
 
 ### Comparar dos columnas
 
@@ -252,6 +254,9 @@ Las bases de datos no se ponen de acuerdo sobre dónde aparecen los valores `NUL
 | Motor en memoria | NULL al final | NULL al principio |
 | PostgreSQL | NULL al final | NULL al principio |
 | SQLite | NULL al principio | NULL al final |
+| MySQL / MariaDB | NULL al principio | NULL al final |
+| Redis | NULL al final | NULL al principio |
+| MongoDB | NULL al principio | NULL al final |
 
 Hazlo explícito con `nulls_first()` o `nulls_last()` para obtener el mismo resultado en todas partes:
 
@@ -438,7 +443,7 @@ let doubled = User::query().filter(User::SCORE.mul(2.0).gt(Expr::val(5.0))).all(
 
 ## Ver el SQL
 
-`to_sql(dialect)` genera el SQL de la consulta para PostgreSQL, SQLite o MySQL sin ejecutarla. `to_sql_with_params` devuelve además los valores enlazados:
+`to_sql(dialect)` genera el SQL de la consulta para PostgreSQL, SQLite o MySQL sin ejecutarla (Redis y MongoDB no usan SQL, pero `to_sql` sigue siendo una forma práctica de ver qué significa una consulta). `to_sql_with_params` devuelve además los valores enlazados:
 
 ```rust
 let q = User::query()

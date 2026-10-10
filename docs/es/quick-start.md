@@ -322,6 +322,32 @@ La segunda ejecución encontró las tres tareas guardadas por la primera: tus da
 
 > **Consejo** Para volver al motor en memoria (en las pruebas, por ejemplo), sustituye las dos líneas de `main` por `let db = MemoryDb::new(); db.create_table::<Task>().await?;`. No cambia nada más.
 
+### Usar otra base de datos
+
+La misma función `run` funciona con todos los backends. Activa la feature y cambia la línea que abre la base de datos:
+
+| Base de datos | Feature | Cómo abrirla en `main` |
+|---|---|---|
+| En memoria | `memory` (por defecto) | `let db = MemoryDb::new();` |
+| SQLite | `sqlite` | `let db = SqliteDb::open("tasks.db")?;` |
+| PostgreSQL | `postgres` | `let db = PgPool::connect("postgres://user:password@localhost/tasks").await?;` |
+| MySQL / MariaDB | `mysql` | `let db = MySqlPool::connect("mysql://user:password@localhost:3306/tasks").await?;` |
+| Redis | `redis` | `let db = RedisDb::connect("redis://127.0.0.1:6379").await?;` |
+| MongoDB | `mongodb` | `let db = MongoDb::connect("mongodb://localhost:27017/tasks").await?;` |
+
+Por ejemplo, con MongoDB:
+
+```rust
+#[tokio::main]
+async fn main() -> memoire_orm::Result<()> {
+    let db = MongoDb::connect("mongodb://localhost:27017/tasks").await?;
+    db.create_table_if_not_exists::<Task>().await?;
+    run(&db).await
+}
+```
+
+Los backends de servidor necesitan un servidor en marcha; la página de cada backend explica cómo arrancar uno en local.
+
 ## Lo que has aprendido
 
 | Tarea | Código |

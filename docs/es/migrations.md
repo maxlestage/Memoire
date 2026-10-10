@@ -56,12 +56,12 @@ Las piezas básicas:
 
 Una migración es una lista de pasos, que se ejecutan en el orden en que los añades:
 
-| Paso | Qué hace | Motor en memoria |
+| Paso | Qué hace | En memoria, Redis, MongoDB |
 |---|---|---|
-| `.create_table::<M>()` | `CREATE TABLE` (y sus índices) para el modelo `M` | Compatible |
+| `.create_table::<M>()` | `CREATE TABLE` (y sus índices) para el modelo `M`; en MongoDB, una colección y sus índices | Compatible |
 | `.drop_table("name")` | `DROP TABLE name` | Compatible |
-| `.sql("...")` | Ejecuta un script SQL en cualquier base de datos SQL | **Falla** con `Error::Unsupported` |
-| `.sql_for(Dialect::Postgres, "...")` | Ejecuta un script SQL solo en esa base de datos; en las demás se omite | Se omite |
+| `.sql("...")` | Ejecuta un script SQL en cualquier base de datos SQL (SQLite, PostgreSQL, MySQL) | **Falla** con `Error::Unsupported` |
+| `.sql_for(Dialect::Postgres, "...")` | Ejecuta un script SQL solo en esa base de datos (`Dialect::Sqlite`, `Dialect::Postgres` o `Dialect::MySql`); en las demás se omite | Se omite |
 
 Una migración puede mezclar varios pasos:
 
@@ -70,8 +70,11 @@ let release_2 = Migration::new(3, "comments_and_cleanup")
     .create_table::<Comment>()
     .drop_table("legacy_comments")
     .sql_for(Dialect::Postgres, "CREATE INDEX idx_posts_title ON posts (title)")
-    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)");
+    .sql_for(Dialect::Sqlite, "CREATE INDEX idx_posts_title ON posts (title)")
+    .sql_for(Dialect::MySql, "CREATE INDEX idx_posts_title ON posts (title(100))");
 ```
+
+La versión de MySQL solo indexa los 100 primeros caracteres, porque MySQL no puede indexar una columna `TEXT` completa: `sql_for` es la forma de gestionar este tipo de diferencias.
 
 Un script `sql` o `sql_for` puede contener varias sentencias separadas por punto y coma.
 
@@ -82,7 +85,8 @@ Para cambiar una tabla existente, añade una **nueva** migración con el SQL del
 ```rust
 let add_bio = Migration::new(4, "add_user_bio")
     .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT");
+    .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+    .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT");
 ```
 
 Después añade el campo al struct (`pub bio: Option<String>`), para que el modelo coincida con el nuevo esquema.
@@ -127,7 +131,8 @@ fn migrations() -> Migrator {
         .add(
             Migration::new(2, "add_user_bio")
                 .sql_for(Dialect::Sqlite, "ALTER TABLE users ADD COLUMN bio TEXT")
-                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT"),
+                .sql_for(Dialect::Postgres, "ALTER TABLE users ADD COLUMN bio TEXT")
+                .sql_for(Dialect::MySql, "ALTER TABLE users ADD COLUMN bio TEXT"),
         )
 }
 ```
@@ -170,7 +175,7 @@ async fn status<D: Database>(db: &D) -> memoire_orm::Result<()> {
 
 1. Comprueba que no haya dos migraciones con la misma versión (si las hay, falla antes de tocar la base de datos).
 2. Lee `_memoire_migrations` para encontrar las migraciones pendientes.
-3. Para cada migración pendiente, por orden ascendente de versión, abre una **transacción**, ejecuta todos los pasos, registra la migración en `_memoire_migrations` y hace commit.
+3. Para cada migración pendiente, por orden ascendente de versión, abre una **transacción**, ejecuta todos los pasos, registra la migración en `_memoire_migrations` y hace commit. (En un servidor MongoDB independiente, que no tiene transacciones, los pasos se ejecutan sin ella).
 4. Devuelve la lista de versiones aplicadas.
 
 Si un paso falla:
@@ -192,11 +197,19 @@ match migrations().run(&db).await {
 
 Corrige la migración y vuelve a ejecutarlo: continúa donde se detuvo.
 
-> **Consejo** SQLite y PostgreSQL pueden revertir los cambios de esquema (`CREATE TABLE`, `ALTER TABLE`...) dentro de una transacción, así que una migración fallida no deja un esquema aplicado a medias.
+Cuánto se deshace de una migración fallida depende del backend:
 
-## Las migraciones y el motor en memoria
+| Backend | Cambios de esquema de una migración fallida |
+|---|---|
+| SQLite, PostgreSQL, en memoria, Redis | Se revierten: no queda nada aplicado a medias |
+| MySQL / MariaDB | **Se conservan**: MySQL confirma cada cambio de esquema inmediatamente |
+| MongoDB | **Se conservan**: las colecciones se crean y se eliminan fuera de las transacciones |
 
-El motor en memoria no tiene SQL, así que solo entiende los pasos `create_table` y `drop_table`. Un paso `sql` hace que la migración falle con `Error::Unsupported`, y los pasos `sql_for` se omiten.
+> **Atención** En MySQL y MongoDB, una migración que falla después de un `create_table` (o de cualquier otro cambio de esquema) deja ese cambio aplicado, mientras que la migración no queda registrada como aplicada. Deshazlo a mano antes de volver a ejecutar la migración corregida. Poner un solo cambio de esquema por migración lo facilita.
+
+## Migraciones sin SQL: en memoria, Redis y MongoDB
+
+El motor en memoria, Redis y MongoDB no tienen SQL, así que solo entienden los pasos `create_table` y `drop_table`. Un paso `sql` hace que la migración falle con `Error::Unsupported`, y los pasos `sql_for` se omiten. Redis y MongoDB no tienen columnas fijas, así que añadir un campo a un modelo no requiere ninguna migración en ellos: las filas nuevas tienen el campo, y las filas escritas antes lo leen como vacío (`NULL`), así que declara los campos nuevos como `Option<T>`. (Esto no crea índices para un nuevo campo `unique` o `index`. El motor en memoria empieza vacío en cada ejecución, así que no tiene nada que migrar).
 
 Para las pruebas unitarias sobre `MemoryDb`, lo más sencillo suele ser crear las tablas directamente a partir de tus modelos actuales en lugar de ejecutar el migrador:
 

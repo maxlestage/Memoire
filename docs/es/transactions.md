@@ -57,7 +57,7 @@ Los tres pasos:
 
 `commit` y `rollback` consumen la transacción, así que el compilador te impide usarla después.
 
-`begin` forma parte del trait `Database`, implementado por `MemoryDb`, `SqliteDb` y `PgPool`. Escribir `D: Database` hace que `transfer` funcione con los tres.
+`begin` forma parte del trait `Database`, implementado por los seis backends (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`). Escribir `D: Database` hace que `transfer` funcione con todos ellos.
 
 ## Destruir una transacción la revierte
 
@@ -97,14 +97,18 @@ async fn open_family_accounts(db: &MemoryDb) -> memoire_orm::Result<()> {
 
 ## Comportamiento en cada backend
 
-| | Motor en memoria | SQLite | PostgreSQL |
-|---|---|---|---|
-| Cómo funciona | Instantánea privada con copia en escritura (copy-on-write) | Retiene la única conexión | Retiene una conexión del pool |
-| El resto del código durante la transacción | Se ejecuta con normalidad y solo ve los datos confirmados | **Espera** hasta que termina la transacción | Se ejecuta en otras conexiones y solo ve los datos confirmados |
-| Escritores en conflicto | Se detecta en el `commit`: `Error::Conflict` | Imposible: las transacciones se ejecutan de una en una | Espera a los bloqueos de fila; los fallos de serialización y los interbloqueos dan `Error::Conflict` |
-| Destruida sin commit | Los cambios se descartan inmediatamente | `ROLLBACK` se ejecuta inmediatamente | `ROLLBACK` se envía en segundo plano (necesita Tokio) |
+| Backend | Cómo funciona | El resto del código mientras tanto | Escritores en conflicto | `create_table` / `drop_table` dentro |
+|---|---|---|---|---|
+| Motor en memoria | Instantánea privada con copia en escritura (copy-on-write) | Se ejecuta con normalidad y solo ve los datos confirmados | Se detecta en el `commit` (por tabla): `Error::Conflict` | Forman parte de la transacción |
+| SQLite | Retiene la única conexión | **Espera** hasta que termina la transacción | Imposible: las transacciones se ejecutan de una en una | Forman parte de la transacción |
+| PostgreSQL | Retiene una conexión del pool | Se ejecuta en otras conexiones y solo ve los datos confirmados | Bloqueos de fila; fallos de serialización e interbloqueos: `Error::Conflict` | Forman parte de la transacción |
+| MySQL / MariaDB | Retiene una conexión del pool | Se ejecuta en otras conexiones y solo ve los datos confirmados | Bloqueos de fila; interbloqueos y tiempos de espera de bloqueo agotados: `Error::Conflict` | **Se confirman inmediatamente** y no se pueden revertir |
+| Redis | Instantánea de cada tabla que usa; un único script atómico en el `commit` | Se ejecuta con normalidad y solo ve los datos confirmados | Se detecta en el `commit` (por tabla): `Error::Conflict` | Forman parte de la transacción |
+| MongoDB | Transacción multidocumento real (solo en replica set o clúster fragmentado) | Se ejecuta con normalidad y solo ve los datos confirmados | Conflictos de escritura: `Error::Conflict` | Se ejecutan fuera de la transacción |
 
-### Motor en memoria: instantáneas y conflictos
+En todos los backends, una transacción destruida sin `commit` no deja ningún cambio: el motor en memoria, Redis y SQLite la descartan inmediatamente, PostgreSQL y MySQL la revierten cuando su conexión vuelve al pool, y MongoDB la aborta.
+
+### Motor en memoria y Redis: instantáneas y conflictos
 
 `MemoryDb::begin` toma una instantánea (snapshot) de la base de datos. La transacción lee y escribe en su propia copia (las tablas solo se copian la primera vez que se escriben), así que nunca ve los cambios concurrentes y nadie ve sus cambios antes del `commit`.
 
@@ -127,6 +131,8 @@ Conviene saber que:
 - Una transacción que solo lee nunca entra en conflicto.
 - Cuenta cualquier escritura en la tabla, incluidas las hechas directamente sobre `db` fuera de una transacción.
 
+Las transacciones de `RedisDb` funcionan de la misma forma: cada tabla se lee una sola vez, cuando la transacción la usa por primera vez, y `commit` escribe todos los cambios con un único script Lua atómico, o falla con `Error::Conflict` si alguna de las tablas escritas ha cambiado entretanto. Consulta [Redis](redis).
+
 ### Reintentar en caso de conflicto
 
 Un conflicto no es un bug: significa "alguien ha cambiado estos datos mientras trabajabas; vuelve a empezar con datos frescos". Como una transacción fallida no aplica nada, reintentar siempre es seguro. Envuelve toda la transacción en un bucle:
@@ -144,7 +150,7 @@ async fn transfer_with_retry<D: Database>(db: &D, from: i64, to: i64, amount: i6
 }
 ```
 
-Reintenta la función *completa*, incluidas las lecturas: el nuevo intento debe iniciar una nueva transacción y ver los datos más recientes. El mismo bucle funciona en PostgreSQL, donde los fallos de serialización y los interbloqueos también se notifican como `Error::Conflict`.
+Reintenta la función *completa*, incluidas las lecturas: el nuevo intento debe iniciar una nueva transacción y ver los datos más recientes. El mismo bucle funciona en todos los backends: PostgreSQL y MySQL notifican los interbloqueos (y PostgreSQL, los fallos de serialización) como `Error::Conflict`, y MongoDB hace lo mismo con los conflictos de escritura.
 
 ### SQLite: una transacción cada vez
 
@@ -177,6 +183,18 @@ Las demás tareas o hilos que usan el mismo `SqliteDb` simplemente esperan a que
   Con `REPEATABLE READ` y `SERIALIZABLE`, PostgreSQL puede abortar una transacción que choca con otra. Memoire lo notifica como `Error::Conflict`, así que el bucle de reintento de arriba se aplica sin cambios. Los interbloqueos se notifican de la misma forma.
 - Una transacción destruida se revierte en segundo plano en el runtime de Tokio. Sin runtime, en su lugar se cierra la conexión, lo que también cancela la transacción.
 - Usar `&db` en lugar de `&tx` dentro de una transacción no bloquea, pero se ejecuta en otra conexión: no ve los cambios sin confirmar de la transacción y no forma parte de ella.
+
+### MySQL y MariaDB: conexiones del pool
+
+`MySqlPool::begin` también reserva una conexión del pool para la transacción, con el nivel de aislamiento por defecto del servidor (`REPEATABLE READ` en InnoDB). Los interbloqueos y los tiempos de espera de bloqueo agotados se notifican como `Error::Conflict`.
+
+> **Atención** MySQL hace commit automáticamente antes y después de cada cambio de esquema (`CREATE TABLE`, `DROP TABLE`, `ALTER TABLE`...). Una sentencia de este tipo dentro de una transacción no se puede revertir, también confirma lo que la transacción hizo antes, y las sentencias posteriores ya no forman parte de ninguna transacción. Consulta [MySQL y MariaDB](mysql).
+
+### MongoDB: solo con replica sets
+
+En un replica set o en un clúster fragmentado (sharded cluster, MongoDB Atlas incluido), `MongoDb::begin` inicia una transacción multidocumento real: sus lecturas ven sus propias escrituras, y un conflicto de escritura con otra transacción se notifica como `Error::Conflict`, a veces en la propia sentencia en conflicto en lugar de en el `commit`. El bucle de reintento de arriba cubre ambos casos. La creación y la eliminación de colecciones se hacen fuera de la transacción.
+
+Un servidor MongoDB independiente (standalone) no tiene transacciones: `begin()` devuelve `Error::Unsupported`, y `db.supports_transactions()` te lo indica de antemano. Consulta [MongoDB](mongodb).
 
 ## Limitaciones
 
