@@ -138,6 +138,7 @@ Sur un **serveur autonome**, MongoDB n'a pas de transactions :
 | `db.supports_transactions()` | `false` |
 | Migrations | Appliquées sans transaction |
 | `insert_many` | Si un document échoue (par exemple un doublon), Memoire supprime au mieux les documents de cet appel déjà insérés |
+| `update_many` | Pas de tout-ou-rien : si un document échoue (par exemple un conflit sur une colonne `unique`), les documents déjà modifiés le restent |
 
 ## Migrations
 

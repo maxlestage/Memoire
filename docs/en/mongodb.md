@@ -138,6 +138,7 @@ On a **standalone server**, MongoDB has no transactions:
 | `db.supports_transactions()` | `false` |
 | Migrations | Applied without a transaction |
 | `insert_many` | If a document fails (for example a duplicate), Memoire removes the documents of that call that were already inserted (best effort) |
+| `update_many` | Not all-or-nothing: if a document fails (for example a `unique` clash), the documents already updated stay updated |
 
 ## Migrations
 
