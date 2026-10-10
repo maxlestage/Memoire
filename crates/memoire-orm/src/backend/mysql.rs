@@ -13,7 +13,7 @@ use std::fmt;
 use async_lock::Mutex;
 use mysql_async::consts::ColumnType as MyType;
 use mysql_async::prelude::Queryable;
-use mysql_async::{Column, Opts, OptsBuilder, Params, Pool, PoolOpts, Row, TxOpts, Value as MyValue};
+use mysql_async::{Column, Opts, OptsBuilder, Params, Pool, Row, TxOpts, Value as MyValue};
 
 use crate::ast::Query;
 use crate::error::{Error, Result};
@@ -243,6 +243,7 @@ async fn my_execute<Q: Queryable>(conn: &mut Q, query: &Query<'_>) -> Result<Exe
             conn.query_drop(*sql).await.map_err(|e| map_err(e, table))?;
             Ok(ExecResult::default())
         }
+        Query::UpsertRow { table, values } if table.has_secondary_unique() => my_upsert(conn, table, values).await,
         _ => {
             let r = sql::render(query, Dialect::MySql)?;
             let result = conn.exec_iter(r.sql.as_ref(), params(&r.params)).await.map_err(|e| map_err(e, table))?;
@@ -260,6 +261,38 @@ async fn my_execute<Q: Queryable>(conn: &mut Q, query: &Query<'_>) -> Result<Exe
             Ok(ExecResult { rows_affected, last_insert_id })
         }
     }
+}
+
+fn is_primary_key_duplicate(err: &mysql_async::Error) -> bool {
+    matches!(err, mysql_async::Error::Server(e) if e.code == 1062
+        && quoted_after(&e.message, "for key").is_some_and(|k| k.rsplit('.').next() == Some("PRIMARY")))
+}
+
+/// `upsert` of a table with `unique` columns besides its primary key, where
+/// `ON DUPLICATE KEY UPDATE` would also fire on those columns and overwrite
+/// another row. Inserts, and updates by key when the insert collides on the
+/// primary key; a clash on another unique column stays an error, like on the
+/// other backends. A failed statement does not abort a MySQL transaction, so
+/// this works inside one too.
+async fn my_upsert<Q: Queryable>(conn: &mut Q, table: &'static TableSchema, values: &[Value]) -> Result<ExecResult> {
+    let insert = sql::render(&Query::UpsertRow { table, values }, Dialect::MySql)?;
+    let update = sql::render(&Query::UpdateRow { table, values }, Dialect::MySql)?;
+    // Another client can delete the row between the two statements: start over.
+    for _ in 0..16 {
+        match conn.exec_drop(insert.sql.as_ref(), params(&insert.params)).await {
+            Ok(()) => return Ok(ExecResult { rows_affected: 1, last_insert_id: None }),
+            Err(e) if is_primary_key_duplicate(&e) => {}
+            Err(e) => return Err(map_err(e, Some(table))),
+        }
+        let result =
+            conn.exec_iter(update.sql.as_ref(), params(&update.params)).await.map_err(|e| map_err(e, Some(table)))?;
+        let rows_affected = result.affected_rows();
+        result.drop_result().await.map_err(|e| map_err(e, Some(table)))?;
+        if rows_affected > 0 {
+            return Ok(ExecResult { rows_affected, last_insert_id: None });
+        }
+    }
+    Err(Error::Conflict(format!("upsert into `{}` kept racing with concurrent deletes", table.name)))
 }
 
 /// A pool of MySQL / MariaDB connections.
@@ -294,12 +327,15 @@ impl MySqlPool {
     }
 
     /// Connects with explicit `mysql_async` options (TLS, pool size, ...).
-    /// Memoire enables `client_found_rows` and a 256-entry statement cache.
+    /// Memoire enables `client_found_rows` and a 256-entry statement cache, and
+    /// keeps the pool constraints you set (`?pool_min=1&pool_max=20` in a URL).
     pub async fn connect_with(builder: OptsBuilder) -> Result<Self> {
-        let builder = builder
-            .client_found_rows(true)
-            .stmt_cache_size(256)
-            .pool_opts(PoolOpts::default().with_reset_connection(false));
+        // Keep the caller's pool settings (`pool_min` / `pool_max` URL
+        // parameters, `OptsBuilder::pool_opts`); only skip the connection
+        // reset, which every statement would otherwise pay for.
+        let opts = Opts::from(builder);
+        let pool_opts = opts.pool_opts().clone().with_reset_connection(false);
+        let builder = OptsBuilder::from_opts(opts).client_found_rows(true).stmt_cache_size(256).pool_opts(pool_opts);
         let pool = Pool::new(builder);
         let conn = pool.get_conn().await.map_err(|e| map_err(e, None))?;
         drop(conn);

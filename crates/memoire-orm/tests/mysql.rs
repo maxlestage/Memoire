@@ -32,4 +32,34 @@ async fn mysql_suite() {
     let mut v = user("noop@x.dev", "Noop", None, 0.0);
     v.insert(&db).await.unwrap();
     v.update(&db).await.unwrap();
+
+    // Upsert inside a transaction: the INSERT that collides on the primary key
+    // does not abort the transaction, the UPDATE that follows applies.
+    let tx = db.begin().await.unwrap();
+    v.name = "Noop v2".into();
+    v.upsert(&tx).await.unwrap();
+    let mut w = user("noop@x.dev", "Clash", None, 0.0);
+    w.id = v.id + 1000;
+    assert!(w.upsert(&tx).await.unwrap_err().is_unique_violation());
+    tx.commit().await.unwrap();
+    assert_eq!(common::User::get(&db, v.id).await.unwrap().name, "Noop v2");
+}
+
+/// Pool settings from the URL are kept: with `pool_max=1`, a query waits for
+/// the connection held by an open transaction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mysql_pool_options() {
+    let Some(url) = std::env::var("MEMOIRE_MYSQL_URL").ok().filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let sep = if url.contains('?') { '&' } else { '?' };
+    let db = MySqlPool::connect(&format!("{url}{sep}pool_min=1&pool_max=1")).await.unwrap();
+    let tx = db.begin().await.unwrap();
+    let blocked =
+        tokio::time::timeout(std::time::Duration::from_millis(300), async { db.raw::<(i64,)>("SELECT 1", &[]).await })
+            .await;
+    assert!(blocked.is_err(), "a second connection was opened despite pool_max=1");
+    tx.commit().await.unwrap();
+    let one: Vec<(i64,)> = db.raw("SELECT 1", &[]).await.unwrap();
+    assert_eq!(one, vec![(1,)]);
 }
