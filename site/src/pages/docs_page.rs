@@ -183,7 +183,9 @@ pub fn DocsPage(props: &DocsPageProps) -> Html {
                     Some((p, h)) => (p.to_string(), Some(h.to_string())),
                     None => (href.clone(), None),
                 };
-                if let (Some(nav), Some(route)) = (navigator.as_ref(), Route::recognize(&path)) {
+                // Links carry the site's base path; routes do not.
+                let path = path.strip_prefix(dom::base_path()).unwrap_or(&path);
+                if let (Some(nav), Some(route)) = (navigator.as_ref(), Route::recognize(path)) {
                     e.prevent_default();
                     nav.push(&route);
                     if let Some(id) = hash {

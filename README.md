@@ -128,7 +128,7 @@ docs/{en,fr,es}/             documentation (rendered by the website)
 site/                        presentation website — Yew + WebAssembly
 server/                      tiny Rust server that serves the website on Heroku
 Dockerfile, heroku.yml, app.json   one-click Heroku deployment
-.github/workflows/           CI, auto-merge, Heroku deployment, crates.io publishing
+.github/workflows/           CI, auto-merge, Heroku and GitHub Pages deployment, crates.io publishing
 ```
 
 ## The website
@@ -151,6 +151,8 @@ No computer needed:
 2. Or add the `HEROKU_API_KEY` and `HEROKU_APP_NAME` secrets in *Settings → Secrets and variables → Actions*:
    every push to `master` is then deployed automatically, and you can redeploy from the GitHub
    app (*Actions → Deploy to Heroku → Run workflow*).
+3. Or publish the website **for free on GitHub Pages**: *Settings → Pages → Source: GitHub Actions*, then
+   *Actions → Deploy to GitHub Pages → Run workflow*. It goes online at `https://<your-user>.github.io/Memoire/`.
 
 Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobile.md).
 
@@ -159,8 +161,9 @@ Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobi
 - **CI** (`ci.yml`): formatting, clippy, the same test suite on **all six backends** (memory, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), every feature on its own, WebAssembly build, website build.
 - **Auto-merge** (`ci.yml`): pull requests to `master` are merged automatically as soon as CI is green
-  (and the Heroku deployment is triggered).
+  (and the Heroku and GitHub Pages deployments are triggered).
 - **Deploy** (`deploy-heroku.yml`): every push to `master` deploys the website to Heroku.
+- **GitHub Pages** (`pages.yml`): every push to `master` that changes the website or the docs publishes it on GitHub Pages.
 - **Publish** (`publish.yml`): pushing a `v*` tag (or publishing a GitHub release) publishes the crates
   to crates.io — see [Publish to crates.io](docs/en/publish-crates-io.md).
 

@@ -1,6 +1,7 @@
 /target
 **/target
 site/dist
+site/dist-static
 *.db
 *.db-shm
 *.db-wal

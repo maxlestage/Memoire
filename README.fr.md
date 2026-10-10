@@ -128,7 +128,7 @@ docs/{en,fr,es}/             documentation (affichée par le site)
 site/                        site de présentation — Yew + WebAssembly
 server/                      petit serveur Rust qui sert le site sur Heroku
 Dockerfile, heroku.yml, app.json   déploiement Heroku en un clic
-.github/workflows/           CI, fusion automatique, déploiement Heroku, publication crates.io
+.github/workflows/           CI, fusion automatique, déploiement Heroku et GitHub Pages, publication crates.io
 ```
 
 ## Le site web
@@ -151,6 +151,8 @@ Aucun ordinateur nécessaire :
 2. Ou ajoutez les secrets `HEROKU_API_KEY` et `HEROKU_APP_NAME` dans *Settings → Secrets and variables → Actions* :
    chaque push sur `master` est alors déployé automatiquement, et vous pouvez redéployer depuis l'application
    GitHub (*Actions → Deploy to Heroku → Run workflow*).
+3. Ou publiez le site **gratuitement sur GitHub Pages** : *Settings → Pages → Source : GitHub Actions*, puis
+   *Actions → Deploy to GitHub Pages → Run workflow*. Il est alors en ligne sur `https://<votre-compte>.github.io/Memoire/`.
 
 Guide pas à pas : [docs/fr/deploy-heroku-mobile.md](docs/fr/deploy-heroku-mobile.md).
 
@@ -159,8 +161,9 @@ Guide pas à pas : [docs/fr/deploy-heroku-mobile.md](docs/fr/deploy-heroku-mobil
 - **CI** (`ci.yml`) : formatage, clippy, la même suite de tests sur **les six moteurs** (mémoire, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), chaque feature isolément, compilation WebAssembly, compilation du site.
 - **Fusion automatique** (`ci.yml`) : les pull requests vers `master` sont fusionnées automatiquement dès que
-  la CI est verte (puis le déploiement Heroku est lancé).
+  la CI est verte (puis les déploiements Heroku et GitHub Pages sont lancés).
 - **Déploiement** (`deploy-heroku.yml`) : chaque push sur `master` déploie le site sur Heroku.
+- **GitHub Pages** (`pages.yml`) : chaque push sur `master` qui modifie le site ou la documentation le publie sur GitHub Pages.
 - **Publication** (`publish.yml`) : pousser un tag `v*` (ou publier une release GitHub) publie les crates sur
   crates.io — voir [Publier sur crates.io](docs/fr/publish-crates-io.md).
 
