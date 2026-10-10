@@ -9,14 +9,20 @@ Todas las operaciones habituales de Memoire en una sola página. Los ejemplos da
 | Motor en memoria (feature por defecto) | `cargo add memoire-orm` |
 | SQLite | `cargo add memoire-orm --features sqlite` |
 | PostgreSQL / con TLS | `--features postgres` / `--features postgres-tls` (más Tokio) |
+| MySQL, MariaDB / con TLS | `--features mysql` / `--features mysql-tls` (más Tokio) |
+| Redis / con TLS | `--features redis` / `--features redis-tls` (más Tokio) |
+| MongoDB | `--features mongodb` (más Tokio) |
 | Tipos de columna adicionales | `--features chrono,uuid,json` (o `full`) |
 | Importarlo todo | `use memoire_orm::prelude::*;` |
 | Abrir en memoria | `let db = MemoryDb::new();` |
 | Abrir SQLite en archivo / en memoria | `SqliteDb::open("app.db")?` / `SqliteDb::open_in_memory()?` |
 | Conectarse a PostgreSQL | `PgPool::connect(url).await?` o `PgPool::connect_with(url, 10).await?` |
+| Conectarse a MySQL / MariaDB | `MySqlPool::connect("mysql://user:pass@host:3306/app").await?` |
+| Conectarse a Redis | `RedisDb::connect(url).await?` o `RedisDb::connect_with_prefix(url, "myapp").await?` |
+| Conectarse a MongoDB | `MongoDb::connect("mongodb://host:27017/app").await?` o `MongoDb::connect_with_database(uri, "app").await?` |
 | Ejecutar sin runtime (memoria, SQLite) | `memoire_orm::block_on(future)` |
 
-Backends MySQL/MariaDB, Redis y MongoDB: consulta sus páginas, [MySQL y MariaDB](mysql), [Redis](redis) y [MongoDB](mongodb).
+Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL y MariaDB](mysql), [Redis](redis), [MongoDB](mongodb).
 
 ## Atributos de modelo
 
@@ -165,7 +171,7 @@ Backends MySQL/MariaDB, Redis y MongoDB: consulta sus páginas, [MySQL y MariaDB
 | Ejecutar las pendientes | `Migrator::new().add(m1).add(m2).run(&db).await?` → versiones aplicadas |
 | Inspeccionar | `migrator.applied(&db).await?`, `migrator.pending(&db).await?` |
 
-## SQL sin procesar (SQLite, PostgreSQL)
+## SQL sin procesar y acceso al driver
 
 | Tarea | Código |
 |---|---|
