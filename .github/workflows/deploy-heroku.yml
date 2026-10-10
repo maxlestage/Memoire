@@ -37,7 +37,7 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.config.outputs.enabled == 'true'
 
       - name: Create the app if needed and switch it to the container stack
