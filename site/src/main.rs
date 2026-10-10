@@ -5,6 +5,7 @@ mod components;
 mod data;
 mod docs;
 mod dom;
+mod engine;
 mod highlight;
 mod i18n;
 mod markdown;

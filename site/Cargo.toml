@@ -18,6 +18,8 @@ gloo = { version = "0.11", default-features = false, features = ["events", "time
 wasm-bindgen = "0.2.129"
 js-sys = "0.3"
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+# The real ORM, compiled to WebAssembly for the playground (in-memory engine).
+memoire-orm = { path = "../crates/memoire-orm", default-features = false, features = ["memory"] }
 
 [dependencies.web-sys]
 version = "0.3.106"

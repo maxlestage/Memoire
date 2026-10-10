@@ -61,11 +61,12 @@ pub struct PlaygroundOutput {
 }
 
 /// `true` while [`run_query`] is backed by the mock: shows a "preview" notice.
-pub const PLAYGROUND_USES_MOCK: bool = true;
+pub const PLAYGROUND_USES_MOCK: bool = false;
 
-/// Run the playground query. Swap the body for the real engine when it's ready.
+/// Runs the playground query on the real Memoire ORM (in-memory engine compiled
+/// to WebAssembly, see `crate::engine`).
 pub fn run_query(params: &PlaygroundParams) -> PlaygroundOutput {
-    mock::run(params)
+    crate::engine::run(params)
 }
 
 // ===========================================================================
@@ -94,7 +95,7 @@ impl Dialect {
         match self {
             Dialect::Postgres => format!("${n}"),
             Dialect::MySql => "?".to_string(),
-            Dialect::Sqlite => format!("?{n}"),
+            Dialect::Sqlite => "?".to_string(),
         }
     }
 }
@@ -121,7 +122,7 @@ fn rust_code(p: &PlaygroundParams) -> String {
 fn bound_params(p: &PlaygroundParams) -> Vec<String> {
     let mut v = vec![p.min_age.to_string()];
     if !p.name_contains.is_empty() {
-        v.push(format!("'%{}%'", mock::escape_like(&p.name_contains)));
+        v.push(format!("'%{}%'", memoire_orm::escape_like(p.name_contains.trim())));
     }
     v
 }
@@ -317,107 +318,5 @@ pub fn PlaygroundPage() -> Html {
                 </div>
             </section>
         </>
-    }
-}
-
-// ===========================================================================
-// Mock engine — to be replaced by the real memoire_orm MemoryDb (see run_query).
-// ===========================================================================
-
-mod mock {
-    use super::{OrderField, PlaygroundOutput, PlaygroundParams};
-    use crate::dom;
-
-    const USERS: &[(i64, &str, &str, Option<i32>)] = &[
-        (1, "Alice", "alice@rust.dev", Some(31)),
-        (2, "Bob", "bob@rust.dev", Some(17)),
-        (3, "Charlie", "charlie@rust.dev", Some(42)),
-        (4, "Diana", "diana@rust.dev", Some(28)),
-        (5, "Élodie", "elodie@rust.dev", Some(35)),
-        (6, "Fernando", "fernando@rust.dev", None),
-        (7, "Grace", "grace@rust.dev", Some(54)),
-        (8, "Hugo", "hugo@rust.dev", Some(23)),
-        (9, "Inès", "ines@rust.dev", Some(19)),
-        (10, "Jules", "jules@rust.dev", Some(16)),
-        (11, "Karim", "karim@rust.dev", Some(38)),
-        (12, "Lucía", "lucia@rust.dev", Some(26)),
-        (13, "Mateo", "mateo@rust.dev", Some(33)),
-        (14, "Nora", "nora@rust.dev", None),
-        (15, "Oliver", "oliver@rust.dev", Some(47)),
-        (16, "Camille", "camille@rust.dev", Some(29)),
-        (17, "Emilio", "emilio@rust.dev", Some(61)),
-        (18, "Amelia", "amelia@rust.dev", Some(21)),
-    ];
-
-    /// Escape LIKE wildcards with a backslash (matches `ESCAPE '\'`).
-    pub fn escape_like(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            if matches!(c, '%' | '_' | '\\') {
-                out.push('\\');
-            }
-            out.push(c);
-        }
-        out
-    }
-
-    fn sql(p: &PlaygroundParams, q: fn(&str) -> String, ph: fn(usize) -> String, escape: &str) -> String {
-        let col = |c: &str| format!("{}.{}", q("users"), q(c));
-        let cols = ["id", "email", "name", "age"].map(col).join(", ");
-        let age = format!("{} >= {}", col("age"), ph(1));
-        let filter = if p.name_contains.is_empty() {
-            age
-        } else {
-            format!("({age} AND {} LIKE {} ESCAPE {escape})", col("name"), ph(2))
-        };
-        let order = match p.order_by {
-            OrderField::Name => col("name"),
-            OrderField::Age => col("age"),
-        };
-        let dir = if p.descending { "DESC" } else { "ASC" };
-        format!(
-            "SELECT {cols} FROM {} WHERE {filter} ORDER BY {order} {dir} LIMIT {}",
-            q("users"),
-            p.limit
-        )
-    }
-
-    fn execute(p: &PlaygroundParams) -> Vec<(i64, String, String, Option<i32>)> {
-        let mut rows: Vec<&(i64, &str, &str, Option<i32>)> = USERS
-            .iter()
-            .filter(|(_, name, _, age)| {
-                age.is_some_and(|a| a >= p.min_age)
-                    && (p.name_contains.is_empty() || name.contains(p.name_contains.as_str()))
-            })
-            .collect();
-        match p.order_by {
-            OrderField::Name => rows.sort_by(|a, b| a.1.cmp(b.1)),
-            OrderField::Age => rows.sort_by_key(|r| r.3),
-        }
-        if p.descending {
-            rows.reverse();
-        }
-        rows.into_iter()
-            .take(p.limit as usize)
-            .map(|(id, name, email, age)| (*id, name.to_string(), email.to_string(), *age))
-            .collect()
-    }
-
-    pub fn run(p: &PlaygroundParams) -> PlaygroundOutput {
-        // Average over several runs: browsers round performance.now() quite coarsely.
-        const RUNS: u32 = 200;
-        let start = dom::now_ms();
-        let mut rows = Vec::new();
-        for _ in 0..RUNS {
-            rows = std::hint::black_box(execute(std::hint::black_box(p)));
-        }
-        let micros = (dom::now_ms() - start) * 1000.0 / f64::from(RUNS);
-        PlaygroundOutput {
-            sql_postgres: sql(p, |s| format!("\"{s}\""), |n| format!("${n}"), "'\\'"),
-            sql_mysql: sql(p, |s| format!("`{s}`"), |_| "?".to_string(), "'\\\\'"),
-            sql_sqlite: sql(p, |s| format!("\"{s}\""), |n| format!("?{n}"), "'\\'"),
-            rows,
-            micros,
-        }
     }
 }
