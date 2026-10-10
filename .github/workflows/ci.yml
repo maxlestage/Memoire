@@ -191,13 +191,15 @@ jobs:
       - name: Build the site
         working-directory: site
         run: trunk build --release
+      - name: Build the site for GitHub Pages (served under /Memoire/)
+        run: site/build-static.sh /Memoire
       - name: Build the server
         working-directory: server
         run: cargo build --release
 
   # Pull requests targeting master are merged automatically once every check
   # is green. Merges made with GITHUB_TOKEN do not start new workflows, so the
-  # Heroku deployment is triggered explicitly afterwards.
+  # Heroku and GitHub Pages deployments are triggered explicitly afterwards.
   auto-merge:
     name: Auto-merge into master
     needs: [lint, test, features, msrv, wasm, package, site]
@@ -221,3 +223,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run deploy-heroku.yml --ref master --repo "$GITHUB_REPOSITORY"
+      - name: Trigger the GitHub Pages deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --ref master --repo "$GITHUB_REPOSITORY"

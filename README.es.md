@@ -128,7 +128,7 @@ docs/{en,fr,es}/             documentación (mostrada por el sitio web)
 site/                        sitio de presentación — Yew + WebAssembly
 server/                      pequeño servidor Rust que sirve el sitio en Heroku
 Dockerfile, heroku.yml, app.json   despliegue en Heroku con un clic
-.github/workflows/           CI, fusión automática, despliegue en Heroku, publicación en crates.io
+.github/workflows/           CI, fusión automática, despliegue en Heroku y GitHub Pages, publicación en crates.io
 ```
 
 ## El sitio web
@@ -151,6 +151,8 @@ Sin ordenador:
 2. O añade los secretos `HEROKU_API_KEY` y `HEROKU_APP_NAME` en *Settings → Secrets and variables → Actions*:
    cada push a `master` se despliega automáticamente, y puedes volver a desplegar desde la app de GitHub
    (*Actions → Deploy to Heroku → Run workflow*).
+3. O publica el sitio **gratis en GitHub Pages**: *Settings → Pages → Source: GitHub Actions* y luego
+   *Actions → Deploy to GitHub Pages → Run workflow*. Queda en línea en `https://<tu-usuario>.github.io/Memoire/`.
 
 Guía paso a paso: [docs/es/deploy-heroku-mobile.md](docs/es/deploy-heroku-mobile.md).
 
@@ -159,8 +161,9 @@ Guía paso a paso: [docs/es/deploy-heroku-mobile.md](docs/es/deploy-heroku-mobil
 - **CI** (`ci.yml`): formato, clippy, la misma batería de pruebas en **los seis motores** (memoria, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), cada feature por separado, compilación WebAssembly, compilación del sitio.
 - **Fusión automática** (`ci.yml`): las pull requests hacia `master` se fusionan automáticamente en cuanto la CI
-  está en verde (y se lanza el despliegue en Heroku).
+  está en verde (y se lanzan los despliegues en Heroku y GitHub Pages).
 - **Despliegue** (`deploy-heroku.yml`): cada push a `master` despliega el sitio en Heroku.
+- **GitHub Pages** (`pages.yml`): cada push a `master` que cambia el sitio o la documentación lo publica en GitHub Pages.
 - **Publicación** (`publish.yml`): subir un tag `v*` (o publicar una release de GitHub) publica los crates en
   crates.io — ver [Publicar en crates.io](docs/es/publish-crates-io.md).
 

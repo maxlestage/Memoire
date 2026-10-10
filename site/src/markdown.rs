@@ -161,10 +161,10 @@ fn rewrite_href(url: &str) -> (String, bool) {
     let path = path.trim_start_matches("./");
     if let Some(stem) = path.strip_suffix(".md") {
         let slug = stem.rsplit('/').next().unwrap_or(stem);
-        return (format!("/docs/{slug}{frag}"), false);
+        return (format!("{}/docs/{slug}{frag}", crate::dom::base_path()), false);
     }
     if !path.is_empty() && !path.contains('/') && !path.contains('.') {
-        return (format!("/docs/{path}{frag}"), false);
+        return (format!("{}/docs/{path}{frag}", crate::dom::base_path()), false);
     }
     (url.to_string(), false)
 }

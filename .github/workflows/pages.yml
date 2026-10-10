@@ -1,0 +1,118 @@
+name: Deploy to GitHub Pages
+
+# Publishes the website, free, at https://<owner>.github.io/<repo>/
+# (https://maxlestage.github.io/Memoire/ for this repository).
+# Runs on every push to master that changes the website, the docs or the ORM
+# (the playground embeds it), and manually from the GitHub app or website:
+# Actions → "Deploy to GitHub Pages" → Run workflow.
+#
+# One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Until then the workflow skips with a notice.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TRUNK_VERSION: "0.21.14"
+
+jobs:
+  build:
+    name: Build the website
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check that GitHub Pages publishes from Actions
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if build_type=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type 2>&1) && [ "$build_type" = "workflow" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "GitHub Pages: ${build_type}"
+            echo "::notice title=GitHub Pages deployment skipped::Turn GitHub Pages on once: Settings → Pages → Build and deployment → Source: GitHub Actions (see docs/en/deploy-heroku-mobile.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.enabled == 'true'
+
+      - name: Read the Pages address
+        id: pages
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          workspaces: site
+
+      - name: Install trunk
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          curl -sSfL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.cargo/bin"
+          trunk --version
+
+      # base_path is "/<repo>" for https://<owner>.github.io/<repo>/, and empty
+      # with a custom domain.
+      - name: Build the site
+        if: steps.check.outputs.enabled == 'true'
+        run: site/build-static.sh "${{ steps.pages.outputs.base_path }}" "${{ steps.pages.outputs.base_url }}"
+
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          path: site/dist-static
+
+  deploy:
+    name: Publish
+    needs: build
+    if: needs.build.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Check the published site
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          for page in "" docs/quick-start; do
+            for attempt in $(seq 1 20); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "${SITE_URL}${page}")
+              [ "$code" = "200" ] && break
+              sleep 6
+            done
+            echo "${SITE_URL}${page} → ${code}"
+            [ "$code" = "200" ]
+          done
+          echo "### Website online: ${SITE_URL}" >> "$GITHUB_STEP_SUMMARY"

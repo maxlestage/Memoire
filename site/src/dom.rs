@@ -11,6 +11,13 @@ use web_sys::{
     IntersectionObserverInit, ScrollBehavior, ScrollToOptions, Window,
 };
 
+/// Path the site is served under, without a trailing slash: empty at the root
+/// of a domain (Heroku), `/Memoire` for a GitHub Pages project site. Set with
+/// the `MEMOIRE_BASE_PATH` environment variable when building.
+pub fn base_path() -> &'static str {
+    option_env!("MEMOIRE_BASE_PATH").unwrap_or("").trim_end_matches('/')
+}
+
 pub fn window() -> Window {
     web_sys::window().expect_throw("no global window")
 }

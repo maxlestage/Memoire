@@ -24,6 +24,8 @@ All the Heroku steps happen in the Heroku dashboard (`https://dashboard.heroku.c
 
 A common combination: method 1 for the very first deploy, then method 2 or 3 to keep the site updated. Do not enable methods 2 and 3 at the same time, or every push will be deployed twice.
 
+> **Tip** No Heroku account, or no budget? The website can also be published **for free on GitHub Pages**, by changing a single setting: see the GitHub Pages section below.
+
 ## Method 1: the "Deploy to Heroku" button
 
 The repository's README has a purple **Deploy to Heroku** button. It points to:
@@ -108,9 +110,33 @@ Heroku can watch your repository and build each new commit itself.
 
 Heroku then builds the image from `heroku.yml` and the `Dockerfile` on every push to `master`.
 
+## GitHub Pages: the free option
+
+The website is a WebAssembly app made of static files, so GitHub Pages can host it too, for free, at `https://<your-user>.github.io/Memoire/` (for this repository: `https://maxlestage.github.io/Memoire/`). No Heroku account and no secret: the `.github/workflows/pages.yml` workflow builds and publishes it.
+
+Turn it on once:
+
+1. In your phone's browser, open your repository on `https://github.com`, then **Settings → Pages**.
+2. Under **Build and deployment → Source**, choose **GitHub Actions**.
+3. In the GitHub app, open **Actions → Deploy to GitHub Pages → Run workflow**. Two or three minutes later the site is online; its address is shown on the run's page.
+
+After that, every push to `master` that changes the website, the docs or the ORM publishes the new version, and so does every pull request merged automatically.
+
+> **Note** On a free GitHub plan, GitHub Pages only works for public repositories.
+
+What the workflow does:
+
+- it skips with the notice "GitHub Pages deployment skipped" as long as step 2 is not done;
+- it builds the site with `site/build-static.sh`, which places it under `/Memoire/` and writes a copy of the page for each address (`docs/models`, `playground`...), so links to any page and refreshes work; unknown addresses show the site's "page not found";
+- it publishes the site, then checks that the home page and a documentation page answer.
+
+GitHub Pages and Heroku are independent: you can use both. The only difference is that GitHub Pages cannot send the extra security headers (such as `Content-Security-Policy`) that the Heroku server adds; the site itself works the same.
+
+> **Tip** To use your own domain, set it under **Settings → Pages → Custom domain**, then run the workflow again: it builds the site for the root of that domain.
+
 ## How merging triggers a deployment
 
-Pull requests that target `master` are **merged automatically** as soon as every CI check is green (unless the pull request is a draft, comes from a fork, or has the `no-auto-merge` label). After the merge, the CI workflow explicitly starts the **Deploy to Heroku** workflow, because merges performed by GitHub Actions do not trigger other workflows on their own.
+Pull requests that target `master` are **merged automatically** as soon as every CI check is green (unless the pull request is a draft, comes from a fork, or has the `no-auto-merge` label). After the merge, the CI workflow explicitly starts the **Deploy to Heroku** and **Deploy to GitHub Pages** workflows, because merges performed by GitHub Actions do not trigger other workflows on their own.
 
 The result: approve or open a pull request from your phone, wait for the checks, and the new version goes online by itself (with method 2). With method 3, Heroku sees the new commit on `master` and builds it.
 
@@ -122,6 +148,7 @@ The result: approve or open a pull request from your phone, wait for the checks,
 | Build fails (method 2) | GitHub app → **Actions** → the failed run → the red step |
 | Site does not open, or "Application error" | Heroku dashboard → your app → **More** (top right) → **View logs** |
 | Workflow says "Heroku deployment skipped" | `HEROKU_API_KEY` or `HEROKU_APP_NAME` is missing (check the spelling) |
+| Workflow says "GitHub Pages deployment skipped" | **Settings → Pages → Source** is not set to **GitHub Actions** |
 | `401` or "Invalid credentials" in the workflow | The API key is wrong, expired or revoked: create a new one and update the secret |
 | "Name is already taken" | App names are global on Heroku: choose another `HEROKU_APP_NAME` |
 | Heroku asks to verify the account | Add a payment method under **Account settings → Billing** |

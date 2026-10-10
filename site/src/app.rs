@@ -97,10 +97,13 @@ pub fn App() -> Html {
         toggle: toggle_theme,
     };
 
+    // Served from a sub-path (GitHub Pages): every route lives under it.
+    let basename = Some(dom::base_path()).filter(|p| !p.is_empty()).map(AttrValue::Static);
+
     html! {
         <ContextProvider<LangContext> context={lang_ctx}>
             <ContextProvider<ThemeContext> context={theme_ctx}>
-                <BrowserRouter>
+                <BrowserRouter {basename}>
                     <Shell />
                 </BrowserRouter>
             </ContextProvider<ThemeContext>>

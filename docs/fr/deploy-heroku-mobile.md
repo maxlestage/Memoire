@@ -24,6 +24,8 @@ Toutes les étapes côté Heroku se font dans le tableau de bord Heroku (`https:
 
 Une combinaison courante : la méthode 1 pour le tout premier déploiement, puis la méthode 2 ou 3 pour garder le site à jour. N'activez pas les méthodes 2 et 3 en même temps, sinon chaque push sera déployé deux fois.
 
+> **Astuce** Pas de compte Heroku, ou pas de budget ? Le site peut aussi être publié **gratuitement sur GitHub Pages**, en changeant un seul réglage : voir la section GitHub Pages plus bas.
+
 ## Méthode 1 : le bouton "Deploy to Heroku"
 
 Le README du dépôt contient un bouton violet **Deploy to Heroku**. Il pointe vers :
@@ -108,9 +110,33 @@ Heroku peut surveiller votre dépôt et construire lui-même chaque nouveau comm
 
 Heroku construit ensuite l'image à partir de `heroku.yml` et du `Dockerfile` à chaque push sur `master`.
 
+## GitHub Pages : l'option gratuite
+
+Le site est une application WebAssembly faite de fichiers statiques : GitHub Pages peut donc aussi l'héberger, gratuitement, à l'adresse `https://<votre-compte>.github.io/Memoire/` (pour ce dépôt : `https://maxlestage.github.io/Memoire/`). Ni compte Heroku, ni secret : le workflow `.github/workflows/pages.yml` le construit et le publie.
+
+À activer une seule fois :
+
+1. Dans le navigateur de votre téléphone, ouvrez votre dépôt sur `https://github.com`, puis **Settings → Pages**.
+2. Sous **Build and deployment → Source**, choisissez **GitHub Actions**.
+3. Dans l'application GitHub, ouvrez **Actions → Deploy to GitHub Pages → Run workflow**. Deux ou trois minutes plus tard, le site est en ligne ; son adresse s'affiche sur la page de l'exécution.
+
+Ensuite, chaque push sur `master` qui modifie le site, la documentation ou l'ORM publie la nouvelle version, de même que chaque pull request mergée automatiquement.
+
+> **Remarque** Avec un compte GitHub gratuit, GitHub Pages ne fonctionne que pour les dépôts publics.
+
+Ce que fait le workflow :
+
+- il s'arrête avec le message "GitHub Pages deployment skipped" tant que l'étape 2 n'est pas faite ;
+- il construit le site avec `site/build-static.sh`, qui le place sous `/Memoire/` et écrit une copie de la page pour chaque adresse (`docs/models`, `playground`...) : les liens vers n'importe quelle page et les rechargements fonctionnent, et les adresses inconnues affichent la page « introuvable » du site ;
+- il publie le site, puis vérifie que la page d'accueil et une page de documentation répondent.
+
+GitHub Pages et Heroku sont indépendants : vous pouvez utiliser les deux. La seule différence : GitHub Pages ne peut pas envoyer les en-têtes de sécurité supplémentaires (comme `Content-Security-Policy`) qu'ajoute le serveur Heroku ; le site lui-même fonctionne de la même façon.
+
+> **Astuce** Pour utiliser votre propre nom de domaine, renseignez-le dans **Settings → Pages → Custom domain**, puis relancez le workflow : il construit alors le site pour la racine de ce domaine.
+
 ## Comment un merge déclenche un déploiement
 
-Les pull requests qui ciblent `master` sont **mergées automatiquement** dès que toutes les vérifications de la CI sont au vert (sauf si la pull request est un brouillon, provient d'un fork ou porte le label `no-auto-merge`). Après le merge, le workflow de CI lance explicitement le workflow **Deploy to Heroku**, car les merges effectués par GitHub Actions ne déclenchent pas d'autres workflows d'eux-mêmes.
+Les pull requests qui ciblent `master` sont **mergées automatiquement** dès que toutes les vérifications de la CI sont au vert (sauf si la pull request est un brouillon, provient d'un fork ou porte le label `no-auto-merge`). Après le merge, le workflow de CI lance explicitement les workflows **Deploy to Heroku** et **Deploy to GitHub Pages**, car les merges effectués par GitHub Actions ne déclenchent pas d'autres workflows d'eux-mêmes.
 
 Résultat : approuvez ou ouvrez une pull request depuis votre téléphone, attendez les vérifications, et la nouvelle version se met en ligne toute seule (avec la méthode 2). Avec la méthode 3, Heroku voit le nouveau commit sur `master` et le construit.
 
@@ -122,6 +148,7 @@ Résultat : approuvez ou ouvrez une pull request depuis votre téléphone, atten
 | Le build échoue (méthode 2) | Application GitHub → **Actions** → l'exécution en échec → l'étape en rouge |
 | Le site ne s'ouvre pas, ou "Application error" | Tableau de bord Heroku → votre application → **More** (en haut à droite) → **View logs** |
 | Le workflow indique "Heroku deployment skipped" | `HEROKU_API_KEY` ou `HEROKU_APP_NAME` est manquant (vérifiez l'orthographe) |
+| Le workflow indique "GitHub Pages deployment skipped" | **Settings → Pages → Source** n'est pas réglé sur **GitHub Actions** |
 | `401` ou "Invalid credentials" dans le workflow | La clé d'API est erronée, expirée ou révoquée : créez-en une nouvelle et mettez à jour le secret |
 | "Name is already taken" | Les noms d'applications sont globaux sur Heroku : choisissez un autre `HEROKU_APP_NAME` |
 | Heroku demande de vérifier le compte | Ajoutez un moyen de paiement dans **Account settings → Billing** |
