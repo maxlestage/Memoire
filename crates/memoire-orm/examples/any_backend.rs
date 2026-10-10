@@ -58,7 +58,8 @@ async fn main() -> Result<()> {
     if url == "memory" {
         app(&MemoryDb::new()).await
     } else if let Some(path) = url.strip_prefix("sqlite:") {
-        let db = if path.is_empty() || path == ":memory:" { SqliteDb::open_in_memory()? } else { SqliteDb::open(path)? };
+        let db =
+            if path.is_empty() || path == ":memory:" { SqliteDb::open_in_memory()? } else { SqliteDb::open(path)? };
         app(&db).await
     } else if url.starts_with("postgres://") || url.starts_with("postgresql://") {
         app(&PgPool::connect(&url).await?).await
