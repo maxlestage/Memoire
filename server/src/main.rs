@@ -2,8 +2,10 @@
 //!
 //! * serves the Trunk output (`STATIC_DIR`, default `./dist`), using pre-compressed
 //!   `.br` / `.gz` siblings when they exist and compressing on the fly otherwise;
-//! * single-page-app fallback: unknown paths without a file extension get
-//!   `index.html` (so `/docs/models` works on refresh), asset-like paths get a 404;
+//! * the prerendered page of each route (`/docs/models` → `docs/models.html`,
+//!   written by the site's prerenderer), and `404.html` for unknown routes; a
+//!   site built without prerendering gets `index.html` (single-page-app
+//!   fallback) instead; asset-like paths get a plain 404;
 //! * `GET /healthz` → `ok`;
 //! * long-lived immutable caching for hashed assets, `no-cache` for `index.html`;
 //! * security headers, including a CSP that allows WebAssembly and pins the inline
@@ -15,8 +17,9 @@
 
 mod precompress;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -41,6 +44,10 @@ const CACHE_SHORT: &str = "public, max-age=3600";
 
 struct AppState {
     index_html: Vec<u8>,
+    /// Prerendered pages by route (`/features`, `/docs/models`), loaded at startup.
+    pages: HashMap<String, Vec<u8>>,
+    /// Prerendered "page not found", when the site was prerendered.
+    not_found: Option<Vec<u8>>,
     csp: HeaderValue,
 }
 
@@ -83,8 +90,13 @@ async fn serve() {
         }
     };
     let csp = build_csp(&String::from_utf8_lossy(&index_html));
+    let pages = load_pages(&static_dir);
+    let not_found = std::fs::read(static_dir.join("404.html")).ok();
+    info!(pages = pages.len(), "prerendered pages loaded");
     let state = Arc::new(AppState {
         index_html,
+        pages,
+        not_found,
         csp: HeaderValue::from_str(&csp).expect("CSP is a valid header value"),
     });
 
@@ -142,14 +154,53 @@ async fn index(State(state): State<Arc<AppState>>) -> Response {
 }
 
 fn index_response(state: &AppState) -> Response {
+    html_response(StatusCode::OK, &state.index_html)
+}
+
+fn html_response(status: StatusCode, body: &[u8]) -> Response {
     (
+        status,
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, CACHE_NO_CACHE),
         ],
-        state.index_html.clone(),
+        body.to_vec(),
     )
         .into_response()
+}
+
+/// Every `*.html` page under `dir` (except `index.html` and `404.html`, served
+/// on their own) by route: `docs/models.html` and `docs/models/index.html`
+/// both answer `/docs/models`.
+fn load_pages(dir: &Path) -> HashMap<String, Vec<u8>> {
+    fn walk(dir: &Path, root: &Path, out: &mut HashMap<String, Vec<u8>>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, out);
+            } else if let Some(route) = route_of(&path, root) {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    out.insert(route, bytes);
+                }
+            }
+        }
+    }
+    let mut pages = HashMap::new();
+    walk(dir, dir, &mut pages);
+    pages
+}
+
+/// `<root>/docs/models.html` → `/docs/models`; `None` for other files.
+fn route_of(path: &Path, root: &Path) -> Option<String> {
+    let rel = path.strip_prefix(root).ok()?.to_str()?.replace('\\', "/");
+    let stem = rel.strip_suffix(".html")?;
+    if stem == "index" || stem == "404" {
+        return None;
+    }
+    Some(format!("/{}", stem.strip_suffix("/index").unwrap_or(stem)))
 }
 
 /// Called by `ServeDir` when no file matches the path.
@@ -157,7 +208,15 @@ async fn spa_fallback(State(state): State<Arc<AppState>>, req: Request) -> Respo
     if req.method() != Method::GET && req.method() != Method::HEAD {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
-    let last_segment = req.uri().path().rsplit('/').next().unwrap_or_default();
+    let path = req.uri().path();
+    let route = path
+        .strip_suffix('/')
+        .filter(|r| !r.is_empty())
+        .unwrap_or(path);
+    if let Some(page) = state.pages.get(route) {
+        return html_response(StatusCode::OK, page);
+    }
+    let last_segment = path.rsplit('/').next().unwrap_or_default();
     if last_segment.contains('.') {
         // Looks like a file (missing asset): a real 404, not the app shell.
         return (
@@ -167,7 +226,10 @@ async fn spa_fallback(State(state): State<Arc<AppState>>, req: Request) -> Respo
         )
             .into_response();
     }
-    index_response(&state)
+    match &state.not_found {
+        Some(page) => html_response(StatusCode::NOT_FOUND, page),
+        None => index_response(&state),
+    }
 }
 
 /// Security headers on every response + cache policy for static files.
@@ -303,6 +365,22 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routes_of_prerendered_pages() {
+        let root = Path::new("/dist");
+        let route = |p: &str| route_of(&root.join(p), root);
+        assert_eq!(route("features.html").as_deref(), Some("/features"));
+        assert_eq!(route("docs/models.html").as_deref(), Some("/docs/models"));
+        assert_eq!(
+            route("docs/models/index.html").as_deref(),
+            Some("/docs/models")
+        );
+        assert_eq!(route("docs/index.html").as_deref(), Some("/docs"));
+        assert_eq!(route("index.html"), None);
+        assert_eq!(route("404.html"), None);
+        assert_eq!(route("content/en/faq.md"), None);
+    }
 
     #[test]
     fn hashed_assets() {

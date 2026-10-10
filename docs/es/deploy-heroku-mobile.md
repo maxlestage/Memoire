@@ -127,7 +127,7 @@ A partir de ahí, cada push a `master` que cambie el sitio, la documentación o 
 Qué hace el workflow:
 
 - se omite con el aviso "GitHub Pages deployment skipped" mientras no hayas hecho el paso 2;
-- compila el sitio con `site/build-static.sh`, que lo coloca bajo `/Memoire/` y escribe una copia de la página para cada dirección (`docs/models`, `playground`...), de modo que los enlaces a cualquier página y las recargas funcionan; las direcciones desconocidas muestran la página «no encontrada» del sitio;
+- compila el sitio con `site/build-static.sh`, que lo coloca bajo `/Memoire/` y prerenderiza cada página en su propio archivo HTML (`docs/models`, `playground`...): cada página se muestra antes incluso de que se descargue la aplicación WebAssembly, los enlaces a cualquier página y las recargas funcionan, y las direcciones desconocidas muestran la página «no encontrada» del sitio;
 - publica el sitio y luego comprueba que la página de inicio y una página de la documentación responden.
 
 GitHub Pages y Heroku son independientes: puedes usar los dos. La única diferencia es que GitHub Pages no puede enviar las cabeceras de seguridad adicionales (como `Content-Security-Policy`) que añade el servidor de Heroku; el sitio funciona igual.

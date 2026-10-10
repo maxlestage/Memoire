@@ -34,6 +34,44 @@ pub fn storage_get(key: &str) -> Option<String> {
         .and_then(|s| s.get_item(key).ok().flatten())
 }
 
+thread_local! {
+    static SETTLED: Cell<bool> = const { Cell::new(!cfg!(target_arch = "wasm32")) };
+}
+
+/// True while showing the page that was prerendered at build time (and while
+/// prerendering it): components start in their final state, without entrance
+/// animations, so the live app takes over the static HTML without anything
+/// flashing or replaying. Turned off at the first navigation.
+pub fn settled() -> bool {
+    SETTLED.with(Cell::get)
+}
+
+/// At start-up: the page is prerendered if the build marked `<html class="settled">`.
+pub fn init_settled() {
+    let prerendered = document().document_element().is_some_and(|e| e.class_list().contains("settled"));
+    SETTLED.with(|s| s.set(prerendered));
+}
+
+/// Leaves the prerendered first view: animations work as usual from now on.
+pub fn unsettle() {
+    if SETTLED.with(|s| s.replace(false)) && cfg!(target_arch = "wasm32") {
+        if let Some(root) = document().document_element() {
+            let _ = root.class_list().remove_1("settled");
+        }
+    }
+}
+
+/// Removes the prerendered HTML once the live app has rendered the same page.
+pub fn remove_prerendered() {
+    if let Ok(views) = document().query_selector_all(".prerendered-view") {
+        for i in 0..views.length() {
+            if let Some(Ok(view)) = views.item(i).map(|n| n.dyn_into::<Element>()) {
+                view.remove();
+            }
+        }
+    }
+}
+
 /// Downloads a text file (same origin), e.g. a documentation page.
 pub async fn fetch_text(url: &str) -> Result<String, String> {
     let fail = |e: JsValue| e.as_string().unwrap_or_else(|| format!("{e:?}"));
@@ -122,8 +160,16 @@ pub fn copy_to_clipboard(text: &str) {
     noop.forget();
 }
 
+#[cfg(target_arch = "wasm32")]
 pub fn now_ms() -> f64 {
     window().performance().map(|p| p.now()).unwrap_or(0.0)
+}
+
+/// Prerendering: a monotonic clock in milliseconds.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn now_ms() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
 }
 
 pub fn set_css_var(el: &HtmlElement, name: &str, value: &str) {

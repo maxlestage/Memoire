@@ -447,12 +447,14 @@ kbd {
   color: #b9a6ff;
 }
 
-.theme-toggle.is-light .tt-sun {
+.theme-toggle.is-light .tt-sun,
+[data-theme="light"] .prerendered-view .theme-toggle .tt-sun {
   opacity: 1;
   transform: none;
 }
 
-.theme-toggle.is-light .tt-moon {
+.theme-toggle.is-light .tt-moon,
+[data-theme="light"] .prerendered-view .theme-toggle .tt-moon {
   opacity: 0;
   transform: rotate(90deg) scale(0.4) translateY(14px);
 }
@@ -3247,6 +3249,31 @@ input[type="range"]::-moz-range-thumb {
   color: var(--amber);
   border-left-color: var(--amber);
 }
+
+/* Prerendered pages ======================================================
+   Every page is rendered at build time in each language (src/prerender.rs);
+   the one matching <html lang> (set by boot.js) shows until the app takes over.
+   Then html.settled, until the first navigation, keeps components in their
+   final state: no entrance animation, so nothing flashes or replays. */
+.prerendered-view { display: none; }
+html[lang="en"] .prerendered-view[data-lang="en"],
+html[lang="fr"] .prerendered-view[data-lang="fr"],
+html[lang="es"] .prerendered-view[data-lang="es"] { display: contents; }
+
+html.settled .page,
+html.settled .hero-anim,
+html.settled .scroll-hint,
+html.settled .docs-article,
+html.settled .cw-body,
+html.settled .term-line,
+html.settled .pg-sql,
+html.settled .exec-badge,
+html.settled .pg-table tbody tr {
+  animation: none;
+}
+html.settled .hero-anim { opacity: 1; }
+html.settled .cw-body::after { animation: none; display: none; }
+html.settled .reveal { transition: none; }
 
 /* 12. Scroll reveal & keyframes =========================================== */
 .reveal {

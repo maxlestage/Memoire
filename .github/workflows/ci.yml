@@ -191,10 +191,9 @@ jobs:
       - name: Site unit tests (every documentation page exists in every language)
         working-directory: site
         run: cargo test
-      - name: Build the site
-        working-directory: site
-        run: trunk build --release
-      - name: Build the site for GitHub Pages (served under /Memoire/)
+      - name: Build and prerender the site (Heroku, served at the root)
+        run: site/build-static.sh "" "" dist
+      - name: Build and prerender the site for GitHub Pages (served under /Memoire/)
         run: site/build-static.sh /Memoire
       - name: Build the server
         working-directory: server

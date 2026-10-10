@@ -135,7 +135,8 @@ Dockerfile, heroku.yml, app.json   déploiement Heroku en un clic
 
 Le site de présentation est écrit en Rust avec [Yew](https://yew.rs) et compilé en WebAssembly.
 Il contient toute la documentation en trois langues et un bac à sable qui exécute le moteur
-en mémoire directement dans votre navigateur.
+en mémoire directement dans votre navigateur. Chaque page est pré-rendue à la compilation : elle
+s'affiche en une fraction de seconde, avant même que l'application WebAssembly soit téléchargée.
 
 ```bash
 rustup target add wasm32-unknown-unknown

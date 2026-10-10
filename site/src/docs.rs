@@ -201,8 +201,30 @@ pub fn loaded_count(lang: Lang) -> usize {
     SOURCES.with(|s| s.borrow().keys().filter(|(_, l)| *l == lang.idx()).count())
 }
 
-#[cfg(test)]
-fn insert_source(slug: &'static str, lang: Lang, text: &str) {
+/// At start-up on a prerendered docs page: takes the markdown embedded in the
+/// HTML (`<script type="text/markdown" class="doc-source">`).
+#[cfg(target_arch = "wasm32")]
+pub fn adopt_embedded_sources() {
+    use wasm_bindgen::JsCast;
+    let Ok(nodes) = dom::document().query_selector_all("script.doc-source") else {
+        return;
+    };
+    for i in 0..nodes.length() {
+        let Some(Ok(el)) = nodes.item(i).map(|n| n.dyn_into::<web_sys::Element>()) else {
+            continue;
+        };
+        let attr = |name| el.get_attribute(name).unwrap_or_default();
+        if let (Some((_, page)), Some(lang)) = (find(&attr("data-slug")), Lang::from_code(&attr("data-lang"))) {
+            let text = el.text_content().unwrap_or_default().replace("<\\/script", "</script");
+            insert_source(page.slug, lang, &text);
+        }
+        el.remove();
+    }
+}
+
+/// Provides a page's markdown directly (read from disk by the prerenderer,
+/// from the page itself by [`adopt_embedded_sources`]).
+pub fn insert_source(slug: &'static str, lang: Lang, text: &str) {
     SOURCES.with(|s| s.borrow_mut().insert((slug, lang.idx()), Rc::from(text)));
 }
 

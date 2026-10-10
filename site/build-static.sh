@@ -9,9 +9,11 @@
 # [site-url] is the public address, used for the social preview image.
 # [out-dir] defaults to site/dist-static.
 #
-# Every page of the app gets its own copy of index.html (`docs/models.html` and
-# `docs/models/index.html`), so deep links and refreshes answer 200; any other
-# path gets 404.html, which boots the app on its "not found" page.
+# Every page is prerendered at build time (`cargo run -- prerender`, see
+# src/prerender.rs) into its own HTML file (`docs/models.html` and
+# `docs/models/index.html`), so it shows before the WebAssembly app has even
+# downloaded, and deep links and refreshes answer 200; any other path gets
+# 404.html, prerendered "page not found".
 set -euo pipefail
 
 base="${1:-}"
@@ -20,25 +22,15 @@ site_url="${2:-}"
 site_url="${site_url%/}"
 cd "$(dirname "$0")"
 out="${3:-dist-static}"
-docs_dir="$(cd ../docs/en && pwd)"
 
 MEMOIRE_BASE_PATH="$base" trunk build --release --public-url "$base/" --dist "$out"
 
-cd "$out"
 if [ -n "$site_url" ]; then
-  sed -i "s#content=\"/og-image.png\"#content=\"$site_url/og-image.png\"#g" index.html
+  sed -i "s#content=\"/og-image.png\"#content=\"$site_url/og-image.png\"#g" "$out/index.html"
 fi
 
-routes="features performance playground docs"
-for page in "$docs_dir"/*.md; do
-  routes="$routes docs/$(basename "$page" .md)"
-done
-for route in $routes; do
-  mkdir -p "$route"
-  cp index.html "$route.html"
-  cp index.html "$route/index.html"
-done
-cp index.html 404.html
-touch .nojekyll
+# Native build of the same crate: renders every page into a copy of index.html.
+MEMOIRE_BASE_PATH="$base" cargo run --quiet -- prerender "$out"
+touch "$out/.nojekyll"
 
-echo "Static site in $(pwd) (base path: '${base:-/}', $(echo $routes | wc -w) routes)"
+echo "Static site in $(cd "$out" && pwd) (base path: '${base:-/}')"

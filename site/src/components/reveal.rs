@@ -22,6 +22,8 @@ pub struct RevealProps {
 #[component]
 pub fn Reveal(props: &RevealProps) -> Html {
     let node = use_node_ref();
+    // Prerendered first view: already shown (decided once, when mounted).
+    let shown_at_mount = *use_state(dom::settled);
     {
         let node = node.clone();
         use_effect_with((), move |_| {
@@ -38,7 +40,7 @@ pub fn Reveal(props: &RevealProps) -> Html {
     }
     let style = (props.delay > 0).then(|| format!("--d:{}ms", props.delay));
     html! {
-        <div ref={node} class={classes!("reveal", props.anim.to_string(), props.class.clone())} {style}>
+        <div ref={node} class={classes!("reveal", props.anim.to_string(), props.class.clone(), shown_at_mount.then_some("is-visible"))} {style}>
             { props.children.clone() }
         </div>
     }

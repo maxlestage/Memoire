@@ -135,7 +135,8 @@ Dockerfile, heroku.yml, app.json   one-click Heroku deployment
 
 The presentation site is written in Rust with [Yew](https://yew.rs) and compiled to WebAssembly.
 It includes the full documentation in three languages and a live playground running the
-in-memory engine directly in your browser.
+in-memory engine directly in your browser. Every page is prerendered at build time, so it shows
+in a fraction of a second, before the WebAssembly app has even downloaded.
 
 ```bash
 rustup target add wasm32-unknown-unknown

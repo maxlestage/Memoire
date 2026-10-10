@@ -24,14 +24,17 @@ pub struct CounterProps {
 #[component]
 pub fn Counter(props: &CounterProps) -> Html {
     let node = use_node_ref();
-    let shown = use_state(|| 0.0f64);
+    // Prerendered first view: the final value, without counting up.
+    let settled = *use_state(dom::settled);
+    let value = props.value;
+    let shown = use_state(move || if settled { value } else { 0.0 });
     {
         let node = node.clone();
         let shown = shown.clone();
         let duration = f64::from(props.duration.max(1));
         use_effect_with(props.value, move |&value| {
             let raf: Rc<RefCell<Option<RafLoop>>> = Rc::default();
-            let reduced = dom::prefers_reduced_motion();
+            let reduced = settled || dom::prefers_reduced_motion();
             if reduced {
                 // No animation: show the final number right away.
                 shown.set(value);

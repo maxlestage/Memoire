@@ -22,6 +22,12 @@ pulldown-cmark = { version = "0.13.4", default-features = false, features = ["ht
 # The real ORM, compiled to WebAssembly for the playground (in-memory engine).
 memoire-orm = { path = "../crates/memoire-orm", default-features = false, features = ["memory"] }
 
+# Native build only: the prerenderer (`cargo run -- prerender <dist>`) renders
+# every page to HTML at build time with Yew's server renderer.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+yew = { version = "0.23.0", features = ["csr", "ssr"] }
+tokio = { version = "1", features = ["rt"] }
+
 [dependencies.web-sys]
 version = "0.3.106"
 features = [
