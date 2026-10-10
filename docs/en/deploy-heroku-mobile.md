@@ -127,7 +127,7 @@ After that, every push to `master` that changes the website, the docs or the ORM
 What the workflow does:
 
 - it skips with the notice "GitHub Pages deployment skipped" as long as step 2 is not done;
-- it builds the site with `site/build-static.sh`, which places it under `/Memoire/` and writes a copy of the page for each address (`docs/models`, `playground`...), so links to any page and refreshes work; unknown addresses show the site's "page not found";
+- it builds the site with `site/build-static.sh`, which places it under `/Memoire/` and prerenders every page into its own HTML file (`docs/models`, `playground`...): each page shows before the WebAssembly app has downloaded, links to any page and refreshes work, and unknown addresses show the site's "page not found";
 - it publishes the site, then checks that the home page and a documentation page answer.
 
 GitHub Pages and Heroku are independent: you can use both. The only difference is that GitHub Pages cannot send the extra security headers (such as `Content-Security-Policy`) that the Heroku server adds; the site itself works the same.

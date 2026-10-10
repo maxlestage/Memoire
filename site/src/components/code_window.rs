@@ -83,13 +83,16 @@ pub struct TerminalProps {
 #[component]
 pub fn Terminal(props: &TerminalProps) -> Html {
     let node = use_node_ref();
-    let progress = use_state_eq(|| (0usize, 0usize));
+    // Prerendered first view: the whole script, already typed.
+    let settled = *use_state(dom::settled);
+    let script_len = props.script.len();
+    let progress = use_state_eq(move || if settled { (script_len, 0) } else { (0usize, 0usize) });
     {
         let (node, progress) = (node.clone(), progress.clone());
         let script = props.script;
         use_effect_with((), move |_| {
             let interval: Rc<RefCell<Option<Interval>>> = Rc::default();
-            let io = node.cast::<Element>().and_then(|el| {
+            let io = node.cast::<Element>().filter(|_| !settled).and_then(|el| {
                 let interval = interval.clone();
                 dom::observe_once(&el, 0.3, move || {
                     if dom::prefers_reduced_motion() {

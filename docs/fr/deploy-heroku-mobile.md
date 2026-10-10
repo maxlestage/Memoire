@@ -127,7 +127,7 @@ Ensuite, chaque push sur `master` qui modifie le site, la documentation ou l'ORM
 Ce que fait le workflow :
 
 - il s'arrête avec le message "GitHub Pages deployment skipped" tant que l'étape 2 n'est pas faite ;
-- il construit le site avec `site/build-static.sh`, qui le place sous `/Memoire/` et écrit une copie de la page pour chaque adresse (`docs/models`, `playground`...) : les liens vers n'importe quelle page et les rechargements fonctionnent, et les adresses inconnues affichent la page « introuvable » du site ;
+- il construit le site avec `site/build-static.sh`, qui le place sous `/Memoire/` et pré-rend chaque page dans son propre fichier HTML (`docs/models`, `playground`...) : chaque page s'affiche avant même que l'application WebAssembly soit téléchargée, les liens vers n'importe quelle page et les rechargements fonctionnent, et les adresses inconnues affichent la page « introuvable » du site ;
 - il publie le site, puis vérifie que la page d'accueil et une page de documentation répondent.
 
 GitHub Pages et Heroku sont indépendants : vous pouvez utiliser les deux. La seule différence : GitHub Pages ne peut pas envoyer les en-têtes de sécurité supplémentaires (comme `Content-Security-Policy`) qu'ajoute le serveur Heroku ; le site lui-même fonctionne de la même façon.

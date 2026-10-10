@@ -51,13 +51,19 @@ COPY site/Cargo.toml site/Cargo.loc[k] site/
 RUN mkdir -p site/src \
  && echo "fn main() {}" > site/src/main.rs \
  && cargo build --release --target wasm32-unknown-unknown --manifest-path site/Cargo.toml \
+ && cargo build --manifest-path site/Cargo.toml \
  && rm -rf site/src
-# The documentation markdown is embedded into the wasm at compile time.
+# The documentation markdown is copied next to the app (fetched page by page)
+# and read by the prerenderer.
 COPY docs docs
 COPY site site
+# Build the app, then prerender every page into its own HTML file (a native
+# build of the same crate, see site/src/prerender.rs): visitors see the page
+# before the WebAssembly has downloaded.
 RUN cd site \
  && touch src/main.rs \
- && trunk build --release
+ && trunk build --release \
+ && cargo run -- prerender dist
 
 # Pre-compress static files (.br + .gz); the server sends them when the browser
 # accepts them. Done by the server binary itself: no brotli/gzip tools needed.

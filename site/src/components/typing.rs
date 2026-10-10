@@ -22,7 +22,10 @@ enum Phase {
 
 #[component]
 pub fn Typing(props: &TypingProps) -> Html {
-    let text = use_state_eq(String::new);
+    // Prerendered first view: start with the first line already typed.
+    let settled = *use_state(dom::settled);
+    let first = props.lines.first().copied().unwrap_or_default();
+    let text = use_state_eq(move || if settled { first.to_string() } else { String::new() });
     {
         let text = text.clone();
         use_effect_with(props.lines, move |&lines| {
@@ -33,8 +36,8 @@ pub fn Typing(props: &TypingProps) -> Html {
                 None
             } else {
                 let line = Rc::new(Cell::new(0usize));
-                let chars = Rc::new(Cell::new(0usize));
-                let phase = Rc::new(Cell::new(Phase::Typing));
+                let chars = Rc::new(Cell::new(if settled { lines[0].chars().count() } else { 0 }));
+                let phase = Rc::new(Cell::new(if settled { Phase::Holding(38) } else { Phase::Typing }));
                 Some(Interval::new(48, move || {
                     let current: Vec<char> = lines[line.get() % lines.len()].chars().collect();
                     match phase.get() {
