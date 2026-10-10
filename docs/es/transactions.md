@@ -1,0 +1,3 @@
+# Transacciones
+
+Documentación disponible próximamente.

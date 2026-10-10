@@ -1,0 +1,39 @@
+[package]
+name = "memoire-site"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Presentation website and documentation for Memoire ORM (Yew + WebAssembly)"
+license = "MIT OR Apache-2.0"
+
+# Standalone project: not part of the root workspace.
+[workspace]
+
+[dependencies]
+yew = { version = "0.23.0", features = ["csr"] }
+yew-router = "0.20.0"
+# gloo 0.11 is the version yew 0.23 already depends on: using the same one avoids
+# shipping two copies of gloo in the .wasm.
+gloo = { version = "0.11", default-features = false, features = ["events", "timers"] }
+wasm-bindgen = "0.2.129"
+js-sys = "0.3"
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+
+[dependencies.web-sys]
+version = "0.3.106"
+features = [
+  "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "CanvasRenderingContext2d",
+  "Node", "NodeList", "DomRect", "DomTokenList", "CssStyleDeclaration", "Event", "EventTarget",
+  "MouseEvent", "PointerEvent", "KeyboardEvent", "InputEvent", "HtmlInputElement", "HtmlSelectElement",
+  "IntersectionObserver", "IntersectionObserverEntry", "IntersectionObserverInit",
+  "MediaQueryList", "Navigator", "Clipboard", "Storage", "Location", "History",
+  "ScrollToOptions", "ScrollBehavior", "ScrollIntoViewOptions", "ScrollLogicalPosition",
+  "Performance", "VisibilityState", "HtmlCollection", "Text", "HtmlTextAreaElement"
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,3 @@
+# Instalación
+
+Documentación disponible próximamente.

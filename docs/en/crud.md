@@ -1,0 +1,266 @@
+# Create, read, update, delete
+
+This page covers every way to write and read rows with a model: inserting one or many rows, loading by key, updating one row or many, upserting, deleting, and handling the errors these operations can return.
+
+## The examples on this page
+
+```rust
+use memoire_orm::prelude::*;
+
+#[derive(Model, Debug, Clone, PartialEq)]
+#[memoire(table = "users")]
+pub struct User {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    #[memoire(unique)]
+    pub email: String,
+    pub name: String,
+    pub age: Option<i32>,
+    pub active: bool,
+    pub visits: i32,
+}
+
+impl User {
+    pub fn new(email: &str, name: &str) -> Self {
+        User { id: 0, email: email.into(), name: name.into(), age: None, active: true, visits: 0 }
+    }
+}
+
+#[derive(Model, Debug, Clone, PartialEq)]
+#[memoire(table = "tags")]
+pub struct Tag {
+    #[memoire(primary_key)]
+    pub slug: String,
+    pub label: String,
+}
+```
+
+Every method takes `&db`, which can be any database handle (`MemoryDb`, `SqliteDb`, `PgPool`) or an open [transaction](transactions).
+
+## Create
+
+### Insert one row
+
+```rust
+let mut alice = User::new("alice@example.com", "Alice");
+alice.insert(&db).await?;
+println!("Alice got id {}", alice.id); // 1
+```
+
+`insert` borrows the row mutably because, for an `auto_increment` key, it writes the generated value back into the struct. The `id` you set before inserting (here `0`) is ignored.
+
+For a model whose key is not auto-increment, the key you set is the one stored:
+
+```rust
+let mut rust = Tag { slug: "rust".into(), label: "Rust".into() };
+rust.insert(&db).await?;
+```
+
+Inserting a second row with the same primary key or the same value in a `unique` column fails with `Error::UniqueViolation` (see "Handling errors" below).
+
+### Insert many rows at once
+
+`insert_many` inserts a whole slice with as few statements as possible and returns how many rows were inserted:
+
+```rust
+let users: Vec<User> = (1..=1000)
+    .map(|i| User::new(&format!("user{i}@example.com"), &format!("User {i}")))
+    .collect();
+let inserted = User::insert_many(&db, &users).await?;
+assert_eq!(inserted, 1000);
+```
+
+On SQL databases this sends one multi-row `INSERT ... VALUES (...), (...), ...` per batch. Batches are sized to stay under the database's limit on bound parameters (32,766 for SQLite, 65,535 for PostgreSQL) and hold at most 10,000 rows, so even huge slices are handled automatically.
+
+Things to know about `insert_many`:
+
+- Generated keys are **not** read back: the structs in your slice keep `id: 0`. Query the rows again if you need their ids, or insert one by one with `insert`.
+- Each batch is atomic: if a row fails (for example a duplicate email), nothing from that batch is stored.
+- When the slice is bigger than one batch, earlier batches stay stored if a later one fails. Wrap the call in a [transaction](transactions) to make the whole operation all-or-nothing. A transaction also makes bulk inserts much faster on SQLite.
+
+## Read
+
+### By primary key
+
+```rust
+let maybe: Option<User> = User::find(&db, 1).await?; // None if there is no row 1
+let alice: User = User::get(&db, 1).await?;          // Error::NotFound if there is no row 1
+let tag = Tag::get(&db, "rust").await?;              // string keys work the same way
+```
+
+Use `find` when a missing row is a normal situation, and `get` when it is an error. The key must have the type of the primary key: `User::find(&db, "1")` does not compile.
+
+### Every row, or a count
+
+```rust
+let everyone: Vec<User> = User::all(&db).await?;
+let how_many: u64 = User::count(&db).await?;
+```
+
+For anything more specific (filters, sorting, pagination, a few columns...), use the [query builder](queries): `User::query().filter(...).all(&db)`.
+
+### Refresh a row
+
+`reload` re-reads a row from the database, replacing every field of your struct. It is useful after changes made with `update_many` or by someone else:
+
+```rust
+let mut alice = User::get(&db, 1).await?;
+User::update_many().increment(User::VISITS, 1).filter(User::ID.eq(alice.id)).execute(&db).await?;
+alice.reload(&db).await?;
+assert_eq!(alice.visits, 1);
+```
+
+`reload` fails with `Error::NotFound` if the row was deleted in the meantime.
+
+## Update
+
+### Change one row
+
+Load the row, change fields, then call `update`:
+
+```rust
+let mut alice = User::get(&db, 1).await?;
+alice.name = "Alice Liddell".into();
+alice.age = Some(32);
+alice.update(&db).await?;
+```
+
+`update` writes **every column** of the struct to the row with the same primary key. If no row has that key, it fails with `Error::NotFound`; it never creates a row.
+
+> **Note** Because `update` writes all columns, two programs that load the same row, change different fields and both call `update` will overwrite each other's change (the last write wins). For counters and other concurrent changes, use `update_many` with `increment`, or a [transaction](transactions).
+
+### Change many rows
+
+`update_many` changes every row that matches its filters, without loading them, and returns the number of updated rows:
+
+```rust
+let changed = User::update_many()
+    .set(User::ACTIVE, false)
+    .filter(User::AGE.lt(18))
+    .execute(&db)
+    .await?;
+println!("{changed} user(s) deactivated");
+```
+
+The available assignments:
+
+| Method | SQL | Example |
+|---|---|---|
+| `set(column, value)` | `column = value` | `.set(User::NAME, "Bob")` |
+| `set_null(column)` | `column = NULL` | `.set_null(User::AGE)` (only for `Option` columns) |
+| `increment(column, n)` | `column = column + n` | `.increment(User::VISITS, 1)` |
+| `decrement(column, n)` | `column = column - n` | `.decrement(User::VISITS, 1)` |
+| `set_expr(column, expr)` | `column = <expression>` | `.set_expr(User::VISITS, User::VISITS.mul(2))` |
+
+Assignments and filters can be combined freely:
+
+```rust
+User::update_many()
+    .set(User::ACTIVE, true)
+    .increment(User::VISITS, 1)
+    .set_null(User::AGE)
+    .filter(User::EMAIL.ends_with("@example.com") & User::ACTIVE.eq(false))
+    .execute(&db)
+    .await?;
+```
+
+Like queries, an update can show its SQL:
+
+```rust
+let update = User::update_many()
+    .set(User::ACTIVE, false)
+    .increment(User::VISITS, 1)
+    .filter(User::NAME.eq("Bob"));
+println!("{}", update.to_sql(Dialect::Postgres));
+// UPDATE "users" SET "active" = $1, "visits" = ("users"."visits" + $2) WHERE "users"."name" = $3
+```
+
+> **Warning** Without `filter`, `update_many` changes **every row** of the table. At least one assignment is required: `update_many()` with no `set`, `increment`, ... fails with `Error::Unsupported`.
+
+An update that would break a `unique` constraint fails as a whole, leaving every row untouched:
+
+```rust
+let err = User::update_many().set(User::EMAIL, "same@example.com").execute(&db).await.unwrap_err();
+assert!(err.is_unique_violation());
+```
+
+## Upsert
+
+`upsert` means "insert, or update if it already exists". It inserts the row, or, if a row with the same primary key exists, overwrites all its columns:
+
+```rust
+let tag = Tag { slug: "rust".into(), label: "Rust 🦀".into() };
+tag.upsert(&db).await?; // creates "rust", or updates its label
+
+Tag { slug: "orm".into(), label: "ORM".into() }.upsert(&db).await?;
+```
+
+On SQL databases it is a single statement (`INSERT ... ON CONFLICT (key) DO UPDATE` on SQLite and PostgreSQL), so it is safe even when two programs upsert the same key at the same time.
+
+> **Warning** `upsert` always stores the key that is in your struct, even for an `auto_increment` key. Upserting `User { id: 0, ... }` creates a row whose id is `0`. Use `insert` for new rows of auto-increment models, and `upsert` for natural keys (slugs, codes, UUIDs) or rows you know the id of. On PostgreSQL, also note that upserting new rows with explicit ids does not advance the id sequence, so a later `insert` can collide with them.
+
+## Delete
+
+```rust
+let alice = User::get(&db, 1).await?;
+let deleted: bool = alice.delete(&db).await?; // true: the row existed
+
+let deleted_again = User::delete_by_key(&db, 1).await?; // false: already gone
+```
+
+Both return `true` if a row was deleted and `false` if there was nothing to delete; a missing row is not an error.
+
+To delete every row matching a filter, use `delete_many`, which returns the number of deleted rows:
+
+```rust
+let removed = User::delete_many().filter(User::ACTIVE.eq(false)).execute(&db).await?;
+println!("removed {removed} inactive user(s)");
+```
+
+> **Warning** `User::delete_many().execute(&db)` without a filter deletes **every row** of the table.
+
+If other tables reference the deleted rows with `on_delete = "cascade"`, the database deletes those too (on SQLite and PostgreSQL; the in-memory engine does not enforce foreign keys).
+
+## Handling errors
+
+Every operation returns `memoire_orm::Result<T>`, an alias for `Result<T, memoire_orm::Error>`. Errors are normalised: the same mistake gives the same error variant on every backend, so you can match on it without knowing which database you use.
+
+| Error | When it happens |
+|---|---|
+| `Error::NotFound` | `get`, `one`, `update` or `reload` found no row |
+| `Error::UniqueViolation { table, column }` | A primary key or `unique` value already exists |
+| `Error::Constraint(message)` | Another constraint failed: `NOT NULL`, foreign key, `CHECK` |
+| `Error::UnexpectedNull { column }` | A `NULL` was read into a non-`Option` field |
+| `Error::Decode { column, message }` | A value could not be converted into the field's type |
+| `Error::Conversion(message)` | A value could not be converted (outside of a specific column) |
+| `Error::NoSuchTable(name)` | The table does not exist |
+| `Error::TableExists(name)` | `create_table` on a table that already exists |
+| `Error::Unsupported(message)` | The backend cannot do this (for example raw SQL on the memory engine) |
+| `Error::Conflict(table)` | A transaction collided with a concurrent one; retrying is safe |
+| `Error::TransactionFinished` | The transaction was already committed or rolled back |
+| `Error::Migration { version, name, source }` | A migration failed; `source` holds the cause |
+| `Error::Pool(message)` | The PostgreSQL pool could not provide a connection |
+| `Error::Database(error)` | Any other error from the database driver |
+
+Three helpers cover the most common checks: `is_not_found()`, `is_unique_violation()` and `is_conflict()`.
+
+```rust
+let mut duplicate = User::new("alice@example.com", "Another Alice");
+match duplicate.insert(&db).await {
+    Ok(()) => println!("created #{}", duplicate.id),
+    Err(Error::UniqueViolation { column, .. }) => println!("this {column} is already taken"),
+    Err(other) => return Err(other),
+}
+```
+
+```text
+this email is already taken
+```
+
+> **Tip** `Error` is marked `#[non_exhaustive]`: when you `match` on it, keep a catch-all arm (`Err(other) => ...`) as above. Every error implements `std::error::Error` and `Display`, so it also works with `anyhow`, `thiserror` and `Box<dyn Error>`.
+
+## Next steps
+
+- [Query builder](queries): find exactly the rows you need.
+- [Transactions](transactions): group several writes into one all-or-nothing change.
+- [Joins & relations](relations): work with related tables.

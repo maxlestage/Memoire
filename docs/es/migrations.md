@@ -1,0 +1,3 @@
+# Migraciones
+
+Documentación disponible próximamente.

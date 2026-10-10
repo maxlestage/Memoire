@@ -1,0 +1,29 @@
+[package]
+name = "memoire-site-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Tiny production static server for the Memoire ORM website (Heroku-ready)"
+license = "MIT OR Apache-2.0"
+
+# Standalone project: not part of the root workspace.
+[workspace]
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio", "tracing"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
+tower-http = { version = "0.7.1", features = ["fs", "compression-br", "compression-gzip", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+sha2 = "0.10"
+base64 = "0.22"
+# Build-time pre-compression (`memoire-site-server precompress dist/`); both are
+# already in the tree through tower-http's compression features.
+brotli = "9"
+flate2 = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
