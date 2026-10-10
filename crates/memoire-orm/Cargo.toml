@@ -1,6 +1,6 @@
 [package]
 name = "memoire-orm"
-description = "A blazing-fast, type-safe, async ORM written in pure Rust: compile-time SQL, zero-cost row mapping, PostgreSQL, SQLite and an in-memory engine that even runs in WebAssembly."
+description = "A blazing-fast, type-safe, async ORM in pure Rust for SQL and NoSQL: PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine that runs in WebAssembly. Compile-time SQL, zero-cost row mapping."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,7 +10,7 @@ homepage.workspace = true
 authors.workspace = true
 documentation = "https://docs.rs/memoire-orm"
 readme = "README.md"
-keywords = ["orm", "database", "sql", "postgres", "sqlite"]
+keywords = ["orm", "database", "sql", "nosql", "async"]
 categories = ["database", "asynchronous", "wasm", "data-structures"]
 exclude = ["benches/results/*"]
 
