@@ -1,5 +1,9 @@
-//! Documentation manifest: categories, pages, localised titles and the markdown
-//! sources (embedded at compile time from `docs/<lang>/<slug>.md` at the repo root).
+//! Documentation manifest: categories, pages and localised titles.
+//!
+//! The markdown sources are not compiled into the .wasm (they would weigh as
+//! much as the whole app): Trunk copies `docs/<lang>/<slug>.md` to
+//! `content/<lang>/<slug>.md` next to it, and each page is fetched the first
+//! time it is shown, then kept in memory.
 //!
 //! To add a page: create `docs/en/<slug>.md`, `docs/fr/<slug>.md`, `docs/es/<slug>.md`
 //! and add a `page!` line below.
@@ -8,6 +12,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::dom;
 use crate::i18n::Lang;
 use crate::markdown;
 
@@ -17,7 +22,6 @@ pub type Tr = [&'static str; 3];
 pub struct DocPage {
     pub slug: &'static str,
     pub title: Tr,
-    pub content: Tr,
 }
 
 pub struct DocCategory {
@@ -30,11 +34,6 @@ macro_rules! page {
         DocPage {
             slug: $slug,
             title: [$en, $fr, $es],
-            content: [
-                include_str!(concat!("../../docs/en/", $slug, ".md")),
-                include_str!(concat!("../../docs/fr/", $slug, ".md")),
-                include_str!(concat!("../../docs/es/", $slug, ".md")),
-            ],
         }
     };
 }
@@ -148,6 +147,66 @@ pub fn reading_minutes(words: usize) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Markdown sources, fetched on demand
+// ---------------------------------------------------------------------------
+
+type Key = (&'static str, usize);
+type Waiter = Box<dyn FnOnce(Result<(), String>)>;
+
+thread_local! {
+    static SOURCES: RefCell<HashMap<Key, Rc<str>>> = RefCell::new(HashMap::new());
+    /// Downloads in flight, with the callbacks waiting for each of them.
+    static LOADING: RefCell<HashMap<Key, Vec<Waiter>>> = RefCell::new(HashMap::new());
+}
+
+/// The markdown of a page, if it has been fetched already.
+pub fn source(slug: &str, lang: Lang) -> Option<Rc<str>> {
+    let (_, page) = find(slug)?;
+    SOURCES.with(|s| s.borrow().get(&(page.slug, lang.idx())).cloned())
+}
+
+/// Makes sure a page's markdown is available, fetching it at most once, then
+/// calls `done` (right away when it is cached, with an error message if the
+/// download failed).
+pub fn load(slug: &str, lang: Lang, done: impl FnOnce(Result<(), String>) + 'static) {
+    let Some((_, page)) = find(slug) else {
+        return done(Err(format!("unknown page `{slug}`")));
+    };
+    let key = (page.slug, lang.idx());
+    if SOURCES.with(|s| s.borrow().contains_key(&key)) {
+        return done(Ok(()));
+    }
+    let first = LOADING.with(|l| {
+        let mut l = l.borrow_mut();
+        let waiters = l.entry(key).or_default();
+        waiters.push(Box::new(done));
+        waiters.len() == 1
+    });
+    if !first {
+        return;
+    }
+    let url = format!("{}/content/{}/{}.md", dom::base_path(), lang.code(), page.slug);
+    yew::platform::spawn_local(async move {
+        let result = dom::fetch_text(&url).await.map(|text| {
+            SOURCES.with(|s| s.borrow_mut().insert(key, Rc::from(text)));
+        });
+        for waiter in LOADING.with(|l| l.borrow_mut().remove(&key)).unwrap_or_default() {
+            waiter(result.clone());
+        }
+    });
+}
+
+/// How many pages of a language have been fetched (search needs them all).
+pub fn loaded_count(lang: Lang) -> usize {
+    SOURCES.with(|s| s.borrow().keys().filter(|(_, l)| *l == lang.idx()).count())
+}
+
+#[cfg(test)]
+fn insert_source(slug: &'static str, lang: Lang, text: &str) {
+    SOURCES.with(|s| s.borrow_mut().insert((slug, lang.idx()), Rc::from(text)));
+}
+
+// ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
 
@@ -168,23 +227,22 @@ thread_local! {
     static PLAIN: RefCell<PlainCache> = RefCell::new(HashMap::new());
 }
 
-/// (plain text, lowercased plain text) for a page, cached.
-fn plain(page: &'static DocPage, lang: Lang) -> Rc<(String, String)> {
-    PLAIN.with(|cache| {
-        cache
-            .borrow_mut()
-            .entry((page.slug, lang.idx()))
-            .or_insert_with(|| {
-                let text = markdown::plain_text(page.content[lang.idx()]);
-                let lower = text.to_lowercase();
-                Rc::new((text, lower))
-            })
-            .clone()
-    })
+/// (plain text, lowercased plain text) for a page, cached; `None` until the
+/// page has been fetched.
+fn plain(page: &'static DocPage, lang: Lang) -> Option<Rc<(String, String)>> {
+    let key = (page.slug, lang.idx());
+    if let Some(hit) = PLAIN.with(|cache| cache.borrow().get(&key).cloned()) {
+        return Some(hit);
+    }
+    let text = markdown::plain_text(&source(page.slug, lang)?);
+    let lower = text.to_lowercase();
+    let entry = Rc::new((text, lower));
+    PLAIN.with(|cache| cache.borrow_mut().insert(key, entry.clone()));
+    Some(entry)
 }
 
 /// Case-insensitive search over titles and contents in the given language.
-/// Title matches come first.
+/// Title matches come first. Contents are searched once they are fetched.
 pub fn search(query: &str, lang: Lang) -> Vec<SearchHit> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
@@ -195,9 +253,10 @@ pub fn search(query: &str, lang: Lang) -> Vec<SearchHit> {
     for (cat, page) in all_pages() {
         let title = page.title[li];
         let title_match = title.to_lowercase().contains(&q);
-        let doc = plain(page, lang);
-        let (text, lower) = (&doc.0, &doc.1);
-        let snippet = lower.find(&q).and_then(|pos| excerpt(text, lower, pos, q.len()));
+        let snippet = plain(page, lang).and_then(|doc| {
+            let (text, lower) = (&doc.0, &doc.1);
+            lower.find(&q).and_then(|pos| excerpt(text, lower, pos, q.len()))
+        });
         if title_match || snippet.is_some() {
             hits.push(SearchHit {
                 slug: page.slug,
@@ -249,8 +308,32 @@ mod tests {
     }
 
     #[test]
+    fn every_page_exists_in_every_language() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs");
+        for (_, page) in all_pages() {
+            for lang in ["en", "fr", "es"] {
+                let path = docs.join(lang).join(format!("{}.md", page.slug));
+                assert!(path.is_file(), "missing {}", path.display());
+            }
+        }
+    }
+
+    #[test]
     fn search_finds_titles() {
         let hits = search("heroku", Lang::En);
         assert!(hits.iter().any(|h| h.slug == "deploy-heroku-mobile"));
+    }
+
+    #[test]
+    fn search_finds_fetched_contents() {
+        assert!(search("zebra", Lang::Fr).is_empty());
+        insert_source("faq", Lang::Fr, "# FAQ\n\nUn zèbre et un zebra.");
+        assert_eq!(loaded_count(Lang::Fr), 1);
+        let hits = search("zebra", Lang::Fr);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].slug, "faq");
+        assert!(!hits[0].title_match);
+        assert_eq!(hits[0].snippet.as_ref().map(|s| s.1.as_str()), Some("zebra"));
+        assert!(source("faq", Lang::Fr).is_some() && source("faq", Lang::En).is_none());
     }
 }

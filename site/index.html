@@ -30,13 +30,19 @@
     <link data-trunk rel="copy-file" href="assets/favicon.svg" />
     <link data-trunk rel="copy-file" href="assets/og-image.png" />
     <link data-trunk rel="copy-file" href="assets/robots.txt" />
+    <!-- Documentation sources, fetched page by page (not compiled into the .wasm) -->
+    <link data-trunk rel="copy-dir" href="../docs" data-target-path="content" />
+
+    <!-- Web fonts: loaded as "print" so they never delay the first paint;
+         boot.js switches them on once downloaded. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link id="webfonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" media="print" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" /></noscript>
 
     <!-- Theme + language before the app boots (no flash) -->
     <link data-trunk rel="inline" href="assets/boot.js" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" />
 
     <link data-trunk rel="css" href="styles/main.css" />
     <link
