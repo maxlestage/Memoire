@@ -85,7 +85,7 @@ El motor no genera ni analiza SQL. Interpreta directamente las estructuras de co
 
 El backend [Redis](redis) evalúa las consultas con este mismo motor, y [MongoDB](mongodb) lo usa para completar los joins, los `GROUP BY` y los agregados, así que comparten su semántica.
 
-> **Nota** `#[memoire(index)]` solo afecta a las bases de datos SQL. El motor en memoria mantiene índices hash para la clave primaria y las columnas `unique`.
+> **Nota** `#[memoire(index)]` crea un índice real en las bases de datos SQL y en MongoDB, pero el motor en memoria lo ignora: solo mantiene índices hash para la clave primaria y las columnas `unique`.
 
 ## Semántica SQL
 

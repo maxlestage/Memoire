@@ -178,9 +178,13 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Consulta | `db.raw::<(i64, String)>("SELECT id, name FROM users WHERE age > ?", &params![18]).await?` |
 | Ejecución | `db.raw_execute("DELETE FROM users WHERE active = ?", &params![false]).await?` → `u64` |
 | Sin parámetros | `db.raw::<i64>("SELECT COUNT(*) FROM users", &[]).await?` |
-| Marcadores | SQLite `?`, PostgreSQL `$1`, `$2`, ... |
+| Disponible en | SQLite, PostgreSQL, MySQL/MariaDB (en memoria, Redis y MongoDB devuelven `Error::Unsupported`) |
+| Marcadores | SQLite y MySQL `?`, PostgreSQL `$1`, `$2`, ... |
 | Conexión SQLite | `db.with_connection(\|conn\| ...).await` |
-| Pool de PostgreSQL | `db.pool()` |
+| Pool de PostgreSQL / MySQL | `db.pool()` |
+| Conexión Redis | `db.connection()` |
+| Base de datos MongoDB | `db.database()` |
+| ¿Hay transacciones disponibles en MongoDB? | `db.supports_transactions()` |
 
 ## Errores
 
