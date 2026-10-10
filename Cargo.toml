@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/memoire-orm", "crates/memoire-orm-derive"]
-exclude = ["site", "server"]
+exclude = ["site"]
 
 [workspace.package]
 version = "0.1.0"

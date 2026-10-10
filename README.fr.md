@@ -136,23 +136,29 @@ Référence de l'API : [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 crates/memoire-orm/          l'ORM (publié sur crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] et #[derive(FromRow)]
 docs/{en,fr,es}/             documentation (affichée par le site)
-site/                        site de présentation — Yew + WebAssembly
-server/                      petit serveur Rust qui sert le site sur Heroku
+site/                        site de présentation, écrit avec active (serveur + îlots WebAssembly, PWA)
 Dockerfile, heroku.yml, app.json   déploiement Heroku en un clic
 .github/workflows/           CI, fusion automatique, déploiement Heroku et GitHub Pages, publication crates.io
 ```
 
 ## Le site web
 
-Le site de présentation est écrit en Rust avec [Yew](https://yew.rs) et compilé en WebAssembly.
-Il contient toute la documentation en trois langues et un bac à sable qui exécute le moteur
-en mémoire directement dans votre navigateur. Chaque page est pré-rendue à la compilation : elle
-s'affiche en une fraction de seconde, avant même que l'application WebAssembly soit téléchargée.
+Le site de présentation est écrit en Rust avec [active](https://github.com/maxlestage/Active) :
+un petit serveur Rust rend chaque page (balises SEO complètes, en anglais, français et espagnol),
+et seules les parties interactives (le bac à sable, les onglets de code, la recherche dans la
+doc) se réveillent dans le navigateur en WebAssembly. Le bac à sable exécute le vrai moteur en
+mémoire dans votre navigateur. Le site est une PWA : installez-le sur l'écran d'accueil de votre
+téléphone ; une fois ouvert, il fonctionne même hors ligne, bac à sable compris. Le même serveur
+exporte tout le site en fichiers statiques pour GitHub Pages.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-cd site && trunk serve --open
+cargo install wasm-bindgen-cli --version 0.2.129   # la version de site/Cargo.lock
+cd site
+cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+cargo run                                          # http://localhost:8080
+BASE_PATH=/Memoire cargo run -- export dist-static  # fichiers statiques, comme sur GitHub Pages
 ```
 
 ## Déployer depuis son téléphone 📱

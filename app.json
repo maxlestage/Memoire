@@ -1,10 +1,20 @@
 {
   "name": "Memoire ORM",
-  "description": "Presentation website and documentation for Memoire ORM, the blazing-fast pure-Rust ORM for SQL and NoSQL (PostgreSQL, MySQL, SQLite, Redis, MongoDB). Built with Yew + WebAssembly, served by a tiny Rust server.",
+  "description": "Presentation website and documentation for Memoire ORM, the blazing-fast pure-Rust ORM for SQL and NoSQL (PostgreSQL, MySQL, SQLite, Redis, MongoDB). Built with active: pages rendered by a Rust server, WebAssembly islands, installable and offline (PWA).",
   "repository": "https://github.com/maxlestage/Memoire",
   "website": "https://github.com/maxlestage/Memoire",
-  "logo": "https://raw.githubusercontent.com/maxlestage/Memoire/master/site/assets/favicon.svg",
-  "keywords": ["rust", "orm", "database", "sql", "nosql", "yew", "webassembly", "documentation"],
+  "logo": "https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/favicon.svg",
+  "keywords": [
+    "rust",
+    "orm",
+    "database",
+    "sql",
+    "nosql",
+    "active",
+    "webassembly",
+    "pwa",
+    "documentation"
+  ],
   "stack": "container",
   "formation": {
     "web": {

@@ -46,7 +46,7 @@ Ce qui se passe en coulisses :
 
 - `app.json` décrit l'application pour Heroku : son nom et sa description, la stack **container**, un dyno `web` de taille *Basic* et le réglage `RUST_LOG`.
 - `heroku.yml` indique à Heroku de construire le processus `web` à partir du `Dockerfile` situé à la racine du dépôt.
-- Le `Dockerfile` construit le site Yew (compilé en WebAssembly avec Trunk) et le petit serveur web Rust dans une première étape, puis ne copie que le binaire du serveur et les fichiers statiques dans une image finale allégée.
+- Le `Dockerfile` construit le site, écrit en Rust avec [active](https://github.com/maxlestage/Active), dans une première étape : le paquet du navigateur (les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`), puis le serveur web, qui rend chaque page et embarque la documentation. Il ne copie ensuite que le binaire du serveur et les fichiers statiques dans une image finale allégée.
 
 > **Remarque** Le bouton déploie le dépôt tel qu'il est à ce moment-là. Pour récupérer les modifications ultérieures, utilisez la méthode 2 ou 3, ou appuyez à nouveau sur le bouton pour créer une nouvelle application.
 
@@ -112,7 +112,7 @@ Heroku construit ensuite l'image à partir de `heroku.yml` et du `Dockerfile` à
 
 ## GitHub Pages : l'option gratuite
 
-Le site est une application WebAssembly faite de fichiers statiques : GitHub Pages peut donc aussi l'héberger, gratuitement, à l'adresse `https://<votre-compte>.github.io/Memoire/` (pour ce dépôt : `https://maxlestage.github.io/Memoire/`). Ni compte Heroku, ni secret : le workflow `.github/workflows/pages.yml` le construit et le publie.
+Le serveur du site sait aussi écrire chaque page, dans chaque langue, en fichiers statiques : GitHub Pages peut donc aussi l'héberger, gratuitement, à l'adresse `https://<votre-compte>.github.io/Memoire/` (pour ce dépôt : `https://maxlestage.github.io/Memoire/`). Ni compte Heroku, ni secret : le workflow `.github/workflows/pages.yml` le construit et le publie.
 
 À activer une seule fois :
 
@@ -127,12 +127,21 @@ Ensuite, chaque push sur `master` qui modifie le site, la documentation ou l'ORM
 Ce que fait le workflow :
 
 - il s'arrête avec le message "GitHub Pages deployment skipped" tant que l'étape 2 n'est pas faite ;
-- il construit le site avec `site/build-static.sh`, qui le place sous `/Memoire/` et pré-rend chaque page dans son propre fichier HTML (`docs/models`, `playground`...) : chaque page s'affiche avant même que l'application WebAssembly soit téléchargée, les liens vers n'importe quelle page et les rechargements fonctionnent, et les adresses inconnues affichent la page « introuvable » du site ;
-- il publie le site, puis vérifie que la page d'accueil et une page de documentation répondent.
+- il construit le paquet du navigateur, puis lance `memoire-site export`, qui écrit chaque page dans son propre fichier HTML sous `/Memoire/` (`fr/docs/models/`, `en/playground/`...), avec l'index de recherche, le manifeste d'application web et le service worker : les liens vers n'importe quelle page et les rechargements fonctionnent, les anciennes adresses (`docs/models`...) mènent à la langue du visiteur, et les adresses inconnues affichent la page « introuvable » du site ;
+- il publie le site, puis vérifie que les pages d'accueil, une page de documentation, le bac à sable, le manifeste et le service worker répondent.
 
 GitHub Pages et Heroku sont indépendants : vous pouvez utiliser les deux. La seule différence : GitHub Pages ne peut pas envoyer les en-têtes de sécurité supplémentaires (comme `Content-Security-Policy`) qu'ajoute le serveur Heroku ; le site lui-même fonctionne de la même façon.
 
 > **Astuce** Pour utiliser votre propre nom de domaine, renseignez-le dans **Settings → Pages → Custom domain**, puis relancez le workflow : il construit alors le site pour la racine de ce domaine.
+
+## Installer le site sur votre téléphone
+
+Le site est une application web progressive (PWA), où qu'il soit hébergé (Heroku ou GitHub Pages) :
+
+- **Android** (Chrome) : ouvrez le site, touchez le menu **⋮**, puis **Installer l'application** (ou **Ajouter à l'écran d'accueil**).
+- **iPhone et iPad** (Safari) : ouvrez le site, touchez **Partager**, puis **Sur l'écran d'accueil**.
+
+Il s'ouvre alors en plein écran depuis son icône, comme une application. Une fois une page ouverte, le site fonctionne même sans réseau : les pages d'accueil, la première page de la documentation, le bac à sable et toutes les pages déjà lues sont gardés sur l'appareil. Le bac à sable n'a besoin d'aucun réseau : l'ORM tourne dans la page, compilé en WebAssembly. Une nouvelle version du site remplace celle enregistrée à la prochaine visite avec du réseau.
 
 ## Comment un merge déclenche un déploiement
 

@@ -1,20 +1,11 @@
-//! Documentation manifest: categories, pages and localised titles.
-//!
-//! The markdown sources are not compiled into the .wasm (they would weigh as
-//! much as the whole app): Trunk copies `docs/<lang>/<slug>.md` to
-//! `content/<lang>/<slug>.md` next to it, and each page is fetched the first
-//! time it is shown, then kept in memory.
+//! Documentation manifest: categories, pages and localised titles, shared by the server
+//! (which renders `docs/<lang>/<slug>.md`, see `server::docs`) and the browser (sidebar
+//! and search island).
 //!
 //! To add a page: create `docs/en/<slug>.md`, `docs/fr/<slug>.md`, `docs/es/<slug>.md`
-//! and add a `page!` line below.
+//! and add a `page!` line below (the server embeds every listed page at compile time).
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-
-use crate::dom;
-use crate::i18n::Lang;
-use crate::markdown;
+use crate::routes::Lang;
 
 /// One string per language, in `[en, fr, es]` order (see [`Lang::idx`]).
 pub type Tr = [&'static str; 3];
@@ -31,10 +22,7 @@ pub struct DocCategory {
 
 macro_rules! page {
     ($slug:literal, $en:literal, $fr:literal, $es:literal) => {
-        DocPage {
-            slug: $slug,
-            title: [$en, $fr, $es],
-        }
+        DocPage { slug: $slug, title: [$en, $fr, $es] }
     };
 }
 
@@ -108,9 +96,13 @@ pub static CATEGORIES: &[DocCategory] = &[
 
 /// All pages in reading order, with their category.
 pub fn all_pages() -> impl Iterator<Item = (&'static DocCategory, &'static DocPage)> {
-    CATEGORIES
-        .iter()
-        .flat_map(|c| c.pages.iter().map(move |p| (c, p)))
+    CATEGORIES.iter().flat_map(|c| c.pages.iter().map(move |p| (c, p)))
+}
+
+/// Every page slug, in reading order.
+pub fn slugs() -> &'static [&'static str] {
+    static SLUGS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    SLUGS.get_or_init(|| all_pages().map(|(_, p)| p.slug).collect())
 }
 
 pub fn page_count() -> usize {
@@ -129,14 +121,12 @@ pub fn title(slug: &str, lang: Lang) -> &'static str {
 pub fn neighbours(slug: &str) -> (Option<&'static DocPage>, Option<&'static DocPage>) {
     let pages: Vec<&'static DocPage> = all_pages().map(|(_, p)| p).collect();
     match pages.iter().position(|p| p.slug == slug) {
-        Some(i) => (
-            i.checked_sub(1).map(|j| pages[j]),
-            pages.get(i + 1).copied(),
-        ),
+        Some(i) => (i.checked_sub(1).map(|j| pages[j]), pages.get(i + 1).copied()),
         None => (None, None),
     }
 }
 
+/// The GitHub page that edits `docs/<lang>/<slug>.md`.
 pub fn edit_url(lang: Lang, slug: &str) -> String {
     format!("{REPO_URL}/edit/master/docs/{}/{slug}.md", lang.code())
 }
@@ -144,175 +134,6 @@ pub fn edit_url(lang: Lang, slug: &str) -> String {
 /// Reading time in minutes (≈ 200 words / minute, at least 1).
 pub fn reading_minutes(words: usize) -> usize {
     words.div_ceil(200).max(1)
-}
-
-// ---------------------------------------------------------------------------
-// Markdown sources, fetched on demand
-// ---------------------------------------------------------------------------
-
-type Key = (&'static str, usize);
-type Waiter = Box<dyn FnOnce(Result<(), String>)>;
-
-thread_local! {
-    static SOURCES: RefCell<HashMap<Key, Rc<str>>> = RefCell::new(HashMap::new());
-    /// Downloads in flight, with the callbacks waiting for each of them.
-    static LOADING: RefCell<HashMap<Key, Vec<Waiter>>> = RefCell::new(HashMap::new());
-}
-
-/// The markdown of a page, if it has been fetched already.
-pub fn source(slug: &str, lang: Lang) -> Option<Rc<str>> {
-    let (_, page) = find(slug)?;
-    SOURCES.with(|s| s.borrow().get(&(page.slug, lang.idx())).cloned())
-}
-
-/// Makes sure a page's markdown is available, fetching it at most once, then
-/// calls `done` (right away when it is cached, with an error message if the
-/// download failed).
-pub fn load(slug: &str, lang: Lang, done: impl FnOnce(Result<(), String>) + 'static) {
-    let Some((_, page)) = find(slug) else {
-        return done(Err(format!("unknown page `{slug}`")));
-    };
-    let key = (page.slug, lang.idx());
-    if SOURCES.with(|s| s.borrow().contains_key(&key)) {
-        return done(Ok(()));
-    }
-    let first = LOADING.with(|l| {
-        let mut l = l.borrow_mut();
-        let waiters = l.entry(key).or_default();
-        waiters.push(Box::new(done));
-        waiters.len() == 1
-    });
-    if !first {
-        return;
-    }
-    let url = format!("{}/content/{}/{}.md", dom::base_path(), lang.code(), page.slug);
-    yew::platform::spawn_local(async move {
-        let result = dom::fetch_text(&url).await.map(|text| {
-            SOURCES.with(|s| s.borrow_mut().insert(key, Rc::from(text)));
-        });
-        for waiter in LOADING.with(|l| l.borrow_mut().remove(&key)).unwrap_or_default() {
-            waiter(result.clone());
-        }
-    });
-}
-
-/// How many pages of a language have been fetched (search needs them all).
-pub fn loaded_count(lang: Lang) -> usize {
-    SOURCES.with(|s| s.borrow().keys().filter(|(_, l)| *l == lang.idx()).count())
-}
-
-/// At start-up on a prerendered docs page: takes the markdown embedded in the
-/// HTML (`<script type="text/markdown" class="doc-source">`).
-#[cfg(target_arch = "wasm32")]
-pub fn adopt_embedded_sources() {
-    use wasm_bindgen::JsCast;
-    let Ok(nodes) = dom::document().query_selector_all("script.doc-source") else {
-        return;
-    };
-    for i in 0..nodes.length() {
-        let Some(Ok(el)) = nodes.item(i).map(|n| n.dyn_into::<web_sys::Element>()) else {
-            continue;
-        };
-        let attr = |name| el.get_attribute(name).unwrap_or_default();
-        if let (Some((_, page)), Some(lang)) = (find(&attr("data-slug")), Lang::from_code(&attr("data-lang"))) {
-            let text = el.text_content().unwrap_or_default().replace("<\\/script", "</script");
-            insert_source(page.slug, lang, &text);
-        }
-        el.remove();
-    }
-}
-
-/// Provides a page's markdown directly (read from disk by the prerenderer,
-/// from the page itself by [`adopt_embedded_sources`]).
-pub fn insert_source(slug: &'static str, lang: Lang, text: &str) {
-    SOURCES.with(|s| s.borrow_mut().insert((slug, lang.idx()), Rc::from(text)));
-}
-
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq)]
-pub struct SearchHit {
-    pub slug: &'static str,
-    pub title: &'static str,
-    pub category: &'static str,
-    pub title_match: bool,
-    /// (before, matched, after) excerpt around the first content match.
-    pub snippet: Option<(String, String, String)>,
-}
-
-/// (plain text, lowercased plain text), keyed by (slug, language index).
-type PlainCache = HashMap<(&'static str, usize), Rc<(String, String)>>;
-
-thread_local! {
-    static PLAIN: RefCell<PlainCache> = RefCell::new(HashMap::new());
-}
-
-/// (plain text, lowercased plain text) for a page, cached; `None` until the
-/// page has been fetched.
-fn plain(page: &'static DocPage, lang: Lang) -> Option<Rc<(String, String)>> {
-    let key = (page.slug, lang.idx());
-    if let Some(hit) = PLAIN.with(|cache| cache.borrow().get(&key).cloned()) {
-        return Some(hit);
-    }
-    let text = markdown::plain_text(&source(page.slug, lang)?);
-    let lower = text.to_lowercase();
-    let entry = Rc::new((text, lower));
-    PLAIN.with(|cache| cache.borrow_mut().insert(key, entry.clone()));
-    Some(entry)
-}
-
-/// Case-insensitive search over titles and contents in the given language.
-/// Title matches come first. Contents are searched once they are fetched.
-pub fn search(query: &str, lang: Lang) -> Vec<SearchHit> {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return Vec::new();
-    }
-    let li = lang.idx();
-    let mut hits: Vec<SearchHit> = Vec::new();
-    for (cat, page) in all_pages() {
-        let title = page.title[li];
-        let title_match = title.to_lowercase().contains(&q);
-        let snippet = plain(page, lang).and_then(|doc| {
-            let (text, lower) = (&doc.0, &doc.1);
-            lower.find(&q).and_then(|pos| excerpt(text, lower, pos, q.len()))
-        });
-        if title_match || snippet.is_some() {
-            hits.push(SearchHit {
-                slug: page.slug,
-                title,
-                category: cat.title[li],
-                title_match,
-                snippet,
-            });
-        }
-    }
-    hits.sort_by_key(|h| !h.title_match);
-    hits
-}
-
-/// Cut a short excerpt around a match. Positions come from the lowercased text,
-/// which can differ in byte length from the original for a few characters, so
-/// fall back gracefully when boundaries don't line up.
-fn excerpt(text: &str, lower: &str, pos: usize, len: usize) -> Option<(String, String, String)> {
-    let source = if text.len() == lower.len() { text } else { lower };
-    let end = pos + len;
-    if !source.is_char_boundary(pos) || !source.is_char_boundary(end.min(source.len())) {
-        return None;
-    }
-    let mut start = pos.saturating_sub(48);
-    while !source.is_char_boundary(start) {
-        start -= 1;
-    }
-    let mut stop = (end + 72).min(source.len());
-    while !source.is_char_boundary(stop) {
-        stop += 1;
-    }
-    let before = format!("{}{}", if start > 0 { "…" } else { "" }, &source[start..pos]);
-    let after = format!("{}{}", &source[end..stop], if stop < source.len() { "…" } else { "" });
-    Some((before, source[pos..end].to_string(), after))
 }
 
 #[cfg(test)]
@@ -338,24 +159,5 @@ mod tests {
                 assert!(path.is_file(), "missing {}", path.display());
             }
         }
-    }
-
-    #[test]
-    fn search_finds_titles() {
-        let hits = search("heroku", Lang::En);
-        assert!(hits.iter().any(|h| h.slug == "deploy-heroku-mobile"));
-    }
-
-    #[test]
-    fn search_finds_fetched_contents() {
-        assert!(search("zebra", Lang::Fr).is_empty());
-        insert_source("faq", Lang::Fr, "# FAQ\n\nUn zèbre et un zebra.");
-        assert_eq!(loaded_count(Lang::Fr), 1);
-        let hits = search("zebra", Lang::Fr);
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].slug, "faq");
-        assert!(!hits[0].title_match);
-        assert_eq!(hits[0].snippet.as_ref().map(|s| s.1.as_str()), Some("zebra"));
-        assert!(source("faq", Lang::Fr).is_some() && source("faq", Lang::En).is_none());
     }
 }
