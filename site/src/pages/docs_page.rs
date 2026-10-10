@@ -22,11 +22,12 @@ pub struct DocsPageProps {
     pub slug: AttrValue,
 }
 
+/// The rendered page, once its markdown has been fetched.
 fn render_page(slug: &str, lang: Lang) -> Option<Rendered> {
     let t = lang.t();
-    docs::find(slug).map(|(_, page)| {
+    docs::source(slug, lang).map(|source| {
         markdown::render(
-            page.content[lang.idx()],
+            &source,
             &Labels {
                 copy: t.copy,
                 note: t.callout_note,
@@ -66,16 +67,55 @@ pub fn DocsPage(props: &DocsPageProps) -> Html {
     let copy_timer = use_mut_ref(|| None::<Timeout>);
     let hash_timer = use_mut_ref(|| None::<Timeout>);
 
-    let rendered = use_memo((slug.clone(), lang), |(slug, lang)| render_page(slug, *lang));
-    let results = use_memo(((*query).clone(), lang), |(q, lang)| docs::search(q, *lang));
+    let refresh = use_force_update();
+    let load_error = use_state_eq(|| None::<String>);
+    let has_source = docs::source(&slug, lang).is_some();
+    let loaded_pages = docs::loaded_count(lang);
+    let rendered = use_memo((slug.clone(), lang, has_source), |(slug, lang, _)| render_page(slug, *lang));
+    let results = use_memo(((*query).clone(), lang, loaded_pages), |(q, lang, _)| docs::search(q, *lang));
     let found = docs::find(&slug);
 
-    // Close the drawer when the page changes; jump to #hash if present.
+    // Fetch the page (once), then the previous and next ones in the background.
     {
-        let (drawer, hash_timer) = (drawer.clone(), hash_timer.clone());
-        use_effect_with(slug.clone(), move |_| {
-            drawer.set(false);
-            if let Some(id) = current_hash() {
+        let (refresh, load_error) = (refresh.clone(), load_error.clone());
+        use_effect_with((slug.clone(), lang), move |(slug, lang)| {
+            load_error.set(None);
+            let (slug, lang) = (slug.clone(), *lang);
+            docs::load(&slug.clone(), lang, move |result| match result {
+                Ok(()) => {
+                    refresh.force_update();
+                    let (prev, next) = docs::neighbours(&slug);
+                    for page in prev.into_iter().chain(next) {
+                        docs::load(page.slug, lang, |_| {});
+                    }
+                }
+                Err(e) => load_error.set(Some(e)),
+            });
+        });
+    }
+
+    // Searching needs every page of the language: fetch them on the first keystroke.
+    {
+        let refresh = refresh.clone();
+        use_effect_with((!query.trim().is_empty(), lang), move |&(searching, lang)| {
+            if searching {
+                for (_, page) in docs::all_pages() {
+                    let refresh = refresh.clone();
+                    docs::load(page.slug, lang, move |_| refresh.force_update());
+                }
+            }
+        });
+    }
+
+    // Close the drawer when the page changes; jump to #hash once it is shown.
+    {
+        let drawer = drawer.clone();
+        use_effect_with(slug.clone(), move |_| drawer.set(false));
+    }
+    {
+        let hash_timer = hash_timer.clone();
+        use_effect_with((slug.clone(), has_source), move |&(_, shown)| {
+            if let (true, Some(id)) = (shown, current_hash()) {
                 *hash_timer.borrow_mut() = Some(Timeout::new(80, move || {
                     dom::scroll_to_id(&id);
                 }));
@@ -224,7 +264,9 @@ pub fn DocsPage(props: &DocsPageProps) -> Html {
 
     // ---- Sidebar -------------------------------------------------------
     let sidebar_body = if !query.trim().is_empty() {
-        if results.is_empty() {
+        if results.is_empty() && loaded_pages < docs::page_count() {
+            html! { <p class="search-empty">{ "…" }</p> }
+        } else if results.is_empty() {
             html! { <p class="search-empty">{ format!("{} “{}”", t.docs_no_results, query.trim()) }</p> }
         } else {
             html! {
@@ -319,6 +361,25 @@ pub fn DocsPage(props: &DocsPageProps) -> Html {
                 </article>
             }
         }
+        // Known page, markdown still on its way (or failed to download).
+        (Some((cat, page)), None) => html! {
+            <article class="docs-article" key={format!("{slug}-{}-loading", lang.code())} aria-busy="true">
+                <nav class="breadcrumb" aria-label="Breadcrumb">
+                    <Link<Route> to={Route::DocsIndex}>{ t.nav_docs }</Link<Route>>
+                    <span class="sep">{ Icon::ChevronRight.html() }</span>
+                    <span>{ cat.title[li] }</span>
+                </nav>
+                <div class="markdown-body">
+                    <h1>{ page.title[li] }</h1>
+                    if let Some(e) = &*load_error {
+                        <p>{ t.docs_not_found_text }</p>
+                        <p><code>{ e.clone() }</code></p>
+                    } else {
+                        <div class="doc-loading" aria-hidden="true"><span></span><span></span><span></span></div>
+                    }
+                </div>
+            </article>
+        },
         _ => html! {
             <article class="docs-article" key="not-found">
                 <div class="markdown-body">

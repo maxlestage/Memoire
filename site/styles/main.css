@@ -2858,6 +2858,22 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-muted);
 }
 
+/* Placeholder lines while a documentation page downloads. */
+.doc-loading {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.5rem;
+}
+.doc-loading span {
+  height: 0.9rem;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%);
+  background-size: 300% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.doc-loading span:nth-child(2) { width: 92%; }
+.doc-loading span:nth-child(3) { width: 64%; }
+
 .doc-meta {
   display: flex;
   flex-wrap: wrap;

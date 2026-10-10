@@ -34,6 +34,21 @@ pub fn storage_get(key: &str) -> Option<String> {
         .and_then(|s| s.get_item(key).ok().flatten())
 }
 
+/// Downloads a text file (same origin), e.g. a documentation page.
+pub async fn fetch_text(url: &str) -> Result<String, String> {
+    let fail = |e: JsValue| e.as_string().unwrap_or_else(|| format!("{e:?}"));
+    let response: web_sys::Response = wasm_bindgen_futures::JsFuture::from(window().fetch_with_str(url))
+        .await
+        .map_err(fail)?
+        .dyn_into()
+        .map_err(fail)?;
+    if !response.ok() {
+        return Err(format!("HTTP {} for {url}", response.status()));
+    }
+    let text = wasm_bindgen_futures::JsFuture::from(response.text().map_err(fail)?).await.map_err(fail)?;
+    Ok(text.as_string().unwrap_or_default())
+}
+
 pub fn storage_set(key: &str, value: &str) {
     if let Ok(Some(storage)) = window().local_storage() {
         let _ = storage.set_item(key, value);
