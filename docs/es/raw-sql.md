@@ -1,10 +1,10 @@
 # SQL sin procesar
 
-El constructor de consultas cubre las necesidades del día a día, pero a veces quieres escribir el SQL tú mismo: una funcionalidad específica de una base de datos, un informe complejo, un auto-join, un comando de mantenimiento. Esta página muestra cómo ejecutar SQL sin procesar de forma segura con SQLite y PostgreSQL y cómo decodificar sus resultados.
+El constructor de consultas cubre las necesidades del día a día, pero a veces quieres escribir el SQL tú mismo: una funcionalidad específica de una base de datos, un informe complejo, un auto-join, un comando de mantenimiento. Esta página muestra cómo ejecutar SQL sin procesar de forma segura con SQLite, PostgreSQL y MySQL/MariaDB, y cómo decodificar sus resultados.
 
 ## Dos métodos
 
-Cada backend SQL (y cada transacción) tiene dos métodos, proporcionados por el trait `Executor`:
+Cada backend SQL (`SqliteDb`, `PgPool`, `MySqlPool`) y sus transacciones tienen dos métodos, proporcionados por el trait `Executor`:
 
 | Método | Para | Devuelve |
 |---|---|---|
@@ -170,13 +170,40 @@ Conviene conocer algunas reglas sobre los tipos:
 - Cuando PostgreSQL no puede deducir el tipo de un parámetro, añade un cast: `SELECT $1::text`.
 - Un tipo que Memoire no conoce (por ejemplo, `INTERVAL`) produce un error: conviértelo a texto en SQL (`duration::text`).
 
-## No disponible en el motor en memoria
+## Notas sobre MySQL y MariaDB
 
-`MemoryDb` no entiende SQL: `raw` y `raw_execute` devuelven `Error::Unsupported`. El código que también deba ejecutarse en el motor en memoria (pruebas, WebAssembly) debería limitarse al constructor de consultas.
+MySQL usa marcadores `?`, igual que SQLite:
+
+```rust
+async fn mysql_example(db: &MySqlPool) -> memoire_orm::Result<()> {
+    let rows: Vec<(String, i64)> = db
+        .raw("SELECT name, salary FROM employees WHERE salary > ? ORDER BY name", &params![50_000])
+        .await?;
+    let total: Vec<i64> = db.raw("SELECT SUM(salary) FROM employees", &[]).await?;
+    println!("{rows:?} {total:?}");
+    Ok(())
+}
+```
+
+- Los valores `DECIMAL` (incluido el `SUM` de una columna entera) se decodifican como texto exacto: léelos como `String`, como `f64`, o como `i64` cuando contienen números enteros.
+- `raw` y `raw_execute` ejecutan una sentencia cada vez; los scripts de migración (`Migration::sql`) pueden contener varias.
+- Las columnas `BOOLEAN` son `TINYINT(1)`: se leen como `bool` o como entero.
+
+## No disponible en el motor en memoria, Redis ni MongoDB
+
+`MemoryDb`, `RedisDb` y `MongoDb` no entienden SQL: `raw` y `raw_execute` devuelven `Error::Unsupported`. El código que también deba ejecutarse en estos backends (por ejemplo, las pruebas sobre `MemoryDb`) debería limitarse al constructor de consultas. Para los comandos nativos de Redis o los pipelines de agregación de MongoDB, usa sus vías de escape, descritas a continuación.
 
 ## Vías de escape
 
-Cuando necesitas una funcionalidad del propio driver subyacente, ambos backends SQL te permiten acceder a él.
+Cuando necesitas una funcionalidad del propio driver subyacente, todos los backends te permiten acceder a él:
+
+| Backend | Vía de escape | Te da |
+|---|---|---|
+| `SqliteDb` | `db.with_connection(\|conn\| ...)` | La `rusqlite::Connection` |
+| `PgPool` | `db.pool()` | El `deadpool_postgres::Pool` |
+| `MySqlPool` | `db.pool()` | El `mysql_async::Pool` (consulta [MySQL y MariaDB](mysql)) |
+| `RedisDb` | `db.connection()` | Un `redis::aio::ConnectionManager` (consulta [Redis](redis)) |
+| `MongoDb` | `db.database()` | La `mongodb::Database` (consulta [MongoDB](mongodb)) |
 
 ### La conexión SQLite
 
@@ -215,5 +242,5 @@ async fn pool_tools(db: &PgPool) -> memoire_orm::Result<()> {
 ## Próximos pasos
 
 - [Constructor de consultas](queries): la mayoría de las consultas no necesitan SQL sin procesar.
-- [SQLite](sqlite) y [PostgreSQL](postgres): detalles de cada backend y correspondencia de tipos.
+- [SQLite](sqlite), [PostgreSQL](postgres) y [MySQL y MariaDB](mysql): detalles de cada backend y correspondencia de tipos.
 - [Migraciones](migrations): ejecuta scripts SQL como cambios de esquema versionados.

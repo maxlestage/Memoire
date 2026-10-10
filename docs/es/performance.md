@@ -26,12 +26,13 @@ Cada sentencia se prepara una vez por conexión y se reutiliza:
 |---|---|
 | SQLite | Hasta 256 sentencias por conexión |
 | PostgreSQL | Todas las sentencias por conexión, con un reinicio tras 1024 sentencias distintas |
+| MySQL / MariaDB | Hasta 256 sentencias por conexión |
 
 Como el constructor produce el mismo texto SQL para las consultas con la misma forma (los valores siempre son parámetros), una consulta dentro de un bucle solo se analiza y planifica una vez.
 
 ### Inserciones masivas en pocas sentencias
 
-`insert_many` convierte un slice de filas en sentencias `INSERT ... VALUES (...), (...), ...` de varias filas. Cada sentencia lleva tantas filas como permite la base de datos: el número de parámetros enlazados se mantiene por debajo del límite (32 766 en SQLite, 65 535 en PostgreSQL), con un máximo de 10 000 filas por sentencia. Insertar 1000 filas en una transacción de esta forma es unas 4 veces más rápido que un bucle de inserciones de una sola fila con código `rusqlite` escrito a mano (consulta [Benchmarks](benchmarks)).
+`insert_many` convierte un slice de filas en sentencias `INSERT ... VALUES (...), (...), ...` de varias filas. Cada sentencia lleva tantas filas como permite la base de datos: el número de parámetros enlazados se mantiene por debajo del límite (32 766 en SQLite, 65 535 en PostgreSQL y MySQL), con un máximo de 10 000 filas por sentencia. En Redis, un lote es un único script atómico, y en MongoDB, una sola llamada a `insertMany`. Insertar 1000 filas en una transacción de esta forma es unas 4 veces más rápido que un bucle de inserciones de una sola fila con código `rusqlite` escrito a mano (consulta [Benchmarks](benchmarks)).
 
 ### Un motor en memoria hecho a medida
 
@@ -42,6 +43,14 @@ Como el constructor produce el mismo texto SQL para las consultas con la misma f
 - Los joins por igualdad de columnas se ejecutan como hash joins.
 - `order_by` + `limit` selecciona las primeras filas sin ordenarlo todo.
 - Las transacciones usan instantáneas con copia en escritura: iniciar una es barato, y una tabla solo se copia cuando la transacción escribe en ella por primera vez.
+
+### Redis: primero las búsquedas por clave
+
+`RedisDb` solo lee las filas que necesita cuando buscas por clave primaria (`find`, o un filtro con `eq`/`is_in` sobre la clave) y cuenta con `HLEN`. Cada escritura, incluso un lote de miles de filas, se aplica con un único script Lua atómico. Las demás consultas leen la tabla completa y se ejecutan en el motor en memoria. Consulta [Redis](redis).
+
+### MongoDB: el servidor se encarga del filtrado
+
+`MongoDb` traduce los filtros, la ordenación, `limit` y `offset` en un único `find` nativo, cuenta con `countDocuments` y ejecuta `update_many`/`delete_many` como comandos únicos en el servidor. Los joins solo recuperan los documentos cuyas claves coinciden. Consulta [MongoDB](mongodb).
 
 ### Ligero por construcción
 
@@ -104,7 +113,7 @@ let emails: Vec<String> = User::query().columns(User::EMAIL).filter(User::ACTIVE
 
 ### Indexa las columnas por las que buscas
 
-Añade `#[memoire(index)]` a las columnas por las que filtras, haces joins u ordenas a menudo, en particular las claves foráneas. Las columnas `unique` se indexan automáticamente. En el motor en memoria, las búsquedas por la clave primaria y por las columnas `unique` usan índices hash.
+Añade `#[memoire(index)]` a las columnas por las que filtras, haces joins u ordenas a menudo, en particular las claves foráneas. Las columnas `unique` se indexan automáticamente. MongoDB crea los mismos índices en sus colecciones. El motor en memoria mantiene índices hash sobre la clave primaria y las columnas `unique`, y Redis busca las filas directamente por clave primaria; `index` no tiene ningún efecto en ninguno de los dos.
 
 ### Evita las consultas N+1
 
@@ -129,7 +138,7 @@ Esto sigue siendo rápido en cualquier página. Reserva `paginate` (que además 
 
 ### Reutiliza el manejador de la base de datos
 
-Abre la base de datos (o el pool de PostgreSQL) una sola vez al arrancar y compártela: clonar `MemoryDb`, `SqliteDb` y `PgPool` es barato (backends MySQL/MariaDB, Redis y MongoDB: consulta sus páginas, [MySQL y MariaDB](mysql), [Redis](redis) y [MongoDB](mongodb)). Abrir un pool nuevo en cada petición desperdicia las conexiones y las cachés de sentencias. Dimensiona el pool de PostgreSQL según lo que permita tu servidor (consulta [PostgreSQL](postgres)).
+Abre la base de datos una sola vez al arrancar y compártela: clonar cualquier manejador (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`) es barato, y los clones comparten las mismas conexiones. Abrir un pool nuevo en cada petición desperdicia las conexiones y las cachés de sentencias. Dimensiona el pool de PostgreSQL según lo que permita tu servidor (consulta [PostgreSQL](postgres)).
 
 ### Mide en modo release
 
