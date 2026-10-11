@@ -405,7 +405,7 @@ static EN: Texts = Texts {
     footer_crafted: "Crafted in Rust, in France",
     footer_rights: "© 2026 Maxime Nathan Lestage. All rights reserved.",
     footer_proprietary: "Proprietary software",
-    footer_built: "Built with Rust 🦀 + active + WebAssembly",
+    footer_built: "Built with Rust 🦀 + Active + WebAssembly",
     back_to_top: "Back to top",
 
     pg_title: "Playground",
@@ -677,7 +677,7 @@ static FR: Texts = Texts {
     footer_crafted: "Fabriqué en Rust, en France",
     footer_rights: "© 2026 Maxime Nathan Lestage. Tous droits réservés.",
     footer_proprietary: "Logiciel propriétaire",
-    footer_built: "Construit avec Rust 🦀 + active + WebAssembly",
+    footer_built: "Construit avec Rust 🦀 + Active + WebAssembly",
     back_to_top: "Retour en haut",
 
     pg_title: "Playground",
@@ -941,7 +941,7 @@ static ES: Texts = Texts {
     footer_crafted: "Hecho en Rust, en Francia",
     footer_rights: "© 2026 Maxime Nathan Lestage. Todos los derechos reservados.",
     footer_proprietary: "Software propietario",
-    footer_built: "Hecho con Rust 🦀 + active + WebAssembly",
+    footer_built: "Hecho con Rust 🦀 + Active + WebAssembly",
     back_to_top: "Volver arriba",
 
     pg_title: "Playground",

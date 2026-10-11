@@ -140,7 +140,7 @@ Dockerfile, heroku.yml, app.json   despliegue en Heroku con un clic
 
 ## El sitio web
 
-El sitio de presentación está escrito en Rust con [active](https://maxlestage.github.io/Active/):
+El sitio de presentación está escrito en Rust con [Active](https://maxlestage.github.io/Active/):
 un pequeño servidor Rust renderiza cada página (etiquetas SEO completas, en inglés, francés y
 español), y solo las partes interactivas (el playground, las pestañas de código, la búsqueda en
 la documentación) se activan en el navegador como WebAssembly. El playground ejecuta el motor en

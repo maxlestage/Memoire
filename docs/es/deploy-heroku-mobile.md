@@ -46,7 +46,7 @@ Lo que ocurre entre bastidores:
 
 - `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **container**, un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
 - `heroku.yml` le indica a Heroku que construya el proceso `web` a partir del `Dockerfile` de la raíz del repositorio.
-- El `Dockerfile` compila el sitio web, escrito en Rust con [active](https://maxlestage.github.io/Active/), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
+- El `Dockerfile` compila el sitio web, escrito en Rust con [Active](https://maxlestage.github.io/Active/), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
 
 > **Nota** El botón despliega el repositorio tal como está en ese momento. Para obtener los cambios posteriores, usa el método 2 o el 3, o vuelve a tocar el botón para crear una aplicación nueva.
 

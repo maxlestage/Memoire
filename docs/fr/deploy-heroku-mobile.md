@@ -46,7 +46,7 @@ Ce qui se passe en coulisses :
 
 - `app.json` décrit l'application pour Heroku : son nom et sa description, la stack **container**, un dyno `web` de taille *Basic* et le réglage `RUST_LOG`.
 - `heroku.yml` indique à Heroku de construire le processus `web` à partir du `Dockerfile` situé à la racine du dépôt.
-- Le `Dockerfile` construit le site, écrit en Rust avec [active](https://maxlestage.github.io/Active/), dans une première étape : le paquet du navigateur (les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`), puis le serveur web, qui rend chaque page et embarque la documentation. Il ne copie ensuite que le binaire du serveur et les fichiers statiques dans une image finale allégée.
+- Le `Dockerfile` construit le site, écrit en Rust avec [Active](https://maxlestage.github.io/Active/), dans une première étape : le paquet du navigateur (les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`), puis le serveur web, qui rend chaque page et embarque la documentation. Il ne copie ensuite que le binaire du serveur et les fichiers statiques dans une image finale allégée.
 
 > **Remarque** Le bouton déploie le dépôt tel qu'il est à ce moment-là. Pour récupérer les modifications ultérieures, utilisez la méthode 2 ou 3, ou appuyez à nouveau sur le bouton pour créer une nouvelle application.
 

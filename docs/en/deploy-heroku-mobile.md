@@ -46,7 +46,7 @@ What happens behind the scenes:
 
 - `app.json` describes the app for Heroku: its name and description, the **container** stack, one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
 - `heroku.yml` tells Heroku to build the `web` process from the `Dockerfile` at the root of the repository.
-- The `Dockerfile` builds the website, written in Rust with [active](https://maxlestage.github.io/Active/), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
+- The `Dockerfile` builds the website, written in Rust with [Active](https://maxlestage.github.io/Active/), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
 
 > **Note** The button deploys the repository as it is at that moment. To get later changes, use method 2 or 3, or tap the button again to create a fresh app.
 
