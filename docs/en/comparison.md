@@ -1,6 +1,6 @@
-# Memoire, Diesel and SeaORM
+# Memoire, Diesel, SeaORM and Nitrite
 
-Diesel and SeaORM are the two most used ORMs in Rust. This page compares them with Memoire feature by feature, so you can pick the right tool, or move code from one to the other. It tries to be fair: each library is ahead somewhere.
+Diesel and SeaORM are the two most used ORMs in Rust, and Nitrite a popular embedded NoSQL database. This page compares them with Memoire feature by feature, so you can pick the right tool, or move code from one to the other. It tries to be fair: each library is ahead somewhere.
 
 ## In one sentence each
 
@@ -18,11 +18,14 @@ Diesel and SeaORM are the two most used ORMs in Rust. This page compares them wi
 | SQL for primary-key CRUD | generated from the query types, prepared statements cached | built at run time | **rendered at compile time** for each dialect |
 | PostgreSQL / MySQL / SQLite | yes | yes | yes |
 | Redis, MongoDB | no | no | yes, same API |
-| In-memory engine, WebAssembly | no | mock connection for tests | yes, a real engine with indexes and transactions |
+| In-memory engine, WebAssembly | no | mock connection for tests | yes, a real engine with indexes and transactions, optionally stored in an (encrypted) file |
 | Joins | yes, typed | yes | yes, decoded into tuples |
 | Relations without N+1 | `belonging_to` + `grouped_by` | `find_with_related`, `load_one`, `load_many`, `load_many_to_many` | `belonging_to`, `load_children`, `load_parent`, `load_via` |
 | Relation declaration | `#[diesel(belongs_to)]` + `joinable!` | `Relation` enum + `Related` impls | none: read from `references = "table(col)"` |
 | Partial update | `AsChangeset` struct | `ActiveModel` with `Set(...)` | `update_only(&db, (User::NAME, User::AGE))` |
+| Indexes over several columns | in migrations | in migrations | `#[memoire(unique(a, b), index(c, d))]`, enforced on every backend |
+| Full-text search | PostgreSQL, with the `diesel_full_text_search` crate | custom expressions | `Column::matches`, the same rule on all six backends |
+| Change notifications | no | `ActiveModelBehavior` hooks per entity | `Observed::subscribe`: every write, announced at commit |
 | Bulk update / delete with filters | yes | yes | yes, with `increment`, `set_null`... |
 | Multi-row insert | yes, returns rows on PG/SQLite | yes | yes, batched under each database's parameter limit |
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (by primary key) |
@@ -59,10 +62,42 @@ Diesel and SeaORM are the two most used ORMs in Rust. This page compares them wi
 | `posts.load_many_to_many(tag::Entity, post_tag::Entity, &db)` | `posts.load_via::<PostTag, Tag>(&db).await?` |
 | `user::Entity::find().paginate(&db, 20).fetch_page(1)` | `User::query().paginate(&db, 2, 20).await?` (pages start at 1) |
 
+## Memoire and Nitrite (NoSQL)
+
+Nitrite is an embedded document database, for Java, Kotlin, Flutter and Rust (the `nitrite` crate reached 1.0). It is not an ORM in front of other databases but a database inside your program, like Memoire's in-memory engine: that is the comparison that makes sense.
+
+| | Nitrite (Rust) | Memoire |
+|---|---|---|
+| Data | Documents without a schema (`doc!{...}`), nested, arrays | Typed structs; nested data in `Json<T>` columns |
+| API | Synchronous | Asynchronous |
+| Filters | `field("age").gt(18)`: any value, checked at run time | `User::AGE.gt(18)`: checked at compile time |
+| Stored in a file | Yes (Fjall adapter crate) | Yes: `MemoryDb::open(path)` |
+| Encryption | AES-GCM | AES-256-GCM with an Argon2id key (`encryption` feature) |
+| Indexes | Unique, non-unique, compound, full-text; spatial in a separate crate | Unique, non-unique, over several columns, full-text |
+| Change events | `collection.subscribe(...)` | `Observed::subscribe`, on every backend |
+| Transactions | Yes | Yes (snapshots, conflicts detected) |
+| Joins, aggregates, `GROUP BY` | `join` and `project` on a cursor, no aggregates | Yes |
+| The same code on servers | No | PostgreSQL, MySQL, SQLite, Redis, MongoDB |
+| WebAssembly | Not documented | Yes |
+| License | Apache-2.0 | Proprietary, free to use |
+
+Measured on the same machine with 10,000 documents, the same indexes and identical results (Nitrite 1.0.1 with its in-memory store, against `MemoryDb`; a timing loop, not criterion):
+
+| Operation | Nitrite | Memoire |
+|---|---:|---:|
+| Insert 10,000 documents | 189 ms | **2.96 ms** |
+| Find by a unique email | 11.2 µs | **0.41 µs** |
+| Filter on an indexed field (10 rows) | 30.7 µs | **1.70 µs** |
+| Range + filter + sort + `LIMIT 20` (no index) | 10.2 ms | **27 µs** |
+| Count with a filter (no index) | 9.0 ms | **7.7 µs** |
+
+The last two rows filter fields without an index: Nitrite then reads dynamic documents one by one, while Memoire scans typed, contiguous columns. An index on those fields would narrow the gap on Nitrite's side.
+
 ## Which one to choose
 
 - **Diesel** when you want the strongest compile-time guarantees against the real schema and the most mature SQL coverage (subqueries, composite keys, custom SQL types), and synchronous code suits you.
 - **SeaORM** when you want async with a large ecosystem around it (code generation from an existing database, GraphQL, admin tools) and its entity style suits you.
+- **Nitrite** when your data has no fixed shape (nested documents, arrays, fields that vary from one document to the next), when you need spatial queries, or an open-source license.
 - **Memoire** when you want async with the least boilerplate (your own struct, one derive), the same code on SQL, NoSQL and in the browser, tests that run on the in-memory engine without a database server, and normalised errors.
 
 ## Next steps

@@ -1,6 +1,6 @@
-# Memoire, Diesel y SeaORM
+# Memoire, Diesel, SeaORM y Nitrite
 
-Diesel y SeaORM son los dos ORM más usados en Rust. Esta página los compara con Memoire función por función, para elegir la herramienta adecuada o pasar de uno a otro. Intenta ser justa: cada biblioteca va por delante en algo.
+Diesel y SeaORM son los dos ORM más usados en Rust, y Nitrite una base NoSQL embebida muy extendida. Esta página los compara con Memoire función por función, para elegir la herramienta adecuada o pasar de uno a otro. Intenta ser justa: cada biblioteca va por delante en algo.
 
 ## En una frase cada uno
 
@@ -18,11 +18,14 @@ Diesel y SeaORM son los dos ORM más usados en Rust. Esta página los compara co
 | SQL del CRUD por clave primaria | generado a partir de los tipos de consulta, sentencias preparadas en caché | construido en ejecución | **generado en compilación** para cada dialecto |
 | PostgreSQL / MySQL / SQLite | sí | sí | sí |
 | Redis, MongoDB | no | no | sí, misma API |
-| Motor en memoria, WebAssembly | no | conexión simulada para pruebas | sí, un motor real con índices y transacciones |
+| Motor en memoria, WebAssembly | no | conexión simulada para pruebas | sí, un motor real con índices y transacciones, que puede guardarse en un archivo (cifrado) |
 | Joins | sí, tipados | sí | sí, decodificados en tuplas |
 | Relaciones sin N+1 | `belonging_to` + `grouped_by` | `find_with_related`, `load_one`, `load_many`, `load_many_to_many` | `belonging_to`, `load_children`, `load_parent`, `load_via` |
 | Declaración de relaciones | `#[diesel(belongs_to)]` + `joinable!` | enum `Relation` + impls `Related` | ninguna: se lee de `references = "table(col)"` |
 | Actualización parcial | struct `AsChangeset` | `ActiveModel` con `Set(...)` | `update_only(&db, (User::NAME, User::AGE))` |
+| Índices sobre varias columnas | en las migraciones | en las migraciones | `#[memoire(unique(a, b), index(c, d))]`, aplicados en todas las bases |
+| Búsqueda de texto completo | PostgreSQL, con el crate `diesel_full_text_search` | expresiones personalizadas | `Column::matches`, la misma regla en las seis bases |
+| Notificaciones de cambios | no | hooks `ActiveModelBehavior` por entidad | `Observed::subscribe`: cada escritura, anunciada al confirmar |
 | Actualización / borrado masivo con filtros | sí | sí | sí, con `increment`, `set_null`... |
 | Inserción múltiple | sí, devuelve las filas en PG/SQLite | sí | sí, por lotes bajo el límite de parámetros de cada base |
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (por clave primaria) |
@@ -59,10 +62,42 @@ Diesel y SeaORM son los dos ORM más usados en Rust. Esta página los compara co
 | `posts.load_many_to_many(tag::Entity, post_tag::Entity, &db)` | `posts.load_via::<PostTag, Tag>(&db).await?` |
 | `user::Entity::find().paginate(&db, 20).fetch_page(1)` | `User::query().paginate(&db, 2, 20).await?` (las páginas empiezan en 1) |
 
+## Memoire y Nitrite (NoSQL)
+
+Nitrite es una base de documentos embebida, para Java, Kotlin, Flutter y Rust (el crate `nitrite` llegó a la 1.0). No es un ORM delante de otras bases sino una base dentro de tu programa, como el motor en memoria de Memoire: esa es la comparación que tiene sentido.
+
+| | Nitrite (Rust) | Memoire |
+|---|---|---|
+| Datos | Documentos sin esquema (`doc!{...}`), anidados, arrays | Structs tipados; datos anidados en columnas `Json<T>` |
+| API | Síncrona | Asíncrona |
+| Filtros | `field("age").gt(18)`: cualquier valor, comprobado en ejecución | `User::AGE.gt(18)`: comprobado en compilación |
+| Guardado en un archivo | Sí (crate adaptador Fjall) | Sí: `MemoryDb::open(path)` |
+| Cifrado | AES-GCM | AES-256-GCM con una clave Argon2id (feature `encryption`) |
+| Índices | Único, no único, compuesto, texto completo; espacial en un crate aparte | Único, no único, sobre varias columnas, texto completo |
+| Eventos de cambio | `collection.subscribe(...)` | `Observed::subscribe`, en todas las bases |
+| Transacciones | Sí | Sí (instantáneas, conflictos detectados) |
+| Joins, agregados, `GROUP BY` | `join` y `project` sobre un cursor, sin agregados | Sí |
+| El mismo código en servidores | No | PostgreSQL, MySQL, SQLite, Redis, MongoDB |
+| WebAssembly | No documentado | Sí |
+| Licencia | Apache-2.0 | Propietaria, de uso libre |
+
+Medido en la misma máquina con 10.000 documentos, los mismos índices y resultados idénticos (Nitrite 1.0.1 con su almacenamiento en memoria, frente a `MemoryDb`; un bucle de medición, no criterion):
+
+| Operación | Nitrite | Memoire |
+|---|---:|---:|
+| Insertar 10.000 documentos | 189 ms | **2,96 ms** |
+| Buscar por un email único | 11,2 µs | **0,41 µs** |
+| Filtrar por un campo indexado (10 filas) | 30,7 µs | **1,70 µs** |
+| Rango + filtro + orden + `LIMIT 20` (sin índice) | 10,2 ms | **27 µs** |
+| Contar con un filtro (sin índice) | 9,0 ms | **7,7 µs** |
+
+Las dos últimas filas filtran campos sin índice: Nitrite lee entonces documentos dinámicos uno a uno, mientras que Memoire recorre columnas tipadas y contiguas. Un índice en esos campos reduciría la diferencia del lado de Nitrite.
+
 ## Cuál elegir
 
 - **Diesel** si quieres las garantías de compilación más fuertes contra el esquema real y la cobertura SQL más madura (subconsultas, claves compuestas, tipos SQL personalizados), y el código síncrono te sirve.
 - **SeaORM** si quieres asincronía con un gran ecosistema alrededor (generación de código desde una base existente, GraphQL, herramientas de administración) y su estilo de entidades te convence.
+- **Nitrite** si tus datos no tienen una forma fija (documentos anidados, arrays, campos que varían de un documento a otro), si necesitas consultas espaciales o una licencia de código abierto.
 - **Memoire** si quieres asincronía con el mínimo de código repetitivo (tu propio struct, un derive), el mismo código en SQL, NoSQL y en el navegador, pruebas que corren en el motor en memoria sin servidor de base de datos, y errores normalizados.
 
 ## Próximos pasos

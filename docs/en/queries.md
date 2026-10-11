@@ -195,6 +195,41 @@ Case sensitivity is the same on every backend Memoire runs:
 
 > **Note** On SQLite, `icontains("émi")` does not match `"Émile"`, because SQLite's `LOWER()` only changes ASCII letters. All the other backends handle accented letters.
 
+### Full-text search
+
+`matches` finds the rows whose text contains **every word** of a query, as whole words, ignoring case. Words are runs of letters and digits; everything else (spaces, punctuation, `_`, `@`...) separates them.
+
+```rust
+let posts = Post::query()
+    .filter(Post::BODY.matches("rust orm"))
+    .order_by(Post::ID)
+    .all(&db)
+    .await?;
+```
+
+| Text | `matches("rust orm")` |
+|---|---|
+| "An ORM for Rust!" | yes |
+| "rust-orm" | yes |
+| "Rusty ORM" | no ("Rusty" is another word) |
+| "Rust" | no ("orm" is missing) |
+| `NULL` | no |
+
+A query without any word (`""`, `"?!"`) matches nothing. `matches` combines with every other condition, `!` included: `!Post::BODY.matches("draft")` keeps the texts without that word.
+
+The rule is the same on every backend; only the speed differs:
+
+| Backend | How | With `#[memoire(fulltext)]` |
+|---|---|---|
+| In-memory engine | Words compared in Rust | Word index: only the rows holding the rarest word are checked |
+| SQLite | A `memoire_match` function registered on the connection | Rows are checked one by one |
+| PostgreSQL | `to_tsvector('simple', ...) @@ plainto_tsquery('simple', ...)` | GIN index over the same expression |
+| MySQL / MariaDB | One `REGEXP` per word | Rows are checked one by one |
+| Redis | Same engine as in-memory | Rows are loaded, then checked |
+| MongoDB | One `$regex` per word, run by the server | Documents are checked one by one |
+
+> **Note** There is no stemming and no stop words: `matches("running")` does not find "run". On PostgreSQL, letters beyond ASCII need a database with a UTF-8 locale (the default almost everywhere, including the official Docker image).
+
 ### Comparing two columns
 
 Each comparison has a `_col` twin that compares with another column instead of a value: `eq_col`, `ne_col`, `lt_col`, `le_col`, `gt_col`, `ge_col`. Both columns must have the same Rust type. They are mostly used in join conditions, such as `Post::USER_ID.eq_col(User::ID)` (see [Joins & relations](relations)).

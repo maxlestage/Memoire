@@ -19,6 +19,12 @@
 - **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent` and
   many-to-many `load_via` load related rows in one query per level, from the foreign
   keys you already declare.
+- **Search and indexes everywhere** — full-text search (`Post::BODY.matches("rust orm")`)
+  and unique indexes over several columns, with the same behaviour on all six backends.
+- **Change notifications** — `Observed::new(db).subscribe(...)` hears every write, on any
+  backend, when it commits.
+- **Embedded and durable** — `MemoryDb::open("app.memoire")` stores the in-memory engine in
+  a crash-safe file, optionally encrypted (feature `encryption`).
 - **Batteries included** — transactions, migrations, joins, aggregates,
   `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`,
   normalised errors.

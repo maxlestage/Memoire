@@ -15,6 +15,7 @@ Every common Memoire operation on one page. The examples assume `use memoire_orm
 | Extra column types | `--features chrono,uuid,json` (or `full`) |
 | Import everything | `use memoire_orm::prelude::*;` |
 | Open in-memory | `let db = MemoryDb::new();` |
+| Open in-memory, stored in a file | `MemoryDb::open("app.memoire")?`; encrypted: `MemoryDb::open_with(path, StorageOptions::new().password(pw))?` |
 | Open SQLite file / memory | `SqliteDb::open("app.db")?` / `SqliteDb::open_in_memory()?` |
 | Connect to PostgreSQL | `PgPool::connect(url).await?` or `PgPool::connect_with(url, 10).await?` |
 | Connect to MySQL / MariaDB | `MySqlPool::connect("mysql://user:pass@host:3306/app").await?` |
@@ -32,6 +33,8 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Primary key | `#[memoire(primary_key)]` (a field named `id` is the key by default) |
 | Generated key | `#[memoire(primary_key, auto_increment)]` (implicit for an integer `id` without attributes) |
 | Unique / index | `#[memoire(unique)]`, `#[memoire(index)]` |
+| Index over several fields | `#[memoire(unique(user_id, team_id), index(team_id, role))]` on the struct |
+| Full-text index | `#[memoire(fulltext)]` |
 | Column name | `#[memoire(column = "e_mail")]` |
 | SQL type | `#[memoire(sql_type = "VARCHAR(120)")]` |
 | Default | `#[memoire(default = "0")]` |
@@ -94,6 +97,7 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Pattern, any case | `User::EMAIL.ilike("%@EXAMPLE.com")` |
 | Contains (escaped) | `User::NAME.contains("ad")`, `User::NAME.icontains("AD")` |
 | Starts / ends with (escaped) | `User::NAME.starts_with("A")`, `User::EMAIL.ends_with(".org")` |
+| Every word, whole words, any case | `Post::BODY.matches("rust orm")` |
 
 ## Ordering and paging
 
@@ -155,6 +159,14 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Delete one row | `user.delete(&db).await?` → `bool` |
 | Delete by key | `User::delete_by_key(&db, 1).await?` → `bool` |
 | Delete many | `User::delete_many().filter(...).execute(&db).await?` → `u64` |
+
+## Change notifications
+
+| Task | Code |
+|---|---|
+| Watch the writes | `let db = Observed::new(db); let _sub = db.subscribe(\|change\| println!("{change:?}"));` |
+| Receive them on a channel | `let (_sub, changes) = db.channel();` |
+| Stop | drop the subscription, or `sub.unsubscribe()` |
 
 ## Transactions
 

@@ -195,6 +195,41 @@ La sensibilité à la casse est la même sur tous les backends gérés par Memoi
 
 > **Remarque** Sur SQLite, `icontains("émi")` ne trouve pas `"Émile"`, car le `LOWER()` de SQLite ne modifie que les lettres ASCII. Tous les autres backends gèrent les lettres accentuées.
 
+### Recherche plein texte
+
+`matches` trouve les lignes dont le texte contient **tous les mots** d'une recherche, en mots entiers, sans tenir compte de la casse. Les mots sont des suites de lettres et de chiffres ; tout le reste (espaces, ponctuation, `_`, `@`...) les sépare.
+
+```rust
+let posts = Post::query()
+    .filter(Post::BODY.matches("rust orm"))
+    .order_by(Post::ID)
+    .all(&db)
+    .await?;
+```
+
+| Texte | `matches("rust orm")` |
+|---|---|
+| « An ORM for Rust! » | oui |
+| « rust-orm » | oui |
+| « Rusty ORM » | non (« Rusty » est un autre mot) |
+| « Rust » | non (« orm » manque) |
+| `NULL` | non |
+
+Une recherche sans aucun mot (`""`, `"?!"`) ne trouve rien. `matches` se combine avec toutes les autres conditions, `!` compris : `!Post::BODY.matches("brouillon")` garde les textes sans ce mot.
+
+La règle est la même sur toutes les bases ; seule la vitesse change :
+
+| Base | Comment | Avec `#[memoire(fulltext)]` |
+|---|---|---|
+| Moteur en mémoire | Mots comparés en Rust | Index de mots : seules les lignes qui contiennent le mot le plus rare sont examinées |
+| SQLite | Une fonction `memoire_match` enregistrée sur la connexion | Les lignes sont examinées une à une |
+| PostgreSQL | `to_tsvector('simple', ...) @@ plainto_tsquery('simple', ...)` | Index GIN sur la même expression |
+| MySQL / MariaDB | Un `REGEXP` par mot | Les lignes sont examinées une à une |
+| Redis | Même moteur qu'en mémoire | Les lignes sont chargées puis examinées |
+| MongoDB | Un `$regex` par mot, exécuté par le serveur | Les documents sont examinés un à un |
+
+> **Remarque** Il n'y a ni racinisation ni mots vides : `matches("courir")` ne trouve pas « court ». Sur PostgreSQL, les lettres hors ASCII demandent une base avec une locale UTF-8 (le réglage par défaut presque partout, y compris l'image Docker officielle).
+
 ### Comparer deux colonnes
 
 Chaque comparaison a une jumelle en `_col` qui compare à une autre colonne au lieu d'une valeur : `eq_col`, `ne_col`, `lt_col`, `le_col`, `gt_col`, `ge_col`. Les deux colonnes doivent avoir le même type Rust. Elles servent surtout dans les conditions de jointure, comme `Post::USER_ID.eq_col(User::ID)` (voir [Jointures et relations](relations)).

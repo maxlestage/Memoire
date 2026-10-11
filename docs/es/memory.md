@@ -108,7 +108,35 @@ Diferencias con las bases de datos SQL que debes tener en cuenta:
 | SQL sin procesar (`raw`, `raw_execute`) | `Error::Unsupported` |
 | Migraciones | Solo los pasos `create_table` y `drop_table`; `sql` falla y `sql_for` se omite |
 | Auto-joins (una tabla dos veces en la misma consulta) | `Error::Unsupported` |
-| Persistencia | Ninguna: los datos desaparecen con el último clon |
+| Persistencia | `MemoryDb::new()`: ninguna, los datos desaparecen con el último clon. `MemoryDb::open(path)`: guardados en un archivo (más abajo) |
+
+## Guardar los datos en un archivo
+
+`MemoryDb::open(path)` conserva todo lo que hace rápido al motor (datos en memoria, índices, transacciones por instantáneas) y además escribe cada cambio confirmado en un archivo, que se vuelve a leer la próxima vez que se abre:
+
+```rust
+let db = MemoryDb::open("app.memoire")?;
+db.create_table_if_not_exists::<Note>().await?;
+```
+
+- **Qué se escribe:** un pequeño registro por fila modificada, añadido cuando la sentencia o la transacción se confirma. Una transacción revertida no escribe nada.
+- **Caídas:** cada registro lleva una suma de control. Si el programa se detiene en medio de una escritura, el registro incompleto se descarta en el siguiente `open`; todo lo anterior se conserva.
+- **Durabilidad:** por defecto, una escritura termina en cuanto el sistema operativo tiene los datos: sobrevive a una caída del programa, no siempre a un corte de luz. `MemoryDb::open_with(path, StorageOptions::new().sync(true))` espera además al disco tras cada escritura (mucho más lento: unos 0,15 ms por escritura en la máquina de pruebas, frente a 2 o 3 µs).
+- **Tamaño:** el archivo crece con cada cambio. `db.compact()` lo reescribe solo con las filas actuales; también ocurre por sí solo cuando el archivo contiene muchos más cambios que filas. Reabrir un archivo de 20.000 filas tarda unos 40 ms.
+- **Modelos:** las tablas vuelven la primera vez que se usa su modelo. Las columnas se emparejan por nombre: añadir un campo `Option` conserva las filas (la nueva columna vale `NULL`), quitar un campo elimina esa columna. Un campo nuevo que no sea `Option` requiere migrar los datos.
+- **Un proceso a la vez:** dos programas no deben abrir el mismo archivo a la vez.
+
+### Cifrado
+
+Con la feature `encryption`, el archivo puede cifrarse con una contraseña:
+
+```rust
+use memoire_orm::StorageOptions;
+
+let db = MemoryDb::open_with("secrets.memoire", StorageOptions::new().password(password))?;
+```
+
+Cada registro se cifra con AES-256-GCM, con una clave derivada de la contraseña mediante Argon2id y una sal aleatoria guardada en el archivo. Abrir el archivo con otra contraseña falla con "wrong password", y nada en él se puede leer sin la contraseña. Perder la contraseña es perder los datos.
 
 ## Transacciones
 

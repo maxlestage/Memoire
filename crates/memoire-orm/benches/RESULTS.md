@@ -93,3 +93,34 @@ concurrent (×1.9).
 The PostgreSQL numbers come from a timing loop (200 and 2 000 iterations after
 warm-up) against PostgreSQL 16 on the same machine, not from criterion.
 
+## Indexes with many rows per value
+
+A non-unique index used to file every row of a value under the same hash, so
+each insert into a column with few distinct values (a `bool`, a status) probed
+past all the rows already holding that value. Each value now owns a set of
+rows (a single row needs no allocation). Inserting into a table with an
+`#[memoire(index)]` on a `bool` column, timing loop:
+
+| Rows already in the table | Before | Now |
+|---|---:|---:|
+| 0 to 10 000 | 517 ns per insert | **289 to 306 ns** |
+| 10 000 to 50 000 | 1.39 µs per insert, growing | **329 to 531 ns** |
+
+The criterion suite above moved with it: equality on an indexed column
+1.1 µs → 0.77 µs, `insert_many` of 1 000 rows 246 µs → 227 µs, insert one row
+572 ns → 509 ns, find by primary key unchanged (224 → 232 ns, within noise).
+
+## Full-text search and file storage
+
+20 000 rows with a `#[memoire(fulltext)]` column, timing loop on the same
+machine:
+
+| Operation | `MemoryDb::new()` | `MemoryDb::open(path)` | with a password |
+|---|---:|---:|---:|
+| Insert one row (word index, unique index) | 1.5 to 2.2 µs | 2.3 to 3.3 µs | 2.7 to 3.0 µs |
+| `matches("likes 42")` count | 41 to 62 µs | 37 to 52 µs | 37 to 49 µs |
+
+Reopening the file (replaying 20 000 rows and rebuilding the indexes) takes
+36 to 39 ms. With `StorageOptions::sync(true)` an insert waits for the disk:
+130 to 190 µs on this machine's disk.
+

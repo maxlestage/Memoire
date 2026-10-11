@@ -108,7 +108,35 @@ Differences from SQL databases to keep in mind:
 | Raw SQL (`raw`, `raw_execute`) | `Error::Unsupported` |
 | Migrations | Only `create_table` and `drop_table` steps; `sql` fails, `sql_for` is skipped |
 | Self-joins (a table twice in one query) | `Error::Unsupported` |
-| Persistence | None: data disappears with the last clone |
+| Persistence | `MemoryDb::new()`: none, the data disappears with the last clone. `MemoryDb::open(path)`: stored in a file (below) |
+
+## Storing the data in a file
+
+`MemoryDb::open(path)` keeps everything that makes the engine fast (data in memory, indexes, snapshot transactions) and also writes every committed change to a file, which is read back the next time the file is opened:
+
+```rust
+let db = MemoryDb::open("app.memoire")?;
+db.create_table_if_not_exists::<Note>().await?;
+```
+
+- **What is written:** one small record per changed row, appended when the statement or the transaction commits. A transaction that rolls back writes nothing.
+- **Crashes:** each record carries a checksum. If the program stops in the middle of a write, the incomplete record is dropped at the next `open`; everything before it is kept.
+- **Durability:** by default a write returns once the operating system has the data: it survives a crash of the program, not always a power cut. `MemoryDb::open_with(path, StorageOptions::new().sync(true))` also waits for the disk after every write (much slower: about 0.15 ms per write on the test machine, against 2 to 3 µs).
+- **Size:** the file grows with every change. `db.compact()` rewrites it with only the current rows; it also happens on its own when the file holds far more changes than rows. Reopening a file of 20,000 rows takes about 40 ms.
+- **Models:** tables come back the first time their model is used. Columns are matched by name: adding an `Option` field keeps the rows (the new column is `NULL`), removing a field drops that column. A new field that is not an `Option` needs a migration of the data.
+- **One process at a time:** two programs must not open the same file at once.
+
+### Encryption
+
+With the `encryption` feature, the file can be encrypted with a password:
+
+```rust
+use memoire_orm::StorageOptions;
+
+let db = MemoryDb::open_with("secrets.memoire", StorageOptions::new().password(password))?;
+```
+
+Each record is encrypted with AES-256-GCM, with a key derived from the password by Argon2id and a random salt kept in the file. Opening the file with another password fails with "wrong password", and nothing in it can be read without the password. Losing the password means losing the data.
 
 ## Transactions
 

@@ -23,6 +23,9 @@
 | 🧬 **Mapeo sin sobrecoste** | Las filas se decodifican por posición en una sola pasada; los valores se mueven, nunca se copian. |
 | 🗄️ **SQL y NoSQL, una sola API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria 100 % Rust (¡que funciona incluso en WebAssembly!). |
 | 🔗 **Relaciones sin N+1** | `users.load_children::<Post>(&db)`, `load_parent`, muchos a muchos con `load_via`: una consulta por nivel, deducida de las claves foráneas ya declaradas. |
+| 🔎 **Búsqueda e índices en todas partes** | Búsqueda de texto completo (`Post::BODY.matches("rust orm")`) e índices únicos sobre varias columnas (`#[memoire(unique(user_id, team_id))]`), con el mismo comportamiento en los seis motores. |
+| 📣 **Notificaciones de cambios** | `Observed::new(db).subscribe(...)`: cada escritura, en cualquier base, anunciada al confirmar. |
+| 💾 **Embebido y duradero** | `MemoryDb::open("app.memoire")`: el motor en memoria guardado en un archivo resistente a caídas, cifrable (AES-256-GCM). |
 | 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, actualizaciones parciales (`update_only`), `find_many`, errores unificados. |
 | 🦀 **Seguro** | `#![forbid(unsafe_code)]`, la misma batería de pruebas pasa en los seis motores. |
 
@@ -71,7 +74,7 @@ Motores compatibles (una feature cada uno):
 
 | Motor | Feature | Conexión | Notas |
 |---|---|---|---|
-| En memoria | `memory` (por defecto) | `MemoryDb::new()` | 100 % Rust, funciona en WebAssembly, ideal para pruebas |
+| En memoria | `memory` (por defecto) | `MemoryDb::new()` / `MemoryDb::open(path)` | 100 % Rust, funciona en WebAssembly, ideal para pruebas; puede guardarse en un archivo (`encryption` para cifrarlo) |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embebido, nada que instalar |
 | PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
 | MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
@@ -131,7 +134,7 @@ La guía completa está en [`docs/es`](docs/es) (también en [inglés](docs/en) 
 | [Instalación](docs/es/installation.md) | [Constructor de consultas](docs/es/queries.md) | [SQLite](docs/es/sqlite.md) | [Benchmarks](docs/es/benchmarks.md) |
 | [Inicio rápido](docs/es/quick-start.md) | [CRUD](docs/es/crud.md) | [PostgreSQL](docs/es/postgres.md) | [Desplegar desde el móvil](docs/es/deploy-heroku-mobile.md) |
 | | [Uniones y relaciones](docs/es/relations.md) | [MySQL y MariaDB](docs/es/mysql.md) | [Publicar en crates.io](docs/es/publish-crates-io.md) |
-| | [Transacciones](docs/es/transactions.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) · [Frente a Diesel y SeaORM](docs/es/comparison.md) |
+| | [Transacciones](docs/es/transactions.md) · [Notificaciones](docs/es/events.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) · [Frente a Diesel, SeaORM y Nitrite](docs/es/comparison.md) |
 
 Referencia de la API: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

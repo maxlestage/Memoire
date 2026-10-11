@@ -108,7 +108,35 @@ Les différences avec les bases de données SQL à garder en tête :
 | SQL brut (`raw`, `raw_execute`) | `Error::Unsupported` |
 | Migrations | Uniquement les étapes `create_table` et `drop_table` ; `sql` échoue, `sql_for` est ignorée |
 | Auto-jointures (une table deux fois dans une même requête) | `Error::Unsupported` |
-| Persistance | Aucune : les données disparaissent avec le dernier clone |
+| Persistance | `MemoryDb::new()` : aucune, les données disparaissent avec le dernier clone. `MemoryDb::open(path)` : enregistrées dans un fichier (plus bas) |
+
+## Enregistrer les données dans un fichier
+
+`MemoryDb::open(path)` garde tout ce qui rend le moteur rapide (données en mémoire, index, transactions par instantanés) et écrit en plus chaque modification validée dans un fichier, relu à la prochaine ouverture :
+
+```rust
+let db = MemoryDb::open("app.memoire")?;
+db.create_table_if_not_exists::<Note>().await?;
+```
+
+- **Ce qui est écrit :** un petit enregistrement par ligne modifiée, ajouté quand l'instruction ou la transaction est validée. Une transaction annulée n'écrit rien.
+- **Crashs :** chaque enregistrement porte une somme de contrôle. Si le programme s'arrête au milieu d'une écriture, l'enregistrement incomplet est écarté au prochain `open` ; tout ce qui précède est conservé.
+- **Durabilité :** par défaut, une écriture rend la main dès que le système d'exploitation a les données : elle survit à un crash du programme, pas toujours à une coupure de courant. `MemoryDb::open_with(path, StorageOptions::new().sync(true))` attend aussi le disque après chaque écriture (bien plus lent : environ 0,15 ms par écriture sur la machine de test, contre 2 à 3 µs).
+- **Taille :** le fichier grossit à chaque modification. `db.compact()` le réécrit avec seulement les lignes actuelles ; cela se fait aussi tout seul quand le fichier contient bien plus de modifications que de lignes. Rouvrir un fichier de 20 000 lignes prend environ 40 ms.
+- **Modèles :** les tables reviennent la première fois que leur modèle est utilisé. Les colonnes sont associées par nom : ajouter un champ `Option` conserve les lignes (la nouvelle colonne vaut `NULL`), retirer un champ supprime cette colonne. Un nouveau champ qui n'est pas un `Option` demande une migration des données.
+- **Un seul processus à la fois :** deux programmes ne doivent pas ouvrir le même fichier en même temps.
+
+### Chiffrement
+
+Avec la feature `encryption`, le fichier peut être chiffré avec un mot de passe :
+
+```rust
+use memoire_orm::StorageOptions;
+
+let db = MemoryDb::open_with("secrets.memoire", StorageOptions::new().password(password))?;
+```
+
+Chaque enregistrement est chiffré en AES-256-GCM, avec une clé dérivée du mot de passe par Argon2id et un sel aléatoire conservé dans le fichier. Ouvrir le fichier avec un autre mot de passe échoue avec « wrong password », et rien n'y est lisible sans le mot de passe. Perdre le mot de passe, c'est perdre les données.
 
 ## Transactions
 

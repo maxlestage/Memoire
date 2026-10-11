@@ -23,6 +23,9 @@
 | 🧬 **Zero-cost row mapping** | Rows are decoded by position in a single pass; values are moved, never cloned. |
 | 🗄️ **SQL and NoSQL, one API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
 | 🔗 **Relations without N+1** | `users.load_children::<Post>(&db)`, `load_parent`, many-to-many `load_via`: one query per level, read from the foreign keys you already declare. |
+| 🔎 **Search and indexes everywhere** | Full-text search (`Post::BODY.matches("rust orm")`) and unique indexes over several columns (`#[memoire(unique(user_id, team_id))]`), with the same behaviour on all six backends. |
+| 📣 **Change notifications** | `Observed::new(db).subscribe(...)`: every write, on any backend, announced when it commits. |
+| 💾 **Embedded and durable** | `MemoryDb::open("app.memoire")`: the in-memory engine stored in a crash-safe file, optionally encrypted (AES-256-GCM). |
 | 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
 | 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
 
@@ -71,7 +74,7 @@ Supported backends (one feature each):
 
 | Backend | Feature | Handle | Notes |
 |---|---|---|---|
-| In-memory | `memory` (default) | `MemoryDb::new()` | pure Rust, runs in WebAssembly, perfect for tests |
+| In-memory | `memory` (default) | `MemoryDb::new()` / `MemoryDb::open(path)` | pure Rust, runs in WebAssembly, perfect for tests; can be stored in a file (`encryption` to encrypt it) |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embedded, nothing to install |
 | PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
 | MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
@@ -131,7 +134,7 @@ The full guide lives in [`docs/`](docs/en) (English, [French](docs/fr), [Spanish
 | [Installation](docs/en/installation.md) | [Query builder](docs/en/queries.md) | [SQLite](docs/en/sqlite.md) | [Benchmarks](docs/en/benchmarks.md) |
 | [Quick start](docs/en/quick-start.md) | [CRUD](docs/en/crud.md) | [PostgreSQL](docs/en/postgres.md) | [Deploy from your phone](docs/en/deploy-heroku-mobile.md) |
 | | [Joins & relations](docs/en/relations.md) | [MySQL & MariaDB](docs/en/mysql.md) | [Publish to crates.io](docs/en/publish-crates-io.md) |
-| | [Transactions](docs/en/transactions.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) · [vs Diesel & SeaORM](docs/en/comparison.md) |
+| | [Transactions](docs/en/transactions.md) · [Change notifications](docs/en/events.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) · [vs Diesel, SeaORM & Nitrite](docs/en/comparison.md) |
 
 API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 
