@@ -396,7 +396,7 @@ static EN: Texts = Texts {
     footer_projects: [
         "Front-end: components, SSR, WebAssembly islands",
         "Express-style web server, HTTP/3",
-        "Security middlewares for tower & axum",
+        "Security middlewares for Vitesse & tower",
         "Async, type-safe ORM, SQL & NoSQL",
         "The full-stack framework that unites them",
         "SwiftUI apps written in Rust",
@@ -668,7 +668,7 @@ static FR: Texts = Texts {
     footer_projects: [
         "Front-end : composants, SSR, îlots WebAssembly",
         "Serveur web façon Express, HTTP/3",
-        "Middlewares de sécurité pour tower et axum",
+        "Middlewares de sécurité pour Vitesse et tower",
         "ORM asynchrone typé, SQL et NoSQL",
         "Le framework full-stack qui les réunit",
         "Des apps SwiftUI écrites en Rust",
@@ -932,7 +932,7 @@ static ES: Texts = Texts {
     footer_projects: [
         "Front-end: componentes, SSR, islas WebAssembly",
         "Servidor web estilo Express, HTTP/3",
-        "Middlewares de seguridad para tower y axum",
+        "Middlewares de seguridad para Vitesse y tower",
         "ORM asíncrono tipado, SQL y NoSQL",
         "El framework full-stack que los une",
         "Apps SwiftUI escritas en Rust",
