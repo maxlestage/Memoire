@@ -6,8 +6,8 @@ Toutes les opérations courantes de Memoire sur une seule page. Les exemples sup
 
 | Tâche | Code |
 |---|---|
-| Moteur en mémoire (feature par défaut) | `cargo add memoire-orm` |
-| SQLite | `cargo add memoire-orm --features sqlite` |
+| Moteur en mémoire (feature par défaut) | `cargo add memoire-orm --git https://github.com/maxlestage/Memoire` |
+| SQLite | `cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite` |
 | PostgreSQL / avec TLS | `--features postgres` / `--features postgres-tls` (plus Tokio) |
 | MySQL, MariaDB / avec TLS | `--features mysql` / `--features mysql-tls` (plus Tokio) |
 | Redis / avec TLS | `--features redis` / `--features redis-tls` (plus Tokio) |

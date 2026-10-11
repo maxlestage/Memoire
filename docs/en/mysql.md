@@ -5,14 +5,14 @@
 ## Enable the backend
 
 ```bash
-cargo add memoire-orm --features mysql
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mysql
 cargo add tokio --features macros,rt-multi-thread
 ```
 
 For encrypted connections (most hosted databases), use the `mysql-tls` feature instead (it includes `mysql`):
 
 ```bash
-cargo add memoire-orm --features mysql-tls
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mysql-tls
 ```
 
 The client is `mysql_async`, a pure Rust implementation of the MySQL protocol; TLS uses `rustls`. No C library or OpenSSL is needed.

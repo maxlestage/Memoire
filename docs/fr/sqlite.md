@@ -5,7 +5,7 @@
 ## Activer le backend
 
 ```bash
-cargo add memoire-orm --features sqlite
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite
 ```
 
 La feature `sqlite` compile SQLite depuis les sources (via la crate `rusqlite`) : il vous faut donc un compilateur C au moment du build (GCC, Clang ou MSVC, en général déjà installé). Rien n'est à installer sur les machines qui exécutent votre programme.

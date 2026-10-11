@@ -5,14 +5,14 @@
 ## Enable the backend
 
 ```bash
-cargo add memoire-orm --features postgres
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres
 cargo add tokio --features macros,rt-multi-thread
 ```
 
 For hosted databases, which require encrypted connections, use the `postgres-tls` feature instead (it includes `postgres`):
 
 ```bash
-cargo add memoire-orm --features postgres-tls
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres-tls
 ```
 
 The client is pure Rust: `tokio-postgres` for the protocol, `deadpool` for pooling and, with `postgres-tls`, `rustls` for encryption. No C library or OpenSSL is needed.

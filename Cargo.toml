@@ -9,6 +9,7 @@ edition = "2024"
 rust-version = "1.88"
 license-file = "LICENSE"
 homepage = "https://maxlestage.github.io/Memoire/"
+repository = "https://github.com/maxlestage/Memoire"
 authors = ["Maxime Nathan Lestage"]
 
 [workspace.dependencies]

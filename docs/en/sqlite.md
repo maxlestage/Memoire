@@ -5,7 +5,7 @@
 ## Enable the backend
 
 ```bash
-cargo add memoire-orm --features sqlite
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite
 ```
 
 The `sqlite` feature compiles SQLite from source (through the `rusqlite` crate), so you need a C compiler at build time (GCC, Clang or MSVC, usually already installed). Nothing has to be installed on the machines that run your program.
