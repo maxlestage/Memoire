@@ -161,7 +161,7 @@ BASE_PATH=/Memoire cargo run -- export dist-static  # static files, as on GitHub
 
 No computer needed:
 
-1. Tap the **Deploy to Heroku** button at the top of this page, pick an app name, tap **Deploy app**.
+1. Open `https://heroku.com/deploy?template=<the address of your repository>` on your phone, pick an app name, tap **Deploy app**.
 2. Or add the `HEROKU_API_KEY` and `HEROKU_APP_NAME` secrets in *Settings → Secrets and variables → Actions*:
    every push to `master` is then deployed automatically, and you can redeploy from the GitHub
    app (*Actions → Deploy to Heroku → Run workflow*).
