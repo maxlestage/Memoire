@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/memoire-orm.svg)](https://crates.io/crates/memoire-orm)
 [![docs.rs](https://img.shields.io/docsrs/memoire-orm)](https://docs.rs/memoire-orm)
-[![license](https://img.shields.io/crates/l/memoire-orm.svg)](#license)
+[![License: proprietary](https://img.shields.io/badge/license-proprietary-2a2a2e.svg)](#license)
 
 **A blazing-fast, type-safe, async ORM written in pure Rust.**
 
@@ -109,5 +109,18 @@ Full results and methodology: [`benches/RESULTS.md`](benches/RESULTS.md).
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT) at your option.
+Memoire ORM is proprietary software: © 2026 Maxime Nathan Lestage, all rights
+reserved. It is not open source. The source code is published on crates.io
+and GitHub so that it can be read, audited and built, and you may use it
+freely as a dependency of your own programs, commercial ones included.
+Modifying it or redistributing its source needs the author's written
+permission. Full terms: [LICENSE](LICENSE).
+
+Contributions (code, documentation, ideas) are welcome and become part of
+the project under the same terms: by submitting one, you assign its rights
+to the author, as the license states.
+
+## Credits
+
+Designed and developed by [Maxime Nathan Lestage](https://github.com/maxlestage),
+as part of one family of Rust projects: [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/) and [FerroSwift](https://maxlestage.github.io/FerroSwift/).

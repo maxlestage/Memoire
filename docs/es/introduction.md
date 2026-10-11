@@ -92,7 +92,7 @@ Cada backend tiene su propia página: [Motor en memoria](memory), [SQLite](sqlit
 ## Requisitos y licencia
 
 - **Rust 1.88 o posterior** (la versión mínima de Rust compatible, o MSRV).
-- **Licencia:** MIT OR Apache-2.0, a tu elección.
+- **Licencia:** propietaria, © Maxime Nathan Lestage, todos los derechos reservados. Uso libre como dependencia de tus propios programas, también comerciales; el código fuente se publica para que pueda auditarse y compilarse. Ver [LICENSE](https://github.com/maxlestage/Memoire/blob/master/LICENSE).
 - La feature `sqlite` compila SQLite desde el código fuente, así que necesita un compilador de C en tiempo de compilación. Todos los demás backends son Rust puro; TLS usa `rustls`, así que nunca hace falta OpenSSL.
 
 ## Próximos pasos

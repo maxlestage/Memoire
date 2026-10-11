@@ -75,6 +75,9 @@
 
 extern crate self as memoire_orm;
 
+/// The version of this crate, e.g. `"0.1.0"`.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod ast;
 pub mod backend;
 mod error;

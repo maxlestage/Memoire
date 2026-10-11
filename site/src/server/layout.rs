@@ -24,6 +24,21 @@ pub struct Ctx<'a> {
 
 pub const CRATES_IO: &str = "https://crates.io/crates/memoire-orm";
 pub const DOCS_RS: &str = "https://docs.rs/memoire-orm";
+/// The license, read online: proprietary, all rights reserved.
+pub const LICENSE_URL: &str = "https://github.com/maxlestage/Memoire/blob/master/LICENSE";
+/// Who designed and built Memoire and its sister projects.
+pub const AUTHOR: &str = "Maxime Nathan Lestage";
+pub const AUTHOR_URL: &str = "https://github.com/maxlestage";
+/// The sister projects of Memoire, by the same author: (name, website). The footer links
+/// them in this order; `i18n::Texts::footer_projects` describes each one in the same order.
+pub const ECOSYSTEM: [(&str, &str); 6] = [
+    ("Active", "https://maxlestage.github.io/Active/"),
+    ("Vitesse", "https://maxlestage.github.io/Vitesse/"),
+    ("Securite", "https://maxlestage.github.io/Securite/"),
+    ("Memoire", "https://maxlestage.github.io/Memoire/"),
+    ("Paquets", "https://maxlestage.github.io/Paquets/"),
+    ("FerroSwift", "https://maxlestage.github.io/FerroSwift/"),
+];
 
 /// A link to a page of `lang`.
 pub fn href(lang: Lang, page: Page) -> String {
@@ -294,6 +309,9 @@ fn navbar(route: &Route) -> Element {
         )
 }
 
+/// The signature footer, shared in spirit by every site of the ecosystem: the call to
+/// action and the install command, the link columns, the sister projects, the author's
+/// signature, the giant wordmark and the legal line.
 fn page_footer(route: &Route) -> Element {
     let lang = route.lang;
     let tx = t(lang);
@@ -305,26 +323,84 @@ fn page_footer(route: &Route) -> Element {
     let social = |url: &'static str, label: &'static str, i: Icon| {
         external(url).class("icon-btn").attr("aria-label", label).child(icon(i))
     };
+    let cta = div()
+        .class("container footer-cta")
+        .child(
+            a().class("footer-cta-link")
+                .href(doc_href(lang, "quick-start"))
+                .child(span().text(tx.footer_start))
+                .child(Node::from(" "))
+                .child(em().text("Memoire"))
+                .child(icon(Icon::ArrowRight)),
+        )
+        .child(
+            el("code")
+                .class("footer-install")
+                .attr("aria-label", format!("{}: cargo add memoire-orm", tx.footer_install))
+                .attr("title", tx.footer_install)
+                .text("cargo add memoire-orm"),
+        );
+    let brand = div()
+        .class("footer-brand")
+        .child(logo(lang))
+        .child(p().class("footer-tagline").text(tx.footer_tagline))
+        .child(p().class("footer-mission").text(tx.footer_mission))
+        .child(
+            ul().class("footer-badges")
+                .attr("aria-label", "Memoire ORM")
+                .child(li().class("hot").text(format!("v{}", memoire_orm::VERSION)))
+                .child(li().text(tx.footer_rust))
+                .child(li().child(external(CRATES_IO).text("crates.io"))),
+        )
+        .child(
+            div()
+                .class("footer-social")
+                .child(social(REPO_URL, "GitHub", Icon::Github))
+                .child(social(CRATES_IO, "crates.io", Icon::Crate))
+                .child(social(DOCS_RS, "docs.rs", Icon::Book)),
+        );
+    let ecosystem = nav()
+        .class("container footer-eco")
+        .attr("aria-label", tx.footer_ecosystem)
+        .child(
+            div()
+                .class("footer-eco-head")
+                .child(h3().text(tx.footer_ecosystem))
+                .child(p().text(tx.footer_ecosystem_text)),
+        )
+        .child(ul().class("eco-grid").children(ECOSYSTEM.iter().zip(tx.footer_projects).map(|((name, url), text)| {
+            let here = *name == "Memoire";
+            let mut title = span().class("eco-name").text(*name);
+            if here {
+                title = title.child(span().class("eco-here").text(tx.footer_here));
+            }
+            let link = if here { a().href(*url).attr("aria-current", "page") } else { external(*url) };
+            li().child(
+                link.class(if here { "eco current" } else { "eco" })
+                    .child(title)
+                    .child(span().class("eco-text").text(text))
+                    .child(icon(Icon::ArrowRight)),
+            )
+        })));
+    let credits = div()
+        .class("container footer-credits")
+        .child(p().class("credits-by").text(tx.footer_by))
+        .child(external(AUTHOR_URL).class("credits-name").children(
+            AUTHOR.split(' ').enumerate().map(|(i, word)| span().style(format!("--i:{i}")).text(word.to_string())),
+        ))
+        .child(p().class("credits-note").text(tx.footer_crafted));
+    let wordmark = div()
+        .class("wordmark")
+        .attr("aria-hidden", "true")
+        .children("memoire".chars().enumerate().map(|(i, c)| span().style(format!("--i:{i}")).text(c.to_string())));
     footer()
         .class("footer")
         .child(div().class("footer-border").attr("aria-hidden", "true"))
+        .child(cta)
         .child(
             div()
                 .class("container footer-grid")
-                .child(
-                    div()
-                        .class("footer-brand")
-                        .child(logo(lang))
-                        .child(p().class("footer-tagline").text(tx.footer_tagline))
-                        .child(p().class("footer-mission").text(tx.footer_mission))
-                        .child(
-                            div()
-                                .class("footer-social")
-                                .child(social(REPO_URL, "GitHub", Icon::Github))
-                                .child(social(CRATES_IO, "crates.io", Icon::Crate))
-                                .child(social(DOCS_RS, "docs.rs", Icon::Book)),
-                        ),
-                )
+                .child(brand)
                 .child(
                     div().class("footer-col").child(h3().text(tx.footer_product)).child(
                         ul().child(page(Page::Features, tx.nav_features))
@@ -346,7 +422,8 @@ fn page_footer(route: &Route) -> Element {
                         ul().child(ext(REPO_URL.into(), "GitHub"))
                             .child(ext(CRATES_IO.into(), "crates.io"))
                             .child(ext(DOCS_RS.into(), "docs.rs"))
-                            .child(ext(format!("{REPO_URL}/issues"), tx.footer_issues)),
+                            .child(ext(format!("{REPO_URL}/issues"), tx.footer_issues))
+                            .child(ext(LICENSE_URL.into(), tx.footer_license)),
                     ),
                 )
                 .child(
@@ -356,10 +433,14 @@ fn page_footer(route: &Route) -> Element {
                         .child(lang_switch(route)),
                 ),
         )
+        .child(ecosystem)
+        .child(credits)
+        .child(wordmark)
         .child(
             div()
                 .class("container footer-bottom")
                 .child(span().text(tx.footer_rights))
+                .child(external(LICENSE_URL).text(tx.footer_proprietary))
                 .child(span().class("footer-built").text(tx.footer_built))
                 .child(
                     button()
@@ -423,11 +504,13 @@ pub fn base_document(site: &Site, body: Node, lang: Lang, theme: Option<&'static
         .head(format!(
             concat!(
                 r#"<meta name="color-scheme" content="dark light"/>"#,
+                r#"<meta name="author" content="{author}"/>"#,
                 r#"<link rel="icon" href="{base}/static/favicon.svg" type="image/svg+xml"/>"#,
                 // Same URL as in app.css, so that the preload is used.
                 r#"<link rel="preload" href="{base}/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin=""/>"#,
             ),
-            base = base()
+            base = base(),
+            author = AUTHOR
         ))
         .service_worker(&link("/sw.js"));
     if assets.get("/pkg/memoire_site.js").is_some() {

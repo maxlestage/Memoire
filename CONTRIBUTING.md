@@ -72,4 +72,6 @@ To add a documentation page, write `docs/en/<slug>.md`, `docs/fr/<slug>.md` and
 
 ## License
 
-By contributing, you agree that your contributions will be dual licensed under MIT and Apache-2.0.
+Memoire ORM is proprietary software by Maxime Nathan Lestage (see [LICENSE](LICENSE)). By
+contributing, you assign the rights in your contribution to the author, as section 3 of the
+license states; contributions are welcome under those terms.

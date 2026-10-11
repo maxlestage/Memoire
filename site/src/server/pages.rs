@@ -4,8 +4,8 @@ use active::prelude::*;
 
 use super::Site;
 use super::layout::{
-    Ctx, alternates, base_document, copy_pill, doc_href, document, dots, external, href, json, logo_mark, mini_window,
-    page_hero, reveal, section_head, tilt_card,
+    AUTHOR, AUTHOR_URL, Ctx, LICENSE_URL, alternates, base_document, copy_pill, doc_href, document, dots, external,
+    href, json, logo_mark, mini_window, page_hero, reveal, section_head, tilt_card,
 };
 use crate::data::bench::{BENCH_IS_PLACEHOLDER, BENCHMARKS};
 use crate::data::samples;
@@ -48,7 +48,7 @@ fn home(ctx: &Ctx<'_>) -> Node {
     let seo = page_seo(ctx, &format!("Memoire ORM — {}", tx.footer_tagline), tx.meta_description)
         .title_template("%s")
         .json_ld(format!(
-            r#"{{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Memoire ORM","description":{},"codeRepository":"{REPO_URL}","programmingLanguage":"Rust","license":"MIT OR Apache-2.0","url":{},"inLanguage":"{}"}}"#,
+            r#"{{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Memoire ORM","description":{},"codeRepository":"{REPO_URL}","programmingLanguage":"Rust","license":"{LICENSE_URL}","author":{{"@type":"Person","name":"{AUTHOR}","url":"{AUTHOR_URL}"}},"url":{},"inLanguage":"{}"}}"#,
             json(tx.meta_description),
             json(&format!("{}{}", ctx.origin, ctx.route.path())),
             lang.code()
