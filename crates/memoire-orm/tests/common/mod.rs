@@ -49,6 +49,32 @@ pub struct PostTag {
     pub tag_slug: String,
 }
 
+/// Indexes over several columns: one unique, one plain.
+#[derive(Model, Debug, Clone, PartialEq)]
+#[memoire(table = "memberships", unique(user_id, team), index(team, role))]
+pub struct Membership {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    pub user_id: i64,
+    pub team: Option<String>,
+    pub role: String,
+}
+
+pub fn member(user_id: i64, team: Option<&str>, role: &str) -> Membership {
+    Membership { id: 0, user_id, team: team.map(Into::into), role: role.into() }
+}
+
+/// Full-text search, with a word index on `body`.
+#[derive(Model, Debug, Clone, PartialEq)]
+#[memoire(table = "articles")]
+pub struct Article {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    pub title: String,
+    #[memoire(fulltext)]
+    pub body: Option<String>,
+}
+
 #[derive(FromRow, Debug, PartialEq)]
 pub struct UserStats {
     pub user_id: i64,
@@ -65,11 +91,15 @@ async fn reset<E: Executor>(db: &E) -> Result<()> {
     db.drop_table_if_exists::<Post>().await?;
     db.drop_table_if_exists::<User>().await?;
     db.drop_table_if_exists::<Tag>().await?;
+    db.drop_table_if_exists::<Membership>().await?;
+    db.drop_table_if_exists::<Article>().await?;
     db.execute(memoire_orm::Query::DropTable { name: "_memoire_migrations", if_exists: true }).await?;
     db.create_table::<User>().await?;
     db.create_table::<Post>().await?;
     db.create_table::<Tag>().await?;
     db.create_table::<PostTag>().await?;
+    db.create_table::<Membership>().await?;
+    db.create_table::<Article>().await?;
     Ok(())
 }
 
@@ -100,6 +130,10 @@ pub async fn run_suite<D: Database>(db: &D) -> Result<()> {
     joins_and_groups(db).await?;
     reset(db).await?;
     relations(db).await?;
+    reset(db).await?;
+    composite_indexes(db).await?;
+    reset(db).await?;
+    full_text(db).await?;
     reset(db).await?;
     transactions(db).await?;
     reset(db).await?;
@@ -411,6 +445,114 @@ async fn relations<E: Executor>(db: &E) -> Result<()> {
     // paginate (count and page run concurrently).
     let page = User::query().order_by(User::ID).paginate(db, 2, 2).await?;
     assert_eq!((page.total, page.items.iter().map(|u| u.id).collect::<Vec<_>>()), (5, vec![3, 4]));
+    Ok(())
+}
+
+async fn composite_indexes<D: Database>(db: &D) -> Result<()> {
+    let dup = |e: Error| matches!(&e, Error::UniqueViolation { column, .. } if column == "user_id, team");
+    for m in [member(1, Some("red"), "admin"), member(2, Some("red"), "dev"), member(1, Some("blue"), "dev")] {
+        m.clone().insert(db).await?;
+    }
+    // The same pair again is refused; one column alone may repeat.
+    let err = member(1, Some("red"), "dev").insert(db).await.unwrap_err();
+    assert!(dup(err), "insert");
+    // A NULL in one of the columns lifts the constraint, like SQL.
+    member(1, None, "guest").insert(db).await?;
+    member(1, None, "guest").insert(db).await?;
+    assert_eq!(Membership::count(db).await?, 5);
+
+    // Updates that would create a duplicate pair are refused, whole.
+    let err = Membership::update_many()
+        .set(Membership::TEAM, Some("red".to_owned()))
+        .filter(Membership::TEAM.eq("blue"))
+        .execute(db)
+        .await
+        .unwrap_err();
+    assert!(dup(err), "update_many");
+    let mut blue = Membership::query().filter(Membership::TEAM.eq("blue")).one(db).await?;
+    blue.team = Some("red".into());
+    assert!(dup(blue.update(db).await.unwrap_err()), "update");
+    blue.team = Some("green".into());
+    blue.update(db).await?;
+
+    // A batch holding a duplicate pair is refused as a whole.
+    let batch = [member(3, Some("red"), "dev"), member(3, Some("red"), "ops")];
+    assert!(dup(Membership::insert_many(db, &batch).await.unwrap_err()), "insert_many");
+    assert_eq!(Membership::count(db).await?, 5);
+
+    // Upsert by primary key keeps working next to the unique pair.
+    blue.role = "lead".into();
+    blue.upsert(db).await?;
+    let mut clash = member(2, Some("red"), "x");
+    clash.id = 999;
+    assert!(dup(clash.upsert(db).await.unwrap_err()), "upsert");
+
+    // Inside a transaction too.
+    let tx = db.begin().await?;
+    assert!(dup(member(2, Some("red"), "dev").insert(&tx).await.unwrap_err()), "transaction");
+    tx.rollback().await?;
+
+    // Equality on every column of an index (a lookup on the in-memory engine).
+    let reds = Membership::query()
+        .filter(Membership::TEAM.eq("red") & Membership::ROLE.eq("admin"))
+        .columns(Membership::USER_ID)
+        .all(db)
+        .await?;
+    assert_eq!(reds, vec![1]);
+    let mut ids: Vec<i64> =
+        Membership::query().filter(Membership::USER_ID.eq(1)).columns(Membership::ID).all(db).await?;
+    ids.sort();
+    assert_eq!(ids.len(), 4);
+
+    // Deleting a row frees its pair.
+    Membership::delete_many().filter(Membership::TEAM.eq("red") & Membership::USER_ID.eq(2)).execute(db).await?;
+    member(2, Some("red"), "back").insert(db).await?;
+    Ok(())
+}
+
+async fn full_text<E: Executor>(db: &E) -> Result<()> {
+    let bodies = [
+        Some("An ORM for Rust!"),
+        Some("Rusty nails and orm-tools"),
+        Some("Café CRÈME, déjà vu"),
+        None,
+        Some("rust RUST Rust"),
+        Some("user_name, e-mail alice@rust.dev, v3.14"),
+    ];
+    for (i, body) in bodies.iter().enumerate() {
+        Article { id: 0, title: format!("a{}", i + 1), body: body.map(Into::into) }.insert(db).await?;
+    }
+    async fn ids<E: Executor>(db: &E, filter: Expr) -> Result<Vec<i64>> {
+        Article::query().filter(filter).order_by(Article::ID).columns(Article::ID).all(db).await
+    }
+    // Whole words, every word, any case; "Rusty" is not "rust".
+    assert_eq!(ids(db, Article::BODY.matches("rust orm")).await?, vec![1]);
+    assert_eq!(ids(db, Article::BODY.matches("RUST")).await?, vec![1, 5, 6]);
+    assert_eq!(ids(db, Article::BODY.matches("nails ORM")).await?, vec![2]);
+    // Letters beyond ASCII, upper and lower case.
+    assert_eq!(ids(db, Article::BODY.matches("café crème")).await?, vec![3]);
+    assert_eq!(ids(db, Article::BODY.matches("DÉJÀ")).await?, vec![3]);
+    // Punctuation and `_` separate words.
+    assert_eq!(ids(db, Article::BODY.matches("user mail 14")).await?, vec![6]);
+    // No word: nothing matches; a missing word: nothing matches.
+    assert!(ids(db, Article::BODY.matches("")).await?.is_empty());
+    assert!(ids(db, Article::BODY.matches(" !? ")).await?.is_empty());
+    assert!(ids(db, Article::BODY.matches("rust python")).await?.is_empty());
+    // NOT: texts missing a word (a NULL body is neither).
+    assert_eq!(ids(db, !Article::BODY.matches("rust")).await?, vec![2, 3]);
+    // Combined with other conditions, counted, used by update and delete.
+    assert_eq!(ids(db, Article::BODY.matches("rust") & Article::TITLE.ne("a5")).await?, vec![1, 6]);
+    assert_eq!(Article::query().filter(Article::BODY.matches("rust")).count(db).await?, 3);
+    let n = Article::update_many()
+        .set(Article::BODY, Some("rust and ORM".to_owned()))
+        .filter(Article::BODY.matches("nails"))
+        .execute(db)
+        .await?;
+    assert_eq!(n, 1);
+    assert_eq!(ids(db, Article::BODY.matches("rust orm")).await?, vec![1, 2]);
+    assert!(ids(db, Article::BODY.matches("nails")).await?.is_empty());
+    Article::delete_many().filter(Article::BODY.matches("orm")).execute(db).await?;
+    assert_eq!(ids(db, Article::BODY.matches("rust")).await?, vec![5, 6]);
     Ok(())
 }
 

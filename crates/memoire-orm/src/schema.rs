@@ -76,6 +76,9 @@ pub struct ColumnDef {
     pub unique: bool,
     /// Has a secondary index.
     pub indexed: bool,
+    /// Searched with [`Column::matches`](crate::Column::matches) often: gets a
+    /// full-text index where the backend has one (`#[memoire(fulltext)]`).
+    pub fulltext: bool,
     /// Explicit SQL type overriding the default mapping.
     pub sql_type: Option<&'static str>,
     /// `DEFAULT` SQL expression.
@@ -115,6 +118,28 @@ pub struct StaticSql {
     pub upsert: &'static str,
 }
 
+/// An index over several columns, declared on the struct with
+/// `#[memoire(index(a, b))]` or `#[memoire(unique(a, b))]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IndexDef {
+    /// Index name in the database (`idx_<table>_<a>_<b>` or `uq_<table>_<a>_<b>`).
+    pub name: &'static str,
+    /// Positions of the indexed columns in [`TableSchema::columns`], in order.
+    pub columns: &'static [usize],
+    /// No two rows may hold the same values in all these columns (rows with a
+    /// `NULL` in one of them are not constrained, like in SQL).
+    pub unique: bool,
+}
+
+impl IndexDef {
+    /// The indexed column names joined with `", "`, as reported in
+    /// [`Error::UniqueViolation`](crate::Error::UniqueViolation).
+    pub fn label(&self, table: &TableSchema) -> String {
+        let names: Vec<&str> = self.columns.iter().map(|&i| table.columns[i].name).collect();
+        names.join(", ")
+    }
+}
+
 /// Complete static description of a table.
 #[derive(Debug, PartialEq, Eq)]
 pub struct TableSchema {
@@ -124,14 +149,23 @@ pub struct TableSchema {
     pub columns: &'static [ColumnDef],
     /// Index of the primary key column in `columns`.
     pub primary_key: usize,
+    /// Indexes over several columns.
+    pub indexes: &'static [IndexDef],
     /// Pre-rendered statements, indexed like [`Dialect::ALL`].
     pub sql: [StaticSql; 3],
 }
 
 impl TableSchema {
-    /// Whether a column other than the primary key is `unique`.
+    /// Whether a column other than the primary key is `unique`, or the table
+    /// has a unique index over several columns.
     pub fn has_secondary_unique(&self) -> bool {
         self.columns.iter().enumerate().any(|(i, c)| i != self.primary_key && c.unique)
+            || self.indexes.iter().any(|ix| ix.unique)
+    }
+
+    /// The multi-column index named `name`.
+    pub fn index_named(&self, name: &str) -> Option<&IndexDef> {
+        self.indexes.iter().find(|ix| ix.name == name)
     }
 
     /// Statements for a dialect.

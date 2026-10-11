@@ -28,9 +28,10 @@ use syn::{Data, DeriveInput, Fields, Ident, LitBool, LitStr, Type, parse_macro_i
 ///
 /// Struct attributes: `table = "name"` (defaults to the snake_case struct name),
 /// `crate = "path"` (where the generated code finds `memoire_orm`, `::memoire_orm` by
-/// default; for crates that re-export it, e.g. `crate = "my_framework::orm"`).
+/// default; for crates that re-export it, e.g. `crate = "my_framework::orm"`),
+/// `unique(a, b)` and `index(a, b)` (indexes over several fields, repeatable).
 ///
-/// Field attributes: `primary_key`, `auto_increment`, `unique`, `index`,
+/// Field attributes: `primary_key`, `auto_increment`, `unique`, `index`, `fulltext`,
 /// `column = "name"`, `sql_type = "VARCHAR(255)"`, `default = "SQL expression"`,
 /// `references = "table(column)"`, `on_delete = "cascade"`, `on_update = "cascade"`,
 /// `skip`.
@@ -65,6 +66,7 @@ struct FieldInfo {
     auto_increment: Option<bool>,
     unique: bool,
     index: bool,
+    fulltext: bool,
     sql_type: Option<String>,
     default: Option<String>,
     references: Option<(String, String)>,
@@ -73,8 +75,15 @@ struct FieldInfo {
     skip: bool,
 }
 
+/// `#[memoire(unique(a, b))]` / `#[memoire(index(a, b))]` on the struct.
+struct IndexInfo {
+    fields: Vec<Ident>,
+    unique: bool,
+}
+
 struct ModelInfo {
     table: String,
+    indexes: Vec<IndexInfo>,
     /// Path of the `memoire_orm` crate in the generated code (`crate = "..."`).
     krate: syn::Path,
     fields: Vec<FieldInfo>,
@@ -130,6 +139,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
 
     let mut table = snake_case(&input.ident.to_string());
     let mut krate: syn::Path = syn::parse_quote!(::memoire_orm);
+    let mut indexes: Vec<IndexInfo> = Vec::new();
     for attr in &input.attrs {
         if !attr.path().is_ident("memoire") {
             continue;
@@ -146,8 +156,23 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 let lit: LitStr = meta.value()?.parse()?;
                 krate = lit.parse()?;
                 Ok(())
+            } else if meta.path.is_ident("unique") || meta.path.is_ident("index") {
+                let unique = meta.path.is_ident("unique");
+                let mut fields = Vec::new();
+                meta.parse_nested_meta(|inner| {
+                    fields.push(inner.path.require_ident()?.clone());
+                    Ok(())
+                })?;
+                if fields.is_empty() {
+                    return Err(meta.error("expected at least one field, e.g. `unique(user_id, team_id)`"));
+                }
+                indexes.push(IndexInfo { fields, unique });
+                Ok(())
             } else {
-                Err(meta.error("unknown memoire struct attribute (expected `table = \"...\"` or `crate = \"...\"`)"))
+                Err(meta.error(
+                    "unknown memoire struct attribute (expected `table = \"...\"`, `crate = \"...\"`, \
+                     `unique(a, b)` or `index(a, b)`)",
+                ))
             }
         })?;
     }
@@ -163,6 +188,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             auto_increment: None,
             unique: false,
             index: false,
+            fulltext: false,
             sql_type: None,
             default: None,
             references: None,
@@ -189,6 +215,8 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                     info.unique = true;
                 } else if p.is_ident("index") {
                     info.index = true;
+                } else if p.is_ident("fulltext") {
+                    info.fulltext = true;
                 } else if p.is_ident("skip") {
                     info.skip = true;
                 } else if p.is_ident("column") || p.is_ident("rename") {
@@ -229,13 +257,13 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 } else {
                     return Err(meta.error(
                         "unknown memoire field attribute (expected one of: primary_key, auto_increment, \
-                         unique, index, column, sql_type, default, references, on_delete, on_update, skip)",
+                         unique, index, fulltext, column, sql_type, default, references, on_delete, on_update, skip)",
                     ));
                 }
                 Ok(())
             })?;
         }
-        if info.skip && (info.primary_key || info.unique || info.index || info.references.is_some()) {
+        if info.skip && (info.primary_key || info.unique || info.index || info.fulltext || info.references.is_some()) {
             return Err(syn::Error::new(info.ident.span(), "memoire: a `skip` field cannot carry column attributes"));
         }
         if (info.on_delete.is_some() || info.on_update.is_some()) && info.references.is_none() {
@@ -254,7 +282,23 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
         }
     }
 
-    Ok(ModelInfo { table, krate, fields })
+    for ix in &indexes {
+        let mut seen = std::collections::HashSet::new();
+        for id in &ix.fields {
+            match fields.iter().find(|f| f.ident == *id) {
+                Some(f) if f.skip => {
+                    return Err(syn::Error::new(id.span(), "memoire: a `skip` field cannot be indexed"));
+                }
+                Some(_) => {}
+                None => return Err(syn::Error::new(id.span(), format!("memoire: no field named `{id}`"))),
+            }
+            if !seen.insert(id.to_string()) {
+                return Err(syn::Error::new(id.span(), format!("memoire: `{id}` appears twice in the index")));
+            }
+        }
+    }
+
+    Ok(ModelInfo { table, indexes, krate, fields })
 }
 
 fn is_integer_type(ty: &Type) -> bool {
@@ -300,7 +344,14 @@ struct StaticSql {
     upsert: String,
 }
 
-fn static_sql(d: Dialect, table: &str, cols: &[&FieldInfo], pk: usize, auto_pk: bool) -> StaticSql {
+fn static_sql(
+    d: Dialect,
+    table: &str,
+    cols: &[&FieldInfo],
+    pk: usize,
+    auto_pk: bool,
+    composite_unique: bool,
+) -> StaticSql {
     let t = d.quote(table);
     let pk_col = d.quote(&cols[pk].column);
     let columns = cols.iter().map(|c| format!("{t}.{}", d.quote(&c.column))).collect::<Vec<_>>().join(", ");
@@ -347,7 +398,7 @@ fn static_sql(d: Dialect, table: &str, cols: &[&FieldInfo], pk: usize, auto_pk: 
         // `ON DUPLICATE KEY UPDATE` fires on *any* unique key, so with other
         // unique columns it could overwrite a different row. Those tables get
         // a plain INSERT; the backend updates by key when it hits the primary key.
-        Dialect::MySql if non_pk.iter().any(|c| c.unique) => {
+        Dialect::MySql if composite_unique || non_pk.iter().any(|c| c.unique) => {
             format!("INSERT INTO {t} ({all_names}) VALUES ({all_phs})")
         }
         Dialect::MySql => {
@@ -383,6 +434,24 @@ fn static_sql(d: Dialect, table: &str, cols: &[&FieldInfo], pk: usize, auto_pk: 
     };
 
     StaticSql { columns, select, find, insert, update, delete, upsert }
+}
+
+/// `idx_<table>_<a>_<b>` / `uq_<table>_<a>_<b>`, shortened with a hash past 63
+/// bytes (the limit of PostgreSQL and MySQL identifiers).
+fn index_name(table: &str, columns: &[&str], unique: bool) -> String {
+    let name = format!("{}_{table}_{}", if unique { "uq" } else { "idx" }, columns.join("_"));
+    if name.len() <= 63 {
+        return name;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in name.bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut cut = 54;
+    while !name.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}_{:08x}", &name[..cut], h as u32)
 }
 
 fn upper_snake(name: &str) -> String {
@@ -447,9 +516,10 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
         ));
     }
 
-    let pg = static_sql(Dialect::Postgres, table, &cols, pk, auto_pk);
-    let lite = static_sql(Dialect::Sqlite, table, &cols, pk, auto_pk);
-    let my = static_sql(Dialect::MySql, table, &cols, pk, auto_pk);
+    let composite_unique = info.indexes.iter().any(|ix| ix.unique);
+    let pg = static_sql(Dialect::Postgres, table, &cols, pk, auto_pk, composite_unique);
+    let lite = static_sql(Dialect::Sqlite, table, &cols, pk, auto_pk, composite_unique);
+    let my = static_sql(Dialect::MySql, table, &cols, pk, auto_pk, composite_unique);
     let sql_tokens = |s: &StaticSql| {
         let StaticSql { columns, select, find, insert, update, delete, upsert } = s;
         quote! {
@@ -474,6 +544,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
         let auto = is_pk && auto_pk;
         let unique = f.unique;
         let indexed = f.index;
+        let fulltext = f.fulltext;
         let sql_type = opt_str(&f.sql_type);
         let default = opt_str(&f.default);
         let references = match &f.references {
@@ -499,10 +570,22 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 auto_increment: #auto,
                 unique: #unique,
                 indexed: #indexed,
+                fulltext: #fulltext,
                 sql_type: #sql_type,
                 default: #default,
                 references: #references,
             }
+        }
+    });
+
+    let index_defs = info.indexes.iter().map(|ix| {
+        let positions: Vec<usize> =
+            ix.fields.iter().map(|id| cols.iter().position(|f| f.ident == *id).expect("validated field")).collect();
+        let names: Vec<&str> = positions.iter().map(|&p| cols[p].column.as_str()).collect();
+        let index_name = index_name(table, &names, ix.unique);
+        let unique = ix.unique;
+        quote! {
+            #krate::IndexDef { name: #index_name, columns: &[#(#positions),*], unique: #unique }
         }
     });
 
@@ -542,6 +625,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 name: #table,
                 columns: &[#(#column_defs),*],
                 primary_key: #pk,
+                indexes: &[#(#index_defs),*],
                 sql: [#pg, #lite, #my],
             };
 

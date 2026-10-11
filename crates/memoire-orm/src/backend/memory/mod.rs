@@ -30,7 +30,7 @@ use crate::value::{ColumnType, Value};
 use eval::{Ctx, Group, Key, Parts, Pred, Rows, Slot, eval, order_cmp, slot_of, truthy};
 #[cfg(feature = "mongodb")]
 pub(crate) use eval::{Tok as LikeTok, tokenize as like_tokens};
-use index::Index;
+use index::{Index, WordIndex};
 
 type Map<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 type Set<K> = HashSet<K, foldhash::fast::RandomState>;
@@ -152,10 +152,13 @@ impl Mirror {
 pub(crate) struct Table {
     pub(crate) schema: &'static TableSchema,
     pub(crate) rows: Vec<Vec<Value>>,
-    /// The primary key first, then `unique` columns, then `index` columns.
+    /// The primary key first, then `unique` columns and unique multi-column
+    /// indexes, then `index` columns and the other multi-column indexes.
     indexes: Vec<Index>,
     /// Typed copies of the numeric columns.
     mirrors: Vec<Mirror>,
+    /// Word indexes of the `fulltext` columns.
+    words: Vec<WordIndex>,
     pub(crate) next_id: i64,
     version: u64,
 }
@@ -169,6 +172,7 @@ impl Table {
         // Built for one statement: the `index` columns' indexes would rarely pay
         // for themselves (scans are fast); keep those that enforce uniqueness.
         t.indexes.retain(|i| i.unique);
+        t.words.clear();
         t.rows = rows;
         t.rebuild_indexes();
         t.next_id = last_id.saturating_add(1).max(1);
@@ -180,14 +184,21 @@ impl Table {
     }
 
     pub(crate) fn new(schema: &'static TableSchema, version: u64) -> Self {
-        let mut indexes = vec![Index::new(schema.primary_key, true)];
+        let mut indexes = vec![Index::new(vec![schema.primary_key], true)];
         let others = |unique: bool| {
             schema
                 .columns
                 .iter()
                 .enumerate()
                 .filter(move |(i, c)| *i != schema.primary_key && c.unique == unique && (unique || c.indexed))
-                .map(move |(i, _)| Index::new(i, unique))
+                .map(move |(i, _)| Index::new(vec![i], unique))
+                .chain(
+                    schema
+                        .indexes
+                        .iter()
+                        .filter(move |ix| ix.unique == unique)
+                        .map(move |ix| Index::new(ix.columns.to_vec(), unique)),
+                )
         };
         indexes.extend(others(true));
         indexes.extend(others(false));
@@ -196,6 +207,13 @@ impl Table {
             rows: Vec::new(),
             indexes,
             mirrors: schema.columns.iter().enumerate().filter_map(|(i, c)| Mirror::for_column(i, c.kind)).collect(),
+            words: schema
+                .columns
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.fulltext)
+                .map(|(i, _)| WordIndex::new(i))
+                .collect(),
             next_id: 1,
             version,
         }
@@ -210,12 +228,14 @@ impl Table {
         self.schema.name
     }
 
-    fn violation(&self, col: usize) -> Error {
-        Error::UniqueViolation { table: self.name().to_owned(), column: self.schema.columns[col].name.to_owned() }
+    fn violation(&self, index: &Index) -> Error {
+        let names: Vec<&str> = index.cols.iter().map(|&c| self.schema.columns[c].name).collect();
+        Error::UniqueViolation { table: self.name().to_owned(), column: names.join(", ") }
     }
 
+    /// The single-column index of `col`.
     fn index(&self, col: usize) -> Option<&Index> {
-        self.indexes.iter().find(|i| i.col == col)
+        self.indexes.iter().find(|i| i.single() == Some(col))
     }
 
     /// The row holding `value` in the primary key or a `unique` column.
@@ -240,12 +260,23 @@ impl Table {
         for index in &mut self.indexes {
             index.insert(&self.rows, idx);
         }
+        for w in &mut self.words {
+            w.insert(&self.rows, idx);
+        }
     }
 
     fn unindex_row(&mut self, idx: usize) {
         for index in &mut self.indexes {
             index.remove(&self.rows, idx);
         }
+        for w in &mut self.words {
+            w.remove(&self.rows, idx);
+        }
+    }
+
+    /// The word index of `col`, if it is a `fulltext` column.
+    fn word_index(&self, col: usize) -> Option<&WordIndex> {
+        self.words.iter().find(|w| w.col == col)
     }
 
     fn rebuild_indexes(&mut self) {
@@ -254,6 +285,9 @@ impl Table {
         }
         for index in &mut self.indexes {
             index.clear();
+        }
+        for w in &mut self.words {
+            w.clear();
         }
         for i in 0..self.rows.len() {
             self.index_row(i);
@@ -281,13 +315,9 @@ impl Table {
         const HASHED: usize = 8;
         let mut hashes = [None::<u64>; HASHED];
         for (k, index) in self.indexes.iter().enumerate() {
-            let v = &row[index.col];
-            if v.is_null() {
-                continue;
-            }
-            let h = index.hash(v);
-            if index.unique && index.find_hashed(&self.rows, v, h).is_some() {
-                return Err(self.violation(index.col));
+            let Some(h) = index.row_hash(&row) else { continue };
+            if index.unique && index.find_row_hashed(&self.rows, &row, h).is_some() {
+                return Err(self.violation(index));
             }
             if k < HASHED {
                 hashes[k] = Some(h);
@@ -306,6 +336,9 @@ impl Table {
                 Some(None) => {} // NULL: not indexed
                 None => index.insert(&self.rows, idx),
             }
+        }
+        for w in &mut self.words {
+            w.insert(&self.rows, idx);
         }
         Ok(key)
     }
@@ -328,55 +361,69 @@ impl Table {
         for (_, row) in &changes {
             self.check_row(row)?;
         }
-        // Indexes whose column changes in at least one row.
+        // Indexes one of whose columns changes in at least one row.
         let touched: Vec<usize> = (0..self.indexes.len())
             .filter(|&k| {
-                let col = self.indexes[k].col;
-                changes.iter().any(|(i, row)| !eval::key_eq(&self.rows[*i][col], &row[col]))
+                let cols = &self.indexes[k].cols;
+                changes.iter().any(|(i, row)| cols.iter().any(|&c| !eval::key_eq(&self.rows[*i][c], &row[c])))
             })
             .collect();
         if touched.iter().any(|&k| self.indexes[k].unique) {
             let changed: Set<usize> = changes.iter().map(|(i, _)| *i).collect();
             for &k in touched.iter().filter(|&&k| self.indexes[k].unique) {
-                let col = self.indexes[k].col;
-                let mut seen: Set<Key> = Set::default();
+                let index = &self.indexes[k];
+                let mut seen: Set<Vec<Key>> = Set::default();
                 for (_, row) in &changes {
-                    let v = &row[col];
-                    if v.is_null() {
-                        continue;
+                    let Some(h) = index.row_hash(row) else { continue };
+                    if !seen.insert(index.cols.iter().map(|&c| Key(row[c].clone())).collect()) {
+                        return Err(self.violation(index));
                     }
-                    if !seen.insert(Key(v.clone())) {
-                        return Err(self.violation(col));
-                    }
-                    if let Some(other) = self.lookup(col, v)
+                    if let Some(other) = index.find_row_hashed(&self.rows, row, h)
                         && !changed.contains(&other)
                     {
-                        return Err(self.violation(col));
+                        return Err(self.violation(index));
                     }
                 }
             }
         }
+        let words_touched: Vec<usize> = (0..self.words.len())
+            .filter(|&k| {
+                let col = self.words[k].col;
+                changes.iter().any(|(i, row)| self.rows[*i][col] != row[col])
+            })
+            .collect();
         for &k in &touched {
             for (idx, _) in &changes {
                 self.indexes[k].remove(&self.rows, *idx);
             }
         }
+        for &k in &words_touched {
+            for (idx, _) in &changes {
+                self.words[k].remove(&self.rows, *idx);
+            }
+        }
         let pk = self.schema.primary_key;
         let n = changes.len() as u64;
-        let mut written = Vec::with_capacity(if touched.is_empty() { 0 } else { changes.len() });
+        let reindex = !touched.is_empty() || !words_touched.is_empty();
+        let mut written = Vec::with_capacity(if reindex { changes.len() } else { 0 });
         for (idx, row) in changes {
             self.bump_next_id(&row[pk]);
             for m in &mut self.mirrors {
                 m.set(idx, &row);
             }
             self.rows[idx] = row;
-            if !touched.is_empty() {
+            if reindex {
                 written.push(idx);
             }
         }
         for &k in &touched {
             for &idx in &written {
                 self.indexes[k].insert(&self.rows, idx);
+            }
+        }
+        for &k in &words_touched {
+            for &idx in &written {
+                self.words[k].insert(&self.rows, idx);
             }
         }
         Ok(n)
@@ -413,6 +460,9 @@ impl Table {
                     // The former last row moved to `idx`.
                     for index in &mut self.indexes {
                         index.moved(&self.rows, last, idx);
+                    }
+                    for w in &mut self.words {
+                        w.moved(&self.rows, last, idx);
                     }
                 }
             }
@@ -482,6 +532,12 @@ fn index_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
             };
             table.lookup_all(col, v)
         }
+        Expr::Match(m) => match m.expr() {
+            Expr::Column(c) if c.table == table.name() && !m.words().is_empty() => {
+                table.word_index(c.index).map(|w| w.candidates(m.words()))
+            }
+            _ => None,
+        },
         Expr::InList { expr, list, negated: false } => {
             let col = indexed_col(expr)?;
             let mut out: Vec<usize> = list.iter().flat_map(|v| table.lookup_all(col, v).unwrap_or_default()).collect();
@@ -489,11 +545,41 @@ fn index_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
             out.dedup();
             Some(out)
         }
-        Expr::Binary { op: BinOp::And, left, right } => {
-            index_candidates(left, table).or_else(|| index_candidates(right, table))
-        }
+        Expr::Binary { op: BinOp::And, left, right } => index_candidates(left, table)
+            .or_else(|| index_candidates(right, table))
+            .or_else(|| composite_candidates(filter, table)),
         _ => None,
     }
+}
+
+/// Candidates from a multi-column index whose columns are all pinned to
+/// constants by `AND`ed equalities.
+fn composite_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
+    fn pins<'e>(e: &'e Expr, table: &str, out: &mut Vec<(usize, &'e Value)>) {
+        match e {
+            Expr::Binary { op: BinOp::And, left, right } => {
+                pins(left, table, out);
+                pins(right, table, out);
+            }
+            Expr::Binary { op: BinOp::Eq, left, right } => match (&**left, &**right) {
+                (Expr::Column(c), Expr::Value(v)) | (Expr::Value(v), Expr::Column(c)) if c.table == table => {
+                    out.push((c.index, v));
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    if !table.indexes.iter().any(|i| i.cols.len() > 1) {
+        return None;
+    }
+    let mut pinned = Vec::new();
+    pins(filter, table.name(), &mut pinned);
+    table.indexes.iter().filter(|i| i.cols.len() > 1).find_map(|index| {
+        let values: Option<Vec<&Value>> =
+            index.cols.iter().map(|c| pinned.iter().find(|(p, _)| p == c).map(|(_, v)| *v)).collect();
+        values.map(|v| index.find_all_values(&table.rows, &v))
+    })
 }
 
 /// Recognises `joined.col = other.col` join conditions.
@@ -1295,7 +1381,7 @@ mod tests {
     use crate::prelude::*;
 
     #[derive(Model, Debug, Clone)]
-    #[memoire(table = "consistency")]
+    #[memoire(table = "consistency", unique(group, weight), index(weight, code))]
     struct C {
         id: i64,
         #[memoire(unique)]
@@ -1303,16 +1389,32 @@ mod tests {
         #[memoire(index)]
         group: Option<i32>,
         weight: Option<f64>,
+        #[memoire(fulltext)]
+        note: Option<String>,
     }
 
     /// Indexes and typed copies must always describe the rows exactly.
     fn assert_consistent(t: &Table) {
         for index in &t.indexes {
-            let mut values: Vec<&Value> = t.rows.iter().map(|r| &r[index.col]).filter(|v| !v.is_null()).collect();
-            values.push(&Value::I32(-1));
-            for v in values {
-                let expected: Vec<usize> = (0..t.rows.len()).filter(|&i| key_eq(&t.rows[i][index.col], v)).collect();
-                assert_eq!(index.find_all(&t.rows, v), expected, "column {} value {v:?}", index.col);
+            let probe = |row: &[Value]| -> Vec<Value> { index.cols.iter().map(|&c| row[c].clone()).collect() };
+            let mut keys: Vec<Vec<Value>> =
+                t.rows.iter().map(|r| probe(r)).filter(|k| k.iter().all(|v| !v.is_null())).collect();
+            keys.push(vec![Value::I32(-1); index.cols.len()]);
+            for key in keys {
+                let refs: Vec<&Value> = key.iter().collect();
+                let expected: Vec<usize> = (0..t.rows.len())
+                    .filter(|&i| index.cols.iter().zip(&key).all(|(&c, v)| key_eq(&t.rows[i][c], v)))
+                    .collect();
+                assert_eq!(index.find_all_values(&t.rows, &refs), expected, "columns {:?} key {key:?}", index.cols);
+            }
+        }
+        for w in &t.words {
+            for n in 0..12 {
+                let word = format!("w{n}");
+                let expected: Vec<usize> = (0..t.rows.len())
+                    .filter(|&i| matches!(&t.rows[i][w.col], Value::Text(s) if crate::expr::text_words(s).any(|x| x == word)))
+                    .collect();
+                assert_eq!(w.candidates(&[word.clone()]), expected, "word index, {word}");
             }
         }
         for m in &t.mirrors {
@@ -1343,6 +1445,7 @@ mod tests {
                 if r(4) == 0 { Value::Null } else { Value::Text(format!("c{}", r(400))) },
                 if r(5) == 0 { Value::Null } else { Value::I32(r(6) as i32) },
                 if r(5) == 0 { Value::Null } else { Value::F64(r(100) as f64 / 4.0) },
+                if r(6) == 0 { Value::Null } else { Value::Text(format!("W{} w{}, w{}!", r(12), r(12), r(12))) },
             ]
         };
         for step in 0..1500 {

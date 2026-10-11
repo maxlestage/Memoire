@@ -34,10 +34,17 @@ fn map_err(err: rusqlite::Error) -> Error {
     if let Some((e, msg)) = failure {
         if e.code == rusqlite::ErrorCode::ConstraintViolation {
             if e.extended_code == SQLITE_CONSTRAINT_UNIQUE || e.extended_code == SQLITE_CONSTRAINT_PRIMARYKEY {
-                // "UNIQUE constraint failed: users.email"
-                let target = msg.rsplit(": ").next().unwrap_or("").split(", ").next().unwrap_or("");
-                let (table, column) = target.split_once('.').unwrap_or(("", target));
-                return Error::UniqueViolation { table: table.to_owned(), column: column.to_owned() };
+                // "UNIQUE constraint failed: users.email" (or "t.a, t.b" for an index
+                // over several columns, reported as "a, b").
+                let target = msg.rsplit(": ").next().unwrap_or("");
+                let mut table = "";
+                let mut columns = Vec::new();
+                for part in target.split(", ") {
+                    let (t, c) = part.split_once('.').unwrap_or(("", part));
+                    table = if table.is_empty() { t } else { table };
+                    columns.push(c);
+                }
+                return Error::UniqueViolation { table: table.to_owned(), column: columns.join(", ") };
             }
             return Error::Constraint(msg);
         }
@@ -170,6 +177,33 @@ impl fmt::Debug for SqliteDb {
     }
 }
 
+/// `memoire_match(text, words)`: full-text search ([`Column::matches`](crate::Column::matches)),
+/// with exactly the word rule of the other backends. `words` are the
+/// space-separated lower-case words; `NULL` text gives `NULL`.
+fn register_functions(conn: &Connection) -> Result<()> {
+    use rusqlite::functions::FunctionFlags;
+    conn.create_scalar_function(
+        "memoire_match",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
+        |ctx| {
+            let words: Vec<String> = ctx
+                .get::<Option<String>>(1)?
+                .unwrap_or_default()
+                .split(' ')
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned)
+                .collect();
+            match ctx.get_raw(0) {
+                ValueRef::Null => Ok(None),
+                ValueRef::Text(t) => Ok(Some(crate::expr::contains_words(&words, &String::from_utf8_lossy(t)))),
+                _ => Ok(Some(false)),
+            }
+        },
+    )
+    .map_err(map_err)
+}
+
 impl SqliteDb {
     /// Opens (or creates) a database file.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -188,6 +222,7 @@ impl SqliteDb {
     /// enabled on it).
     pub fn from_connection(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA case_sensitive_like = ON;").map_err(map_err)?;
+        register_functions(&conn)?;
         conn.set_prepared_statement_cache_capacity(256);
         Ok(SqliteDb { conn: Arc::new(Mutex::new(conn)) })
     }

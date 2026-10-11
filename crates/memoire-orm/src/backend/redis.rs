@@ -9,6 +9,7 @@
 //! | `<prefix>:tables` | set | names of the existing tables |
 //! | `<prefix>:{<table>}:rows` | hash | primary key → row as a JSON object |
 //! | `<prefix>:{<table>}:u:<column>` | hash | unique value → primary key |
+//! | `<prefix>:{<table>}:u:<index>` | hash | JSON array of the values of a unique multi-column index → primary key |
 //! | `<prefix>:{<table>}:seq` | string | last generated id |
 //! | `<prefix>:{<table>}:ver` | string | version, bumped by every write |
 //! | `<prefix>:{<table>}:meta` | hash | column list and key names |
@@ -145,15 +146,53 @@ impl Keys {
     /// never repeat).
     fn data_keys(&self, schema: &TableSchema) -> Vec<String> {
         let mut v = vec![self.rows(schema.name), self.seq(schema.name)];
-        for c in schema.columns.iter().filter(|c| c.unique && !c.primary_key) {
-            v.push(self.unique(schema.name, c.name));
+        for u in unique_keys(schema) {
+            v.push(self.unique(schema.name, u.name));
         }
         v
     }
 }
 
-fn unique_columns(schema: &TableSchema) -> impl Iterator<Item = (usize, &'static str)> + '_ {
-    schema.columns.iter().enumerate().filter(|(_, c)| c.unique && !c.primary_key).map(|(i, c)| (i, c.name))
+/// A unique constraint besides the primary key, kept in a `u:<name>` hash: a
+/// `unique` column, or a unique index over several columns.
+struct UniqueKey {
+    cols: Vec<usize>,
+    /// Suffix of the hash key: the column or index name.
+    name: &'static str,
+    /// Reported in [`Error::UniqueViolation`]: `email`, or `user_id, team_id`.
+    label: String,
+}
+
+impl UniqueKey {
+    /// The hash field of `row`'s key; `None` when one of the columns is NULL
+    /// (SQL lets such rows repeat).
+    fn field(&self, row: &[Value]) -> Option<String> {
+        if self.cols.iter().any(|&c| row[c].is_null()) {
+            return None;
+        }
+        match *self.cols {
+            [c] => Some(field(&row[c])),
+            _ => {
+                let parts: Vec<String> = self.cols.iter().map(|&c| field(&row[c])).collect();
+                serde_json::to_string(&parts).ok()
+            }
+        }
+    }
+}
+
+fn unique_keys(schema: &TableSchema) -> Vec<UniqueKey> {
+    let columns = schema
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.unique && !c.primary_key)
+        .map(|(i, c)| UniqueKey { cols: vec![i], name: c.name, label: c.name.to_owned() });
+    let indexes = schema.indexes.iter().filter(|ix| ix.unique).map(|ix| UniqueKey {
+        cols: ix.columns.to_vec(),
+        name: ix.name,
+        label: ix.label(schema),
+    });
+    columns.chain(indexes).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +435,7 @@ fn table_of_key(key: &str) -> String {
 fn diff(ops: &mut Ops, keys: &Keys, schema: &TableSchema, old: &HashMap<String, String>, new_rows: &[Vec<Value>]) {
     let pk = schema.primary_key;
     let mut seen: HashSet<String> = HashSet::with_capacity(new_rows.len());
-    let uniques: Vec<(usize, &str)> = unique_columns(schema).collect();
+    let uniques = unique_keys(schema);
     for row in new_rows {
         let f = field(&row[pk]);
         let json = encode_row(schema, row);
@@ -406,15 +445,15 @@ fn diff(ops: &mut Ops, keys: &Keys, schema: &TableSchema, old: &HashMap<String, 
             continue;
         }
         let old_row = previous.and_then(|j| decode_row(schema, j).ok());
-        for &(c, name) in &uniques {
-            let before = old_row.as_ref().map(|r| &r[c]).filter(|v| !v.is_null()).map(field);
-            let after = Some(&row[c]).filter(|v| !v.is_null()).map(field);
+        for u in &uniques {
+            let before = old_row.as_deref().and_then(|r| u.field(r));
+            let after = u.field(row);
             if before != after {
                 if let Some(b) = before {
-                    ops.hdel(keys.unique(schema.name, name), &b);
+                    ops.hdel(keys.unique(schema.name, u.name), &b);
                 }
                 if let Some(a) = after {
-                    ops.hset(keys.unique(schema.name, name), &a, &f);
+                    ops.hset(keys.unique(schema.name, u.name), &a, &f);
                 }
             }
         }
@@ -426,9 +465,9 @@ fn diff(ops: &mut Ops, keys: &Keys, schema: &TableSchema, old: &HashMap<String, 
         }
         ops.hdel(keys.rows(schema.name), f);
         if let Ok(row) = decode_row(schema, json) {
-            for &(c, name) in &uniques {
-                if !row[c].is_null() {
-                    ops.hdel(keys.unique(schema.name, name), &field(&row[c]));
+            for u in &uniques {
+                if let Some(b) = u.field(&row) {
+                    ops.hdel(keys.unique(schema.name, u.name), &b);
                 }
             }
         }
@@ -606,8 +645,10 @@ impl RedisDb {
                 if s.joins.is_empty()
                     && let Some(pinned) = s.filter.as_ref().and_then(|f| pinned_keys(f, s.from))
                 {
-                    // Read only the pinned rows.
-                    let fields: Vec<String> = pinned.iter().map(|v| field(v)).collect();
+                    // Read only the pinned rows (each once: `pk IN (1, 1)` is one row).
+                    let mut fields: Vec<String> = pinned.iter().map(|v| field(v)).collect();
+                    let mut seen = HashSet::with_capacity(fields.len());
+                    fields.retain(|f| seen.insert(f.clone()));
                     let mut pipe = redis::pipe();
                     pipe.atomic().cmd("SISMEMBER").arg(self.keys.tables()).arg(s.from.name);
                     if !fields.is_empty() {
@@ -673,11 +714,10 @@ impl RedisDb {
         let pk = table.primary_key;
         let f = field(&row[pk]);
         ops.absent(self.keys.rows(table.name), &f, table.pk().name);
-        for (c, name) in unique_columns(table) {
-            if !row[c].is_null() {
-                let u = field(&row[c]);
-                ops.absent(self.keys.unique(table.name, name), &u, name);
-                ops.hset(self.keys.unique(table.name, name), &u, &f);
+        for u in unique_keys(table) {
+            if let Some(v) = u.field(row) {
+                ops.absent(self.keys.unique(table.name, u.name), &v, &u.label);
+                ops.hset(self.keys.unique(table.name, u.name), &v, &f);
             }
         }
         ops.hset(self.keys.rows(table.name), &f, &encode_row(table, row));
@@ -719,13 +759,15 @@ impl RedisDb {
             }
         }
         // Duplicates inside the batch itself.
-        let mut seen: HashSet<(usize, String)> = HashSet::new();
-        let indexed: Vec<(usize, &str)> =
-            std::iter::once((table.primary_key, table.pk().name)).chain(unique_columns(table)).collect();
+        let mut seen: HashSet<(&str, String)> = HashSet::new();
+        let pk = UniqueKey { cols: vec![table.primary_key], name: table.pk().name, label: table.pk().name.to_owned() };
+        let indexed: Vec<UniqueKey> = std::iter::once(pk).chain(unique_keys(table)).collect();
         for r in &rows {
-            for &(c, name) in &indexed {
-                if !r[c].is_null() && !seen.insert((c, field(&r[c]))) {
-                    return Err(Error::UniqueViolation { table: table.name.to_owned(), column: name.to_owned() });
+            for u in &indexed {
+                if let Some(v) = u.field(r)
+                    && !seen.insert((u.name, v))
+                {
+                    return Err(Error::UniqueViolation { table: table.name.to_owned(), column: u.label.clone() });
                 }
             }
         }
@@ -770,16 +812,16 @@ impl RedisDb {
     ) -> Result<()> {
         let old = decode_row(table, old_json)?;
         ops.unchanged(self.keys.rows(table.name), f, old_json);
-        for (c, name) in unique_columns(table) {
-            let before = Some(&old[c]).filter(|v| !v.is_null()).map(field);
-            let after = new.and_then(|r| Some(&r[c]).filter(|v| !v.is_null()).map(field));
+        for u in unique_keys(table) {
+            let before = u.field(&old);
+            let after = new.and_then(|r| u.field(r));
             if before != after {
                 if let Some(b) = &before {
-                    ops.hdel(self.keys.unique(table.name, name), b);
+                    ops.hdel(self.keys.unique(table.name, u.name), b);
                 }
                 if let Some(a) = &after {
-                    ops.absent(self.keys.unique(table.name, name), a, name);
-                    ops.hset(self.keys.unique(table.name, name), a, f);
+                    ops.absent(self.keys.unique(table.name, u.name), a, &u.label);
+                    ops.hset(self.keys.unique(table.name, u.name), a, f);
                 }
             }
         }
