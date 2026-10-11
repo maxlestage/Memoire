@@ -64,6 +64,12 @@ pub static CATEGORIES: &[DocCategory] = &[
             page!("mysql", "MySQL & MariaDB", "MySQL & MariaDB", "MySQL & MariaDB"),
             page!("redis", "Redis", "Redis", "Redis"),
             page!("mongodb", "MongoDB (NoSQL)", "MongoDB (NoSQL)", "MongoDB (NoSQL)"),
+            page!(
+                "browser-storage",
+                "Browser storage (Pinia-style store)",
+                "Stockage du navigateur (store façon Pinia)",
+                "Almacenamiento del navegador (store al estilo Pinia)"
+            ),
         ],
     },
     DocCategory {
@@ -144,7 +150,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 24);
+        assert_eq!(page_count(), 25);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

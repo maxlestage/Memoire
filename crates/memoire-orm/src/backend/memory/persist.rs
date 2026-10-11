@@ -98,6 +98,17 @@ pub(crate) enum Record {
 }
 
 impl Record {
+    /// The table the record is about.
+    pub(crate) fn table(&self) -> &str {
+        match self {
+            Record::Create { table, .. }
+            | Record::Drop { table }
+            | Record::Put { table, .. }
+            | Record::Del { table, .. }
+            | Record::Seq { table, .. } => table,
+        }
+    }
+
     pub(crate) fn create(schema: &TableSchema) -> Record {
         Record::Create {
             table: schema.name.to_owned(),
@@ -454,15 +465,25 @@ pub(crate) struct Pending {
     by_key: std::collections::HashMap<Key, usize>,
     live: usize,
     next_id: i64,
+    /// Rows stored as JSON objects (browser storage), decoded with the model's
+    /// column types when the table is attached.
+    #[cfg_attr(not(feature = "web"), allow(dead_code))]
+    json: Vec<String>,
 }
 
 impl Pending {
     fn new(columns: Vec<String>, pk: usize) -> Self {
-        Pending { columns, pk, rows: Vec::new(), by_key: Default::default(), live: 0, next_id: 1 }
+        Pending { columns, pk, rows: Vec::new(), by_key: Default::default(), live: 0, next_id: 1, json: Vec::new() }
+    }
+
+    /// A table read from browser storage: one JSON object per row.
+    #[cfg(feature = "web")]
+    pub(crate) fn from_json(columns: Vec<String>, pk: usize, next_id: i64, rows: Vec<String>) -> Self {
+        Pending { next_id, json: rows, ..Pending::new(columns, pk) }
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.live
+        self.live + self.json.len()
     }
 
     /// The model changed: rows follow the new column list (by name; new
@@ -517,7 +538,7 @@ impl Pending {
         let map: Vec<Option<usize>> =
             schema.columns.iter().map(|c| self.columns.iter().position(|o| o == c.name)).collect();
         for (c, m) in schema.columns.iter().zip(&map) {
-            if m.is_none() && !c.nullable && self.live > 0 {
+            if m.is_none() && !c.nullable && self.len() > 0 {
                 return Err(Error::Conversion(format!(
                     "`{}.{}` is not in the stored table and is not nullable: make the field an `Option`, \
                      or migrate the data",
@@ -529,6 +550,10 @@ impl Pending {
         t.rows.reserve(self.live);
         for row in self.rows.iter().flatten() {
             t.insert(map.iter().map(|m| m.map_or(Value::Null, |i| row[i].clone())).collect(), false)?;
+        }
+        #[cfg(feature = "web")]
+        for json in &self.json {
+            t.insert(crate::backend::json_row::decode_row(schema, json)?, false)?;
         }
         t.next_id = t.next_id.max(self.next_id);
         Ok(t)
@@ -547,6 +572,38 @@ impl Pending {
         for row in self.rows.iter().flatten() {
             out.push(Record::Put { table: table.to_owned(), row: row.clone() });
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Where the records go
+// ---------------------------------------------------------------------------
+
+/// The medium a stored [`MemoryDb`](super::MemoryDb) writes its committed
+/// changes to: a file ([`Store`]) or browser storage.
+pub(crate) trait Journal: Send {
+    /// Writes the records of one committed statement or transaction.
+    fn append(&mut self, records: &[Record]) -> Result<()>;
+
+    /// `true` when the medium should be rewritten with only the current rows.
+    fn should_compact(&self, _live_rows: usize) -> bool {
+        false
+    }
+
+    /// Rewrites the medium with the current content.
+    fn compact(&mut self, _state: &State) -> Result<()> {
+        Ok(())
+    }
+
+    /// The file, if the medium is one.
+    fn path(&self) -> Option<&Path> {
+        None
+    }
+
+    /// After a failed `append` that the medium undid: the tables as they are
+    /// stored, to put the memory back in step (`None` when the medium cannot).
+    fn reload(&self, _tables: &[String]) -> Option<Vec<(String, Option<Pending>)>> {
+        None
     }
 }
 
@@ -643,9 +700,11 @@ impl Store {
         }
         Ok(())
     }
+}
 
+impl Journal for Store {
     /// Appends records (one committed statement or transaction) in one write.
-    pub(crate) fn append(&mut self, records: &[Record]) -> Result<()> {
+    fn append(&mut self, records: &[Record]) -> Result<()> {
         if self.failed {
             return Err(corrupt("an earlier write to the file failed; reopen the database"));
         }
@@ -664,12 +723,12 @@ impl Store {
     }
 
     /// `true` when the journal holds much more than the data it describes.
-    pub(crate) fn should_compact(&self, live_rows: usize) -> bool {
+    fn should_compact(&self, live_rows: usize) -> bool {
         self.records > 10_000 && self.records > 4 * live_rows as u64
     }
 
     /// Rewrites the file with the current content, then replaces it atomically.
-    pub(crate) fn compact(&mut self, state: &State) -> Result<()> {
+    fn compact(&mut self, state: &State) -> Result<()> {
         let mut records = Vec::new();
         let mut names: Vec<&String> = state.tables.keys().chain(state.pending.keys()).collect();
         names.sort();
@@ -701,8 +760,8 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
+    fn path(&self) -> Option<&Path> {
+        Some(&self.path)
     }
 }
 

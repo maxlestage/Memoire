@@ -24,5 +24,8 @@ pub mod mysql;
 #[cfg(feature = "redis")]
 pub mod redis;
 
+#[cfg(any(feature = "redis", feature = "web"))]
+pub(crate) mod json_row;
+
 #[cfg(feature = "mongodb")]
 pub mod mongodb;

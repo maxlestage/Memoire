@@ -16,6 +16,8 @@ Todas las operaciones habituales de Memoire en una sola página. Los ejemplos da
 | Importarlo todo | `use memoire_orm::prelude::*;` |
 | Abrir en memoria | `let db = MemoryDb::new();` |
 | Abrir en memoria, guardado en un archivo | `MemoryDb::open("app.memoire")?`; cifrado: `MemoryDb::open_with(path, StorageOptions::new().password(pw))?` |
+| Store al estilo Pinia en `localStorage` | `let cart = Store::<Cart>::new("cart"); cart.update(\|c\| c.items.push(item));` (feature `web`) |
+| Base en `localStorage` | `LocalStorageDb::open("app")?` (feature `web`) |
 | Abrir SQLite en archivo / en memoria | `SqliteDb::open("app.db")?` / `SqliteDb::open_in_memory()?` |
 | Conectarse a PostgreSQL | `PgPool::connect(url).await?` o `PgPool::connect_with(url, 10).await?` |
 | Conectarse a MySQL / MariaDB | `MySqlPool::connect("mysql://user:pass@host:3306/app").await?` |

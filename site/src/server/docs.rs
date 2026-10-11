@@ -39,6 +39,7 @@ pub const SOURCES: &[(&str, [&str; 3])] = sources!(
     "mysql",
     "redis",
     "mongodb",
+    "browser-storage",
     "performance",
     "benchmarks",
     "deploy-heroku-mobile",

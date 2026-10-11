@@ -58,6 +58,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `redis-tls` | no | `rediss://` URLs with `rustls`; append `#insecure` for self-signed certificates. Implies `redis` |
 | `mongodb` | no | `MongoDb`, collections in MongoDB through the official driver (requires Tokio; includes `memory`) |
 | `encryption` | no | Encrypted `MemoryDb` files (AES-256-GCM, key derived from a password with Argon2id). Implies `memory` |
+| `web` | no | Browser storage: `Store`, a Pinia-style state store, and `LocalStorageDb`, a database in `localStorage` (wasm32; `MemoryStorage` everywhere). Implies `memory` |
 | `chrono` | no | Date and time columns: `NaiveDateTime`, `DateTime<Utc>`, `NaiveDate`, `NaiveTime` |
 | `uuid` | no | `uuid::Uuid` columns |
 | `json` | no | JSON columns: `serde_json::Value` and `Json<T>` for any `serde` type |

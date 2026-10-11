@@ -64,6 +64,11 @@ pub enum Error {
     #[error("relation error: {0}")]
     Relation(String),
 
+    /// The browser storage refused an operation (full, disabled, or not
+    /// available outside a browser).
+    #[error("browser storage error: {0}")]
+    Storage(String),
+
     /// The operation is not supported by the backend.
     #[error("operation not supported by this backend: {0}")]
     Unsupported(String),
