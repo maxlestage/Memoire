@@ -55,6 +55,10 @@ async fn exports_every_page_behind_the_base_path() {
     assert!(legacy.contains(r#"data-redirect="/docs/models/""#));
     assert!(legacy.contains(r#"href="/Memoire/es/docs/models/""#));
     assert!(read(&dir, "404.html").contains(r#"<meta name="robots" content="noindex"#));
+    // The root and the 404 page go to the visitor's language; each language has its own page.
+    assert!(read(&dir, "index.html").contains("navigator.languages"));
+    assert!(read(&dir, "404.html").contains("navigator.languages"));
+    assert!(read(&dir, "fr/404/index.html").contains(r#"<html lang="fr""#));
     assert!(read(&dir, "sitemap.xml").contains("<loc>https://user.github.io/Memoire/es/docs/models/</loc>"));
     assert!(read(&dir, "robots.txt").contains("Sitemap: https://user.github.io/Memoire/sitemap.xml"));
     assert!(read(&dir, "search/es.txt").lines().count() > 20);

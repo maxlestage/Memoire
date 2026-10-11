@@ -4,7 +4,7 @@ This page explains how Memoire is benchmarked, how to run the benchmarks on your
 
 ## Methodology
 
-The benchmarks live in `crates/memoire-orm/benches/orm.rs` and use [Criterion](https://github.com/bheisler/criterion.rs), the standard statistics-driven benchmarking library for Rust. For each operation, Criterion warms up, runs the code many times, and reports the typical time per run with a confidence interval.
+The benchmarks live in `crates/memoire-orm/benches/orm.rs` and use [Criterion](https://crates.io/crates/criterion), the standard statistics-driven benchmarking library for Rust. For each operation, Criterion warms up, runs the code many times, and reports the typical time per run with a confidence interval.
 
 They are compiled with the `bench` profile of the workspace (`lto = "thin"`, `codegen-units = 1`), close to how an optimised application is built.
 

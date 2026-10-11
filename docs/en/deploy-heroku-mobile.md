@@ -6,7 +6,7 @@ You can put the Memoire website online, and keep it up to date, using only a pho
 
 You need:
 
-- a **GitHub account** and your own copy of the repository: open `https://github.com/maxlestage/Memoire` and tap **Fork** (only needed for methods 2 and 3);
+- a **GitHub account** and your own copy of the repository: open `https://maxlestage.github.io/Memoire/` and tap **Fork** (only needed for methods 2 and 3);
 - a **Heroku account** (sign up at `https://signup.heroku.com` in your phone's browser);
 - a **payment method** on the Heroku account. Heroku has had no free plan since November 2022: the website runs on a *Basic* dyno (about 7 USD per month at the time of writing) and Heroku will not start apps on an unverified account. Check `https://www.heroku.com/pricing` for current prices.
 
@@ -31,7 +31,7 @@ A common combination: method 1 for the very first deploy, then method 2 or 3 to 
 The repository's README has a purple **Deploy to Heroku** button. It points to:
 
 ```text
-https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire
+https://dashboard.heroku.com/new-app
 ```
 
 1. Open the repository on GitHub (app or browser) and scroll to the top of the README.
@@ -46,7 +46,7 @@ What happens behind the scenes:
 
 - `app.json` describes the app for Heroku: its name and description, the **container** stack, one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
 - `heroku.yml` tells Heroku to build the `web` process from the `Dockerfile` at the root of the repository.
-- The `Dockerfile` builds the website, written in Rust with [active](https://github.com/maxlestage/Active), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
+- The `Dockerfile` builds the website, written in Rust with [active](https://maxlestage.github.io/Active/), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
 
 > **Note** The button deploys the repository as it is at that moment. To get later changes, use method 2 or 3, or tap the button again to create a fresh app.
 

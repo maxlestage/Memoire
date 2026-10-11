@@ -4,12 +4,12 @@ use active::prelude::*;
 
 use super::Site;
 use super::layout::{
-    AUTHOR, AUTHOR_URL, Ctx, LICENSE_URL, alternates, base_document, copy_pill, doc_href, document, dots, external,
-    href, json, logo_mark, mini_window, page_hero, reveal, section_head, tilt_card,
+    AUTHOR, Ctx, LICENSE_PATH, alternates, base_document, copy_pill, doc_href, document, dots, href, json, logo_mark,
+    mini_window, page_hero, reveal, section_head, tilt_card,
 };
 use crate::data::bench::{BENCH_IS_PLACEHOLDER, BENCHMARKS};
 use crate::data::samples;
-use crate::docs::{self, CATEGORIES, REPO_URL};
+use crate::docs::{self, CATEGORIES};
 use crate::highlight::highlight;
 use crate::i18n::{Texts, t};
 use crate::icons::{FEATURE_ICONS, Icon, icon};
@@ -48,8 +48,9 @@ fn home(ctx: &Ctx<'_>) -> Node {
     let seo = page_seo(ctx, &format!("Memoire ORM — {}", tx.footer_tagline), tx.meta_description)
         .title_template("%s")
         .json_ld(format!(
-            r#"{{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Memoire ORM","description":{},"codeRepository":"{REPO_URL}","programmingLanguage":"Rust","license":"{LICENSE_URL}","author":{{"@type":"Person","name":"{AUTHOR}","url":"{AUTHOR_URL}"}},"url":{},"inLanguage":"{}"}}"#,
+            r#"{{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Memoire ORM","description":{},"programmingLanguage":"Rust","license":"{}{LICENSE_PATH}","author":{{"@type":"Person","name":"{AUTHOR}"}},"url":{},"inLanguage":"{}"}}"#,
             json(tx.meta_description),
+            ctx.origin,
             json(&format!("{}{}", ctx.origin, ctx.route.path())),
             lang.code()
         ));
@@ -112,21 +113,12 @@ fn hero(lang: Lang) -> Element {
                 )
                 .child(p().class("hero-subtitle hero-anim").style("--d:360ms").text(tx.hero_subtitle))
                 .child(
-                    div()
-                        .class("hero-ctas hero-anim")
-                        .style("--d:440ms")
-                        .child(
-                            a().class("btn btn-primary btn-lg magnetic")
-                                .href(doc_href(lang, "quick-start"))
-                                .child(span().text(tx.hero_cta_primary))
-                                .child(icon(Icon::ArrowRight)),
-                        )
-                        .child(
-                            external(REPO_URL)
-                                .class("btn btn-ghost btn-lg magnetic")
-                                .child(icon(Icon::Github))
-                                .child(span().text(tx.hero_cta_github)),
-                        ),
+                    div().class("hero-ctas hero-anim").style("--d:440ms").child(
+                        a().class("btn btn-primary btn-lg magnetic")
+                            .href(doc_href(lang, "quick-start"))
+                            .child(span().text(tx.hero_cta_primary))
+                            .child(icon(Icon::ArrowRight)),
+                    ),
                 )
                 .child(div().class("hero-anim").style("--d:520ms").child(copy_pill(lang, samples::INSTALL))),
         )
@@ -521,16 +513,11 @@ fn doc_page(ctx: &Ctx<'_>, slug: &str) -> Node {
                 .child(chevron())
                 .child(span().class("current").attr("aria-current", "page").text(title)),
         )
-        .child(
-            div()
-                .class("doc-meta")
-                .child(span().child(icon(Icon::Clock)).text(format!(
-                    "{} {}",
-                    docs::reading_minutes(doc.words),
-                    tx.docs_min_read
-                )))
-                .child(external(docs::edit_url(lang, page.slug)).child(icon(Icon::Edit)).text(tx.docs_edit)),
-        )
+        .child(div().class("doc-meta").child(span().child(icon(Icon::Clock)).text(format!(
+            "{} {}",
+            docs::reading_minutes(doc.words),
+            tx.docs_min_read
+        ))))
         .child(div().class("markdown-body").html(doc.html.clone()))
         .child(pager);
     let toc = (!doc.toc.is_empty()).then(|| {
@@ -660,8 +647,51 @@ pub fn language_choice(site: &Site, origin: &str, page: &Page) -> String {
     base_document(site, body.into(), Lang::En, None)
         .seo(seo)
         .html_attr("data-redirect", target.clone())
-        .head(format!(r#"<noscript><meta http-equiv="refresh" content="0; url={}/en{target}"/></noscript>"#, base()))
+        .head(language_redirect(&target))
         .render()
+}
+
+/// A JavaScript string literal that cannot close a `<script>` element.
+fn js_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '<' => out.push_str("\\u003c"),
+            '\n' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The script of the pages a static host serves without knowing the visitor's language: goes
+/// to `/{lang}{target}` for the language of the address (`/fr/…` on a missing page), else the
+/// one saved by the switcher, else the browser's, else English. It runs before the browser
+/// bundle (which does the same); without JavaScript, a `<meta>` refresh goes to English.
+fn language_redirect(target: &str) -> String {
+    let codes: Vec<String> = Lang::ALL.iter().map(|l| js_string(l.code())).collect();
+    format!(
+        concat!(
+            "<script>(function(){{var b={base},L=[{codes}],c=null;",
+            "var s=location.pathname.slice(b.length).split('/').filter(Boolean)[0];",
+            "if(L.indexOf(s)>=0)c=s;",
+            "var m=document.cookie.match(/(?:^|; )memoire-lang=([a-z]{{2}})/);",
+            "if(!c&&m&&L.indexOf(m[1])>=0)c=m[1];",
+            "try{{var k=localStorage.getItem('memoire-lang');if(!c&&k&&L.indexOf(k)>=0)c=k}}catch(e){{}}",
+            "var l=navigator.languages||[navigator.language||''];",
+            "for(var i=0;i<l.length&&!c;i++){{var x=String(l[i]).slice(0,2).toLowerCase();",
+            "if(L.indexOf(x)>=0)c=x}}",
+            "location.replace(b+'/'+(c||'en')+{target}+location.search+location.hash)}})()</script>",
+            r#"<noscript><meta http-equiv="refresh" content="0; url={fallback}"/></noscript>"#,
+        ),
+        base = js_string(base()),
+        codes = codes.join(","),
+        target = js_string(target),
+        fallback = link(&format!("/en{target}")),
+    )
 }
 
 #[cfg(test)]

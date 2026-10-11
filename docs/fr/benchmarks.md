@@ -4,7 +4,7 @@ Cette page explique comment Memoire est mesuré, comment lancer les benchmarks s
 
 ## Méthodologie
 
-Les benchmarks se trouvent dans `crates/memoire-orm/benches/orm.rs` et utilisent [Criterion](https://github.com/bheisler/criterion.rs), la bibliothèque de benchmark de référence en Rust, fondée sur les statistiques. Pour chaque opération, Criterion fait une phase de chauffe, exécute le code de nombreuses fois et indique le temps typique par exécution avec un intervalle de confiance.
+Les benchmarks se trouvent dans `crates/memoire-orm/benches/orm.rs` et utilisent [Criterion](https://crates.io/crates/criterion), la bibliothèque de benchmark de référence en Rust, fondée sur les statistiques. Pour chaque opération, Criterion fait une phase de chauffe, exécute le code de nombreuses fois et indique le temps typique par exécution avec un intervalle de confiance.
 
 Ils sont compilés avec le profil `bench` du workspace (`lto = "thin"`, `codegen-units = 1`), proche de la façon dont une application optimisée est compilée.
 
