@@ -6,7 +6,7 @@ Vous pouvez mettre en ligne le site de Memoire, et le maintenir à jour, uniquem
 
 Il vous faut :
 
-- un **compte GitHub** et votre propre copie du dépôt : ouvrez `https://github.com/maxlestage/Memoire` et appuyez sur **Fork** (nécessaire uniquement pour les méthodes 2 et 3) ;
+- un **compte GitHub** et votre propre copie du dépôt : ouvrez `https://maxlestage.github.io/Memoire/` et appuyez sur **Fork** (nécessaire uniquement pour les méthodes 2 et 3) ;
 - un **compte Heroku** (inscrivez-vous sur `https://signup.heroku.com` depuis le navigateur de votre téléphone) ;
 - un **moyen de paiement** enregistré sur le compte Heroku. Heroku n'a plus d'offre gratuite depuis novembre 2022 : le site tourne sur un dyno *Basic* (environ 7 USD par mois au moment où ces lignes sont écrites), et Heroku ne démarre pas d'applications sur un compte non vérifié. Consultez `https://www.heroku.com/pricing` pour connaître les tarifs actuels.
 
@@ -31,7 +31,7 @@ Une combinaison courante : la méthode 1 pour le tout premier déploiement, puis
 Le README du dépôt contient un bouton violet **Deploy to Heroku**. Il pointe vers :
 
 ```text
-https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire
+https://dashboard.heroku.com/new-app
 ```
 
 1. Ouvrez le dépôt sur GitHub (application ou navigateur) et faites défiler jusqu'en haut du README.
@@ -46,7 +46,7 @@ Ce qui se passe en coulisses :
 
 - `app.json` décrit l'application pour Heroku : son nom et sa description, la stack **container**, un dyno `web` de taille *Basic* et le réglage `RUST_LOG`.
 - `heroku.yml` indique à Heroku de construire le processus `web` à partir du `Dockerfile` situé à la racine du dépôt.
-- Le `Dockerfile` construit le site, écrit en Rust avec [active](https://github.com/maxlestage/Active), dans une première étape : le paquet du navigateur (les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`), puis le serveur web, qui rend chaque page et embarque la documentation. Il ne copie ensuite que le binaire du serveur et les fichiers statiques dans une image finale allégée.
+- Le `Dockerfile` construit le site, écrit en Rust avec [active](https://maxlestage.github.io/Active/), dans une première étape : le paquet du navigateur (les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`), puis le serveur web, qui rend chaque page et embarque la documentation. Il ne copie ensuite que le binaire du serveur et les fichiers statiques dans une image finale allégée.
 
 > **Remarque** Le bouton déploie le dépôt tel qu'il est à ce moment-là. Pour récupérer les modifications ultérieures, utilisez la méthode 2 ou 3, ou appuyez à nouveau sur le bouton pour créer une nouvelle application.
 

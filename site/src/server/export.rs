@@ -39,11 +39,17 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
         let html = get(&site, &route.path(), StatusCode::OK).await?;
         write(&format!("{}index.html", route.path()), &html)?;
     }
-    write("404.html", &get(&site, "/en/404/", StatusCode::NOT_FOUND).await?)?;
     write("offline/index.html", &get(&site, "/offline/", StatusCode::OK).await?)?;
 
+    // The visitor's language, chosen in the browser: at the root and on a missing address (the
+    // static host serves `404.html`), then the "not found" page of each language.
     let origin = site.site_url.clone().unwrap_or_else(|| "http://localhost".into());
     write("index.html", pages::language_choice(&site, &origin, &Page::Home).as_bytes())?;
+    write("404.html", pages::language_choice(&site, &origin, &Page::NotFound).as_bytes())?;
+    for lang in Lang::ALL {
+        let path = format!("/{}/404/", lang.code());
+        write(&format!("{path}index.html"), &get(&site, &path, StatusCode::NOT_FOUND).await?)?;
+    }
     let mut legacy = vec![Page::Features, Page::Performance, Page::Playground, Page::Docs];
     legacy.extend(crate::docs::slugs().iter().map(|s| Page::Doc(s.to_string())));
     for page in legacy {

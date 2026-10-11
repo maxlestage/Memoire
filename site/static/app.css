@@ -3979,6 +3979,15 @@ html:not(.motion) .bar-fill {
     transform: none;
   }
 
+  /* Without the browser code the drawer stays in place: the documentation is reachable. */
+  html:not(.motion) .docs-sidebar {
+    position: static;
+    width: auto;
+    transform: none;
+    border-right: 0;
+    box-shadow: none;
+  }
+
   .docs-sidebar-head {
     display: flex;
     align-items: center;

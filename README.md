@@ -4,14 +4,11 @@
 
 **The blazing-fast, type-safe ORM written in pure Rust.**
 
-[![CI](https://github.com/maxlestage/Memoire/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlestage/Memoire/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/memoire-orm.svg)](https://crates.io/crates/memoire-orm)
 [![docs.rs](https://img.shields.io/docsrs/memoire-orm)](https://docs.rs/memoire-orm)
 [![License: proprietary](https://img.shields.io/badge/license-proprietary-2a2a2e.svg)](#license)
 
 **English** · [Français](README.fr.md) · [Español](README.es.md)
-
-[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire)
 
 </div>
 
@@ -143,7 +140,7 @@ Dockerfile, heroku.yml, app.json   one-click Heroku deployment
 
 ## The website
 
-The presentation site is written in Rust with [active](https://github.com/maxlestage/Active):
+The presentation site is written in Rust with [active](https://maxlestage.github.io/Active/):
 a small Rust server renders every page (complete SEO tags, in English, French and Spanish),
 and only the interactive parts (the playground, the code tabs, the docs search) wake up in the
 browser as WebAssembly. The playground runs the real in-memory engine in your browser. The site
@@ -203,5 +200,5 @@ to the author, as the license states.
 
 ## Credits
 
-Designed and developed by [Maxime Nathan Lestage](https://github.com/maxlestage),
+Designed and developed by Maxime Nathan Lestage,
 as part of one family of Rust projects: [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/) and [FerroSwift](https://maxlestage.github.io/FerroSwift/).

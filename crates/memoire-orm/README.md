@@ -82,8 +82,8 @@ async fn main() -> memoire_orm::Result<()> {
 
 More: joins (`inner_join`, `left_join`), `group_by` + aggregates, `paginate`,
 `insert_many`, `update_many().increment(..)`, `Migrator`, raw SQL. See the
-[documentation](https://github.com/maxlestage/Memoire/tree/master/docs/en) and the
-[examples](https://github.com/maxlestage/Memoire/tree/master/crates/memoire-orm/examples).
+documentation and the
+examples.
 
 ## Performance
 
@@ -122,5 +122,5 @@ to the author, as the license states.
 
 ## Credits
 
-Designed and developed by [Maxime Nathan Lestage](https://github.com/maxlestage),
+Designed and developed by Maxime Nathan Lestage,
 as part of one family of Rust projects: [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/) and [FerroSwift](https://maxlestage.github.io/FerroSwift/).

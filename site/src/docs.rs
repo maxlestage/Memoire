@@ -27,7 +27,6 @@ macro_rules! page {
 }
 
 pub const FIRST_SLUG: &str = "introduction";
-pub const REPO_URL: &str = "https://github.com/maxlestage/Memoire";
 
 pub static CATEGORIES: &[DocCategory] = &[
     DocCategory {
@@ -124,11 +123,6 @@ pub fn neighbours(slug: &str) -> (Option<&'static DocPage>, Option<&'static DocP
         Some(i) => (i.checked_sub(1).map(|j| pages[j]), pages.get(i + 1).copied()),
         None => (None, None),
     }
-}
-
-/// The GitHub page that edits `docs/<lang>/<slug>.md`.
-pub fn edit_url(lang: Lang, slug: &str) -> String {
-    format!("{REPO_URL}/edit/master/docs/{}/{slug}.md", lang.code())
 }
 
 /// Reading time in minutes (≈ 200 words / minute, at least 1).

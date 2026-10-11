@@ -135,7 +135,7 @@ No. The crate is compiled with `#![forbid(unsafe_code)]`, so it cannot contain a
 
 Contributions of every size are welcome: bug reports, documentation fixes, translations and new features.
 
-1. Fork `https://github.com/maxlestage/Memoire` and clone it.
+1. Fork `https://maxlestage.github.io/Memoire/` and clone it.
 2. Run the tests: `cargo test --workspace --features memory,sqlite`. To include the server backends, enable all features and set `MEMOIRE_PG_URL`, `MEMOIRE_MYSQL_URL`, `MEMOIRE_REDIS_URL` and `MEMOIRE_MONGO_URL` to test servers (MongoDB as a replica set).
 3. Before opening a pull request, run `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` and the tests.
 4. Add behaviour tests to `crates/memoire-orm/tests/common/mod.rs`, so they run on every backend.

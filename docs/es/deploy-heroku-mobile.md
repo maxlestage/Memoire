@@ -6,7 +6,7 @@ Puedes poner en línea el sitio web de Memoire, y mantenerlo actualizado, usando
 
 Necesitas:
 
-- una **cuenta de GitHub** y tu propia copia del repositorio: abre `https://github.com/maxlestage/Memoire` y toca **Fork** (solo hace falta para los métodos 2 y 3);
+- una **cuenta de GitHub** y tu propia copia del repositorio: abre `https://maxlestage.github.io/Memoire/` y toca **Fork** (solo hace falta para los métodos 2 y 3);
 - una **cuenta de Heroku** (regístrate en `https://signup.heroku.com` desde el navegador de tu teléfono);
 - un **método de pago** en la cuenta de Heroku. Heroku no tiene plan gratuito desde noviembre de 2022: el sitio web se ejecuta en un dyno *Basic* (unos 7 USD al mes en el momento de escribir esto) y Heroku no arranca aplicaciones en una cuenta sin verificar. Consulta `https://www.heroku.com/pricing` para ver los precios actuales.
 
@@ -31,7 +31,7 @@ Una combinación habitual: el método 1 para el primerísimo despliegue y luego 
 El README del repositorio tiene un botón morado **Deploy to Heroku** ("Desplegar en Heroku"). Apunta a:
 
 ```text
-https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire
+https://dashboard.heroku.com/new-app
 ```
 
 1. Abre el repositorio en GitHub (app o navegador) y desplázate hasta el principio del README.
@@ -46,7 +46,7 @@ Lo que ocurre entre bastidores:
 
 - `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **container**, un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
 - `heroku.yml` le indica a Heroku que construya el proceso `web` a partir del `Dockerfile` de la raíz del repositorio.
-- El `Dockerfile` compila el sitio web, escrito en Rust con [active](https://github.com/maxlestage/Active), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
+- El `Dockerfile` compila el sitio web, escrito en Rust con [active](https://maxlestage.github.io/Active/), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
 
 > **Nota** El botón despliega el repositorio tal como está en ese momento. Para obtener los cambios posteriores, usa el método 2 o el 3, o vuelve a tocar el botón para crear una aplicación nueva.
 

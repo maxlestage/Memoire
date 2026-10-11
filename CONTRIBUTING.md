@@ -6,7 +6,7 @@ documentation fixes, translations, new features.
 ## Getting started
 
 ```bash
-git clone https://github.com/maxlestage/Memoire
+git clone https://maxlestage.github.io/Memoire/
 cd Memoire
 cargo test --workspace --features memory,sqlite
 ```
@@ -41,7 +41,7 @@ check is green, then the website is redeployed. Open your pull request as a *dra
 
 ## Website
 
-The website (`site/`) is written with [active](https://github.com/maxlestage/Active): the
+The website (`site/`) is written with [active](https://maxlestage.github.io/Active/): the
 server renders every page, the islands (playground, code tabs, docs search) and the page
 motion run in the browser as WebAssembly, and the site is a PWA (manifest and offline service
 worker). It embeds `docs/{en,fr,es}` at compile time.

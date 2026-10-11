@@ -4,14 +4,11 @@
 
 **L'ORM Rust natif, ultra-rapide et typé.**
 
-[![CI](https://github.com/maxlestage/Memoire/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlestage/Memoire/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/memoire-orm.svg)](https://crates.io/crates/memoire-orm)
 [![docs.rs](https://img.shields.io/docsrs/memoire-orm)](https://docs.rs/memoire-orm)
 [![Licence : propriétaire](https://img.shields.io/badge/license-proprietary-2a2a2e.svg)](#licence)
 
 [English](README.md) · **Français** · [Español](README.es.md)
-
-[![Déployer sur Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire)
 
 </div>
 
@@ -143,7 +140,7 @@ Dockerfile, heroku.yml, app.json   déploiement Heroku en un clic
 
 ## Le site web
 
-Le site de présentation est écrit en Rust avec [active](https://github.com/maxlestage/Active) :
+Le site de présentation est écrit en Rust avec [active](https://maxlestage.github.io/Active/) :
 un petit serveur Rust rend chaque page (balises SEO complètes, en anglais, français et espagnol),
 et seules les parties interactives (le bac à sable, les onglets de code, la recherche dans la
 doc) se réveillent dans le navigateur en WebAssembly. Le bac à sable exécute le vrai moteur en
@@ -204,5 +201,5 @@ les droits à l'auteur, comme l'indique la licence.
 
 ## Crédits
 
-Conçu et développé par [Maxime Nathan Lestage](https://github.com/maxlestage),
+Conçu et développé par Maxime Nathan Lestage,
 au sein d'une même famille de projets Rust : [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/) et [FerroSwift](https://maxlestage.github.io/FerroSwift/).

@@ -6,7 +6,7 @@ use active::prelude::*;
 
 use super::Site;
 use super::pwa;
-use crate::docs::{self, REPO_URL};
+use crate::docs;
 use crate::i18n::t;
 use crate::icons::{Icon, icon};
 use crate::routes::{Lang, Page, Route, base, link};
@@ -24,11 +24,11 @@ pub struct Ctx<'a> {
 
 pub const CRATES_IO: &str = "https://crates.io/crates/memoire-orm";
 pub const DOCS_RS: &str = "https://docs.rs/memoire-orm";
-/// The license, read online: proprietary, all rights reserved.
-pub const LICENSE_URL: &str = "https://github.com/maxlestage/Memoire/blob/master/LICENSE";
+/// The license, served by the site itself (a copy of the repository's LICENSE): proprietary,
+/// all rights reserved.
+pub const LICENSE_PATH: &str = "/static/LICENSE.txt";
 /// Who designed and built Memoire and its sister projects.
 pub const AUTHOR: &str = "Maxime Nathan Lestage";
-pub const AUTHOR_URL: &str = "https://github.com/maxlestage";
 /// The sister projects of Memoire, by the same author: (name, website). The footer links
 /// them in this order; `i18n::Texts::footer_projects` describes each one in the same order.
 pub const ECOSYSTEM: [(&str, &str); 6] = [
@@ -232,7 +232,6 @@ fn navbar(route: &Route) -> Element {
         (Page::Playground, tx.nav_playground, route.page == Page::Playground),
         (Page::Docs, tx.nav_docs, is_docs),
     ];
-    let github = || external(REPO_URL).class("icon-btn").attr("aria-label", "GitHub").attr("title", "GitHub");
     let start = doc_href(lang, "quick-start");
     header()
         .class("navbar")
@@ -251,7 +250,6 @@ fn navbar(route: &Route) -> Element {
                         .class("nav-actions")
                         .child(lang_switch(route))
                         .child(theme_toggle(lang))
-                        .child(github().class("nav-github").child(icon(Icon::Github)))
                         .child(
                             a().class("btn btn-primary btn-sm magnetic nav-cta")
                                 .href(start.clone())
@@ -293,13 +291,7 @@ fn navbar(route: &Route) -> Element {
                             a.child(span().class("ml-index").text(format!("{:02}", i + 2))).text(label)
                         })),
                 )
-                .child(
-                    div()
-                        .class("mobile-extras")
-                        .child(lang_switch(route))
-                        .child(theme_toggle(lang))
-                        .child(github().child(icon(Icon::Github))),
-                )
+                .child(div().class("mobile-extras").child(lang_switch(route)).child(theme_toggle(lang)))
                 .child(
                     a().class("btn btn-primary mobile-cta")
                         .href(start)
@@ -352,13 +344,11 @@ fn page_footer(route: &Route) -> Element {
                 .child(li().text(tx.footer_rust))
                 .child(li().child(external(CRATES_IO).text("crates.io"))),
         )
-        .child(
-            div()
-                .class("footer-social")
-                .child(social(REPO_URL, "GitHub", Icon::Github))
-                .child(social(CRATES_IO, "crates.io", Icon::Crate))
-                .child(social(DOCS_RS, "docs.rs", Icon::Book)),
-        );
+        .child(div().class("footer-social").child(social(CRATES_IO, "crates.io", Icon::Crate)).child(social(
+            DOCS_RS,
+            "docs.rs",
+            Icon::Book,
+        )));
     let ecosystem = nav()
         .class("container footer-eco")
         .attr("aria-label", tx.footer_ecosystem)
@@ -385,7 +375,7 @@ fn page_footer(route: &Route) -> Element {
     let credits = div()
         .class("container footer-credits")
         .child(p().class("credits-by").text(tx.footer_by))
-        .child(external(AUTHOR_URL).class("credits-name").children(
+        .child(p().class("credits-name").children(
             AUTHOR.split(' ').enumerate().map(|(i, word)| span().style(format!("--i:{i}")).text(word.to_string())),
         ))
         .child(p().class("credits-note").text(tx.footer_crafted));
@@ -419,11 +409,9 @@ fn page_footer(route: &Route) -> Element {
                 )
                 .child(
                     div().class("footer-col").child(h3().text(tx.footer_community)).child(
-                        ul().child(ext(REPO_URL.into(), "GitHub"))
-                            .child(ext(CRATES_IO.into(), "crates.io"))
+                        ul().child(ext(CRATES_IO.into(), "crates.io"))
                             .child(ext(DOCS_RS.into(), "docs.rs"))
-                            .child(ext(format!("{REPO_URL}/issues"), tx.footer_issues))
-                            .child(ext(LICENSE_URL.into(), tx.footer_license)),
+                            .child(ext(link(LICENSE_PATH), tx.footer_license)),
                     ),
                 )
                 .child(
@@ -440,7 +428,7 @@ fn page_footer(route: &Route) -> Element {
             div()
                 .class("container footer-bottom")
                 .child(span().text(tx.footer_rights))
-                .child(external(LICENSE_URL).text(tx.footer_proprietary))
+                .child(external(link(LICENSE_PATH)).text(tx.footer_proprietary))
                 .child(span().class("footer-built").text(tx.footer_built))
                 .child(
                     button()
