@@ -89,8 +89,8 @@ async fn every_page_ends_with_the_signature_footer() {
         // The install command and the version of the crate.
         assert!(footer.contains("cargo add memoire-orm --git https://github.com/maxlestage/Memoire"), "{lang}");
         assert!(footer.contains(&format!("v{}", memoire_orm::VERSION)), "{lang}");
-        // The six projects of the ecosystem, this one marked as the current page.
-        for project in ["Active", "Vitesse", "Securite", "Memoire", "Paquets", "FerroSwift"] {
+        // The seven projects of the ecosystem, this one marked as the current page.
+        for project in ["Active", "Vitesse", "Securite", "Memoire", "Paquets", "FerroSwift", "Solidify"] {
             assert!(footer.contains(&format!(r#"href="https://maxlestage.github.io/{project}/""#)), "{lang} {project}");
         }
         assert!(footer.contains(r#"aria-current="page""#), "{lang}");

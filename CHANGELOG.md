@@ -20,7 +20,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reserved (see `LICENSE`); it is free to use as a dependency, commercially too, but not to
   modify or redistribute. The MIT/Apache-2.0 dual license is withdrawn.
 - Credits: Maxime Nathan Lestage is named as the author in the crate metadata, the README
-  and the website's footer, which now links the six projects of the ecosystem.
+  and the website's footer, which now links the seven projects of the ecosystem.
+- Credits: Solidify joins the projects linked by the README, the license and the website's
+  footer.
 - `memoire_orm::VERSION`, the version of the crate.
 - The website is rewritten with [Active](https://maxlestage.github.io/Active/) (it was a
   client-side WebAssembly app prerendered at build time): a Rust server renders every page
