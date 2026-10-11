@@ -269,7 +269,7 @@ fn bench_bars(lang: Lang, limit: Option<usize>) -> Element {
                         .child(span().text(b.label[li]))
                         .child(ratio.map(|r| span().class("bench-ratio").text(format!("×{r:.1}")))),
                 )
-                .child(bar("memoire", w_mem, b.value))
+                .child(bar("Memoire", w_mem, b.value))
                 .child((b.baseline > 0.0).then(|| bar("baseline", w_base, b.baseline)))
         }))
 }

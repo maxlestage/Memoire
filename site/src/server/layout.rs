@@ -382,7 +382,7 @@ fn page_footer(route: &Route) -> Element {
     let wordmark = div()
         .class("wordmark")
         .attr("aria-hidden", "true")
-        .children("memoire".chars().enumerate().map(|(i, c)| span().style(format!("--i:{i}")).text(c.to_string())));
+        .children("Memoire".chars().enumerate().map(|(i, c)| span().style(format!("--i:{i}")).text(c.to_string())));
     footer()
         .class("footer")
         .child(div().class("footer-border").attr("aria-hidden", "true"))

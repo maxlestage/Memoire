@@ -140,7 +140,7 @@ Dockerfile, heroku.yml, app.json   déploiement Heroku en un clic
 
 ## Le site web
 
-Le site de présentation est écrit en Rust avec [active](https://maxlestage.github.io/Active/) :
+Le site de présentation est écrit en Rust avec [Active](https://maxlestage.github.io/Active/) :
 un petit serveur Rust rend chaque page (balises SEO complètes, en anglais, français et espagnol),
 et seules les parties interactives (le bac à sable, les onglets de code, la recherche dans la
 doc) se réveillent dans le navigateur en WebAssembly. Le bac à sable exécute le vrai moteur en
