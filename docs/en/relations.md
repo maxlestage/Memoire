@@ -204,6 +204,29 @@ let counts: Vec<(i64, String, i64)> = User::query()
 
 `Post::ID.count()` counts non-NULL post ids, which is why Carol gets `0` rather than `1`.
 
+## The children of one row
+
+`belonging_to` starts a query on the rows that point to a given row. Memoire finds the link from the `references` attribute, so there is nothing else to declare, and you can keep refining the query:
+
+```rust
+let alice = User::get(&db, 1).await?;
+let posts: Vec<Post> = Post::belonging_to(&alice)
+    .filter(Post::VIEWS.ge(10))
+    .order_by(Post::VIEWS.desc())
+    .all(&db)
+    .await?;
+// ["Hello", "Rust"]
+```
+
+The other way round, `find_parent` follows a foreign key:
+
+```rust
+let post = Post::get(&db, 3).await?;
+let author: Option<User> = post.find_parent::<User, _>(&db).await?; // Some(Bob)
+```
+
+It returns `None` when the foreign key is `NULL` (an `Option<i64>` column) or points to a row that no longer exists.
+
 ## Loading children without the N+1 problem
 
 A very common need: show each user with their posts. The tempting version runs one query per user:
@@ -212,31 +235,19 @@ A very common need: show each user with their posts. The tempting version runs o
 // Slow: 1 query for the users + 1 query per user ("N+1 queries").
 let users = User::all(&db).await?;
 for user in &users {
-    let posts = Post::query().filter(Post::AUTHOR_ID.eq(user.id)).all(&db).await?;
+    let posts = Post::belonging_to(user).all(&db).await?;
     println!("{}: {} post(s)", user.name, posts.len());
 }
 ```
 
-With 1,000 users that is 1,001 round trips to the database. Instead, load all the children in **one** query with `is_in`, then group them in memory:
+With 1,000 users that is 1,001 round trips to the database. `load_children` loads the children of a whole list in **one** query (`WHERE author_id IN (...)`) and hands them back aligned with the list: `posts[i]` holds the posts of `users[i]`.
 
 ```rust
-use std::collections::HashMap;
-
 let users = User::query().order_by(User::ID).all(&db).await?;
+let posts: Vec<Vec<Post>> = users.load_children(&db).await?;
 
-let posts = Post::query()
-    .filter(Post::AUTHOR_ID.is_in(users.iter().map(|u| u.id)))
-    .all(&db)
-    .await?;
-
-let mut posts_by_author: HashMap<i64, Vec<Post>> = HashMap::new();
-for post in posts {
-    posts_by_author.entry(post.author_id).or_default().push(post);
-}
-
-for user in &users {
-    let count = posts_by_author.get(&user.id).map_or(0, Vec::len);
-    println!("{}: {} post(s)", user.name, count);
+for (user, posts) in users.iter().zip(&posts) {
+    println!("{}: {} post(s)", user.name, posts.len());
 }
 ```
 
@@ -246,9 +257,40 @@ Bob: 1 post(s)
 Carol: 0 post(s)
 ```
 
-Two queries in total, however many users there are. The same pattern works for any depth: load the comments of all those posts with a third query.
+Two queries in total, however many users there are. On PostgreSQL, for 100 users with 10 posts each, that is 1.1 ms instead of 13.5 ms (×12) on the same machine, and the gap grows with the network latency to the database.
 
-> **Tip** If the list of ids can be very long (tens of thousands), split it into chunks of a few thousand ids, because databases limit how many parameters one statement may have (32,766 on SQLite, 65,535 on PostgreSQL and MySQL).
+Every loader comes from the `LoadRelated` trait (in the prelude) and works on slices and `Vec`s:
+
+| Method | Returns | Queries |
+|---|---|---|
+| `users.load_children::<Post>(&db)` | `Vec<Vec<Post>>`, children ordered by primary key | 1 |
+| `users.load_children_with(&db, Post::query()...)` | `Vec<Vec<Post>>`, in the order of your query | 1 |
+| `posts.load_parent::<User>(&db)` | `Vec<Option<User>>`, one per post | 1 |
+| `posts.load_via::<PostTag, Tag>(&db)` | `Vec<Vec<Tag>>` (many-to-many, below) | 2 |
+
+`load_children_with` takes your own query on the children, to filter or sort them:
+
+```rust
+let popular: Vec<Vec<Post>> = users
+    .load_children_with(&db, Post::query().filter(Post::VIEWS.ge(100)).order_by(Post::VIEWS.desc()))
+    .await?;
+```
+
+`LIMIT` and `OFFSET` in that query apply to all the children at once, not to each user.
+
+`load_parent` goes the other way: one query for the authors of all the posts, each author shared by the posts that point to it (the parent model must implement `Clone`):
+
+```rust
+let posts = Post::all(&db).await?;
+let authors: Vec<Option<User>> = posts.load_parent(&db).await?;
+for (post, author) in posts.iter().zip(&authors) {
+    println!("{} by {}", post.title, author.as_ref().map_or("?", |a| a.name.as_str()));
+}
+```
+
+Loaders chain to any depth (users → posts → comments is three queries), and very long lists are split automatically under the database's parameter limit (32,766 on SQLite, 65,535 on PostgreSQL and MySQL).
+
+> **Note** The relation comes from the foreign key. If the child has no column with `references` to the parent's table, or has several (an `author_id` and a `reviewer_id` both pointing to `users`), the loaders fail with `Error::Relation` and `belonging_to` panics. Filter on the column you mean yourself in that case: `Post::query().filter(Post::REVIEWER_ID.is_in(...))`.
 
 ## Many-to-many relations
 
@@ -286,6 +328,16 @@ async fn tags_of_post<E: Executor>(db: &E, post_id: i64) -> memoire_orm::Result<
 ```
 
 Memoire models have a single-column primary key, so the link table gets its own `id`. If you want the database to forbid duplicate pairs, add a unique index over both columns with a SQL [migration](migrations).
+
+`load_via` loads the many-to-many partners of a whole list in two queries, one on the link table and one on the targets:
+
+```rust
+let posts = Post::query().order_by(Post::ID).all(&db).await?;
+let tags: Vec<Vec<Tag>> = posts.load_via::<PostTag, Tag>(&db).await?;
+// tags[i] holds the tags of posts[i], in the order the links were created
+```
+
+The link model must reference both tables; it works in both directions (`tags.load_via::<PostTag, Post>(&db)`).
 
 ## Tips and limitations
 

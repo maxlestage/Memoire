@@ -66,6 +66,7 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Por clave, obligatoria | `User::get(&db, 1).await?` → `User` o `Error::NotFound` |
 | Todas las filas | `User::all(&db).await?` |
 | Contar todas las filas | `User::count(&db).await?` |
+| Varias por clave, una consulta | `User::find_many(&db, [1, 2, 3]).await?` → `Vec<User>` |
 | Refrescar un struct | `user.reload(&db).await?` |
 | Empezar una consulta | `User::query()` |
 
@@ -136,13 +137,17 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Left join | `User::query().left_join::<Post>(Post::USER_ID.eq_col(User::ID))` | `(User, Option<Post>)` |
 | Join solo para filtrar | `User::query().join::<Post>(JoinKind::Inner, cond).distinct()` | `User` |
 | Columnas de varias tablas | `.inner_join::<User>(cond).columns((User::NAME, Post::TITLE))` | `(String, String)` |
-| Cargar los hijos en una sola consulta | `Post::query().filter(Post::USER_ID.is_in(user_ids))` | `Post` |
+| Hijos de una fila | `Post::belonging_to(&user).all(&db).await?` | `Post` |
+| Cargar los hijos en una sola consulta | `users.load_children::<Post>(&db).await?` | `Vec<Vec<Post>>` |
+| Cargar los padres en una sola consulta | `posts.load_parent::<User>(&db).await?` | `Vec<Option<User>>` |
+| Muchos a muchos en dos consultas | `posts.load_via::<PostTag, Tag>(&db).await?` | `Vec<Vec<Tag>>` |
 
 ## Actualizar y eliminar
 
 | Tarea | Código |
 |---|---|
 | Guardar una fila (todas las columnas) | `user.update(&db).await?` (`Error::NotFound` si no existe) |
+| Guardar algunas columnas | `user.update_only(&db, (User::NAME, User::AGE)).await?` |
 | Actualizar muchas | `User::update_many().set(User::ACTIVE, false).filter(...).execute(&db).await?` → `u64` |
 | Asignar NULL | `.set_null(User::AGE)` |
 | Incrementar / decrementar | `.increment(User::VISITS, 1)`, `.decrement(User::VISITS, 1)` |

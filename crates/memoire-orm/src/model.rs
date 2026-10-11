@@ -3,9 +3,12 @@
 use std::future::Future;
 
 use crate::ast::Query;
+use crate::ast::UpdateAst;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::query::{Delete, Select, Update};
+use crate::expr::{BinOp, Expr};
+use crate::query::{Delete, ModelColumns, Select, Update};
+use crate::relation::{column_ref, fetch_in, link};
 use crate::row::FromRow;
 use crate::schema::TableSchema;
 use crate::value::{Bind, Value};
@@ -58,6 +61,14 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
     /// Every column value, in schema order.
     fn to_values(&self) -> Vec<Value>;
 
+    /// The value of the column at `index` in [`TableSchema::columns`]
+    /// (`NULL` when out of range). `#[derive(Model)]` reads only that field;
+    /// the default implementation converts the whole row.
+    fn value_at(&self, index: usize) -> Value {
+        let mut values = self.to_values();
+        if index < values.len() { values.swap_remove(index) } else { Value::Null }
+    }
+
     /// Starts a `SELECT` on this table.
     #[inline]
     fn query() -> Select<Self> {
@@ -89,6 +100,17 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
     fn get<E: Executor>(db: &E, key: impl Bind<Self::Key>) -> impl Future<Output = Result<Self>> + Send {
         let fut = Self::find(db, key);
         async move { fut.await?.ok_or(Error::NotFound) }
+    }
+
+    /// Fetches the rows whose primary key is in `keys`, in one query
+    /// (`WHERE pk IN (...)`, split under the database's parameter limit).
+    /// Missing keys are skipped; the order of the rows is unspecified.
+    fn find_many<E: Executor, K: Bind<Self::Key>>(
+        db: &E,
+        keys: impl IntoIterator<Item = K>,
+    ) -> impl Future<Output = Result<Vec<Self>>> + Send {
+        let keys: Vec<Value> = keys.into_iter().map(Bind::into_bind).collect();
+        fetch_in(db, Self::query(), column_ref(Self::SCHEMA, Self::SCHEMA.primary_key), keys)
     }
 
     /// Fetches every row of the table.
@@ -148,6 +170,72 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             let values = self.to_values();
             let res = db.execute(Query::UpdateRow { table: Self::SCHEMA, values: &values }).await?;
             if res.rows_affected == 0 { Err(Error::NotFound) } else { Ok(()) }
+        }
+    }
+
+    /// Updates only some columns of this row, by primary key:
+    /// `user.update_only(&db, (User::NAME, User::AGE))`. The other columns
+    /// are left untouched in the database, so concurrent writers of other
+    /// columns are not overwritten, and less data travels.
+    ///
+    /// Fails with [`Error::NotFound`] if the row does not exist. The primary
+    /// key is never written; with nothing else to write, nothing is run.
+    fn update_only<E: Executor>(
+        &self,
+        db: &E,
+        columns: impl ModelColumns<Self>,
+    ) -> impl Future<Output = Result<()>> + Send {
+        let schema = Self::SCHEMA;
+        let mut sets: Vec<(usize, Expr)> = Vec::new();
+        for index in columns.indexes() {
+            if index != schema.primary_key && !sets.iter().any(|(i, _)| *i == index) {
+                sets.push((index, Expr::Value(self.value_at(index))));
+            }
+        }
+        let filter =
+            Expr::binary(BinOp::Eq, Expr::Column(column_ref(schema, schema.primary_key)), Expr::Value(self.key()));
+        let ast = UpdateAst { table: schema, sets, filter: Some(filter) };
+        async move {
+            if ast.sets.is_empty() {
+                return Ok(());
+            }
+            let res = db.execute(Query::Update(&ast)).await?;
+            if res.rows_affected == 0 { Err(Error::NotFound) } else { Ok(()) }
+        }
+    }
+
+    /// The children of `parent`: the rows of `Self` whose foreign key
+    /// (`#[memoire(references = "...")]`) points to it, as a query you can
+    /// refine. `Post::belonging_to(&alice).order_by(Post::ID).all(&db)`.
+    ///
+    /// To load the children of many rows at once, use
+    /// [`LoadRelated::load_children`](crate::LoadRelated::load_children).
+    ///
+    /// # Panics
+    ///
+    /// If no column of `Self` references the table of `P`, or several do
+    /// (filter on the foreign key column yourself then).
+    fn belonging_to<P: Model>(parent: &P) -> Select<Self> {
+        let link = link::<Self, P>().unwrap_or_else(|e| panic!("{e}"));
+        Self::query().filter(Expr::binary(
+            BinOp::Eq,
+            Expr::Column(column_ref(Self::SCHEMA, link.child)),
+            Expr::Value(parent.value_at(link.parent)),
+        ))
+    }
+
+    /// The row of `P` that this row's foreign key points to (`None` when the
+    /// key is `NULL` or dangling). Fails with [`Error::Relation`] if `Self`
+    /// has no foreign key to `P`, or several.
+    fn find_parent<P: Model, E: Executor>(&self, db: &E) -> impl Future<Output = Result<Option<P>>> + Send {
+        let target = link::<Self, P>().map(|l| (l.parent, self.value_at(l.child)));
+        async move {
+            let (column, value) = target?;
+            if value.is_null() {
+                return Ok(None);
+            }
+            let filter = Expr::binary(BinOp::Eq, Expr::Column(column_ref(P::SCHEMA, column)), Expr::Value(value));
+            P::query().filter(filter).first(db).await
         }
     }
 

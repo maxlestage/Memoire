@@ -90,6 +90,14 @@ let tag = Tag::get(&db, "rust").await?;              // las claves de texto func
 
 Usa `find` cuando que falte una fila sea una situación normal, y `get` cuando sea un error. La clave debe tener el tipo de la clave primaria: `User::find(&db, "1")` no compila.
 
+### Varias filas por clave primaria
+
+`find_many` obtiene una lista de claves en una sola consulta (`WHERE id IN (...)`), en lugar de un `find` por clave. Las claves que faltan se omiten y las filas vuelven en cualquier orden:
+
+```rust
+let some: Vec<User> = User::find_many(&db, [3, 1, 42]).await?; // usuarios 1 y 3
+```
+
 ### Todas las filas, o un recuento
 
 ```rust
@@ -128,6 +136,19 @@ alice.update(&db).await?;
 `update` escribe **todas las columnas** del struct en la fila con la misma clave primaria. Si ninguna fila tiene esa clave, falla con `Error::NotFound`; nunca crea una fila.
 
 > **Nota** Como `update` escribe todas las columnas, si dos programas cargan la misma fila, cambian campos distintos y ambos llaman a `update`, uno sobrescribirá el cambio del otro (gana la última escritura). Para contadores y otros cambios concurrentes, usa `update_many` con `increment`, o una [transacción](transactions).
+
+### Cambiar solo algunas columnas
+
+`update_only` escribe las columnas que indicas, y solo esas, en la fila con la misma clave primaria. Las demás columnas conservan el valor guardado en la base: un cambio concurrente en ellas no se sobrescribe, y viajan menos datos:
+
+```rust
+let mut alice = User::get(&db, 1).await?;
+alice.name = "Alice Liddell".into();
+alice.age = Some(32);
+alice.update_only(&db, (User::NAME, User::AGE)).await?; // una sola columna: `User::NAME`
+```
+
+Las columnas deben pertenecer al modelo: `alice.update_only(&db, Post::TITLE)` no compila. Como `update`, falla con `Error::NotFound` si la fila no existe.
 
 ### Cambiar muchas filas
 

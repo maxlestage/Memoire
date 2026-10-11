@@ -16,8 +16,12 @@
 - **SQL and NoSQL, one API** — PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and
   an in-memory engine written in pure Rust (it even runs in WebAssembly). The same test
   suite passes on all six.
+- **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent` and
+  many-to-many `load_via` load related rows in one query per level, from the foreign
+  keys you already declare.
 - **Batteries included** — transactions, migrations, joins, aggregates,
-  `GROUP BY`, pagination, upserts, normalised errors.
+  `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`,
+  normalised errors.
 - `#![forbid(unsafe_code)]`.
 
 ## Install

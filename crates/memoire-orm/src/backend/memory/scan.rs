@@ -313,11 +313,25 @@ pub(crate) fn matching(table: &Table, filter: Option<&Expr>) -> Result<Vec<u32>>
     let layout = [table.schema.name];
     let mut parts = Vec::new();
     conjuncts(filter, &mut parts);
-    let mut terms = parts.into_iter().map(|e| Term::compile(e, &layout));
 
     let mut sel: Vec<u32> = Vec::new();
-    match super::index_candidates(filter, table) {
-        Some(candidates) => sel.extend(candidates.into_iter().map(|i| i as u32)),
+    // An index lookup on the first conjunct that allows one. An `IN` list is
+    // answered exactly by the index (same key equality), so that term is not
+    // evaluated again on the candidates.
+    let indexed = parts.iter().enumerate().find_map(|(i, e)| super::index_candidates(e, table).map(|c| (i, c)));
+    let skip = match &indexed {
+        Some((i, _)) if matches!(parts[*i], Expr::InList { negated: false, .. }) => Some(*i),
+        _ => None,
+    };
+    let mut terms = parts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != skip)
+        .map(|(_, e)| Term::compile(e, &layout))
+        .collect::<Vec<_>>()
+        .into_iter();
+    match indexed {
+        Some((_, candidates)) => sel.extend(candidates.into_iter().map(|i| i as u32)),
         // The first term scans the whole table and only keeps its matches.
         None => match terms.next() {
             Some(first) => first?.apply(table, &mut sel, Some(n), &layout)?,

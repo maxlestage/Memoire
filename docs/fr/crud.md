@@ -90,6 +90,14 @@ let tag = Tag::get(&db, "rust").await?;              // les clés de type chaîn
 
 Utilisez `find` quand l'absence de ligne est une situation normale, et `get` quand c'est une erreur. La clé doit avoir le type de la clé primaire : `User::find(&db, "1")` ne compile pas.
 
+### Plusieurs lignes par clé primaire
+
+`find_many` récupère une liste de clés en une seule requête (`WHERE id IN (...)`), au lieu d'un `find` par clé. Les clés absentes sont ignorées et les lignes reviennent dans un ordre quelconque :
+
+```rust
+let some: Vec<User> = User::find_many(&db, [3, 1, 42]).await?; // utilisateurs 1 et 3
+```
+
 ### Toutes les lignes, ou leur nombre
 
 ```rust
@@ -128,6 +136,19 @@ alice.update(&db).await?;
 `update` écrit **toutes les colonnes** de la struct dans la ligne qui a la même clé primaire. Si aucune ligne n'a cette clé, il échoue avec `Error::NotFound` ; il ne crée jamais de ligne.
 
 > **Remarque** Comme `update` écrit toutes les colonnes, deux programmes qui chargent la même ligne, modifient des champs différents et appellent tous deux `update` écraseront mutuellement leurs modifications (la dernière écriture l'emporte). Pour les compteurs et autres modifications concurrentes, utilisez `update_many` avec `increment`, ou une [transaction](transactions).
+
+### Modifier seulement certaines colonnes
+
+`update_only` écrit les colonnes que vous listez, et seulement elles, dans la ligne de même clé primaire. Les autres colonnes gardent la valeur stockée en base : une modification concurrente de celles-ci n'est pas écrasée, et moins de données transitent :
+
+```rust
+let mut alice = User::get(&db, 1).await?;
+alice.name = "Alice Liddell".into();
+alice.age = Some(32);
+alice.update_only(&db, (User::NAME, User::AGE)).await?; // une seule colonne : `User::NAME`
+```
+
+Les colonnes doivent appartenir au modèle : `alice.update_only(&db, Post::TITLE)` ne compile pas. Comme `update`, elle échoue avec `Error::NotFound` si la ligne n'existe pas.
 
 ### Modifier plusieurs lignes
 

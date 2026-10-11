@@ -117,6 +117,14 @@ impl Hash for KeyRef<'_> {
     }
 }
 
+/// Probes a set of [`Key`]s with a borrowed value, without cloning it.
+impl hashbrown::Equivalent<Key> for KeyRef<'_> {
+    #[inline]
+    fn equivalent(&self, key: &Key) -> bool {
+        Key::tag_of(self.0) == key.tag()
+    }
+}
+
 /// Equality of index keys (`1 = 1.0`, like SQL; NULL equals NULL here).
 #[inline]
 pub(crate) fn key_eq(a: &Value, b: &Value) -> bool {
@@ -667,7 +675,7 @@ pub(crate) enum Pred<'a> {
     ColCol { left: Slot, op: BinOp, right: Slot },
     IsNull { col: Slot, negated: bool },
     InSmall { col: Slot, list: &'a [Value], has_null: bool, negated: bool },
-    InSet { col: Slot, set: std::collections::HashSet<Key>, has_null: bool, negated: bool },
+    InSet { col: Slot, set: hashbrown::HashSet<Key, foldhash::fast::RandomState>, has_null: bool, negated: bool },
     Between { col: Slot, low: &'a Value, high: &'a Value, negated: bool },
     Like { col: Slot, matcher: LikeMatcher, case_insensitive: bool, negated: bool },
     Generic(&'a Expr),
@@ -731,7 +739,8 @@ impl<'a> Pred<'a> {
                 Some(c) => {
                     let has_null = list.iter().any(Value::is_null);
                     if list.len() > 16 {
-                        let set = list.iter().filter(|v| !v.is_null()).cloned().map(Key).collect();
+                        let mut set = hashbrown::HashSet::with_hasher(foldhash::fast::RandomState::default());
+                        set.extend(list.iter().filter(|v| !v.is_null()).cloned().map(Key));
                         Pred::InSet { col: c, set, has_null, negated: *negated }
                     } else {
                         Pred::InSmall { col: c, list, has_null, negated: *negated }
@@ -827,7 +836,7 @@ impl<'a> Pred<'a> {
                 if v.is_null() {
                     return Ok(None);
                 }
-                if set.contains(&Key(v.clone())) {
+                if set.contains(&KeyRef(v)) {
                     Some(!*negated)
                 } else if *has_null {
                     None

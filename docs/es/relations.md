@@ -204,51 +204,93 @@ let counts: Vec<(i64, String, i64)> = User::query()
 
 `Post::ID.count()` cuenta los ids de post que no son NULL; por eso Carol obtiene `0` y no `1`.
 
+## Los hijos de una fila
+
+`belonging_to` inicia una consulta sobre las filas que apuntan a una fila dada. Memoire encuentra el vínculo gracias al atributo `references`: no hay nada más que declarar, y la consulta se puede seguir refinando:
+
+```rust
+let alice = User::get(&db, 1).await?;
+let posts: Vec<Post> = Post::belonging_to(&alice)
+    .filter(Post::VIEWS.ge(10))
+    .order_by(Post::VIEWS.desc())
+    .all(&db)
+    .await?;
+// ["Hello", "Rust"]
+```
+
+En sentido contrario, `find_parent` sigue una clave foránea:
+
+```rust
+let post = Post::get(&db, 3).await?;
+let author: Option<User> = post.find_parent::<User, _>(&db).await?; // Some(Bob)
+```
+
+Devuelve `None` cuando la clave foránea es `NULL` (una columna `Option<i64>`) o apunta a una fila que ya no existe.
+
 ## Cargar los hijos sin el problema N+1
 
-Una necesidad muy habitual: mostrar cada usuario con sus posts. La versión tentadora ejecuta una consulta por usuario:
+Una necesidad muy común: mostrar cada usuario con sus artículos. La versión tentadora lanza una consulta por usuario:
 
 ```rust
 // Lento: 1 consulta para los usuarios + 1 consulta por usuario ("N+1 consultas").
 let users = User::all(&db).await?;
 for user in &users {
-    let posts = Post::query().filter(Post::AUTHOR_ID.eq(user.id)).all(&db).await?;
-    println!("{}: {} post(s)", user.name, posts.len());
+    let posts = Post::belonging_to(user).all(&db).await?;
+    println!("{}: {} artículo(s)", user.name, posts.len());
 }
 ```
 
-Con 1000 usuarios, eso son 1001 viajes de ida y vuelta a la base de datos. En su lugar, carga todos los hijos en **una sola** consulta con `is_in` y luego agrúpalos en memoria:
+Con 1.000 usuarios son 1.001 idas y vueltas a la base de datos. `load_children` carga los hijos de toda una lista en **una sola** consulta (`WHERE author_id IN (...)`) y los devuelve alineados con la lista: `posts[i]` contiene los artículos de `users[i]`.
 
 ```rust
-use std::collections::HashMap;
-
 let users = User::query().order_by(User::ID).all(&db).await?;
+let posts: Vec<Vec<Post>> = users.load_children(&db).await?;
 
-let posts = Post::query()
-    .filter(Post::AUTHOR_ID.is_in(users.iter().map(|u| u.id)))
-    .all(&db)
-    .await?;
-
-let mut posts_by_author: HashMap<i64, Vec<Post>> = HashMap::new();
-for post in posts {
-    posts_by_author.entry(post.author_id).or_default().push(post);
-}
-
-for user in &users {
-    let count = posts_by_author.get(&user.id).map_or(0, Vec::len);
-    println!("{}: {} post(s)", user.name, count);
+for (user, posts) in users.iter().zip(&posts) {
+    println!("{}: {} artículo(s)", user.name, posts.len());
 }
 ```
 
 ```text
-Alice: 2 post(s)
-Bob: 1 post(s)
-Carol: 0 post(s)
+Alice: 2 artículo(s)
+Bob: 1 artículo(s)
+Carol: 0 artículo(s)
 ```
 
-Dos consultas en total, haya los usuarios que haya. El mismo patrón sirve para cualquier profundidad: carga los comentarios de todos esos posts con una tercera consulta.
+Dos consultas en total, sea cual sea el número de usuarios. En PostgreSQL, para 100 usuarios con 10 artículos cada uno, son 1,1 ms en lugar de 13,5 ms (×12) en la misma máquina, y la diferencia crece con la latencia de red hacia la base.
 
-> **Consejo** Si la lista de ids puede ser muy larga (decenas de miles), divídela en bloques de unos pocos miles de ids, porque las bases de datos limitan cuántos parámetros puede tener una sentencia (32 766 en SQLite, 65 535 en PostgreSQL y MySQL).
+Todos los cargadores vienen del trait `LoadRelated` (en el preludio) y funcionan con slices y `Vec`:
+
+| Método | Devuelve | Consultas |
+|---|---|---|
+| `users.load_children::<Post>(&db)` | `Vec<Vec<Post>>`, hijos ordenados por clave primaria | 1 |
+| `users.load_children_with(&db, Post::query()...)` | `Vec<Vec<Post>>`, en el orden de tu consulta | 1 |
+| `posts.load_parent::<User>(&db)` | `Vec<Option<User>>`, uno por artículo | 1 |
+| `posts.load_via::<PostTag, Tag>(&db)` | `Vec<Vec<Tag>>` (muchos a muchos, más abajo) | 2 |
+
+`load_children_with` recibe tu propia consulta sobre los hijos, para filtrarlos u ordenarlos:
+
+```rust
+let popular: Vec<Vec<Post>> = users
+    .load_children_with(&db, Post::query().filter(Post::VIEWS.ge(100)).order_by(Post::VIEWS.desc()))
+    .await?;
+```
+
+`LIMIT` y `OFFSET` en esa consulta se aplican a todos los hijos a la vez, no a cada usuario.
+
+`load_parent` va en el otro sentido: una consulta para los autores de todos los artículos, cada autor compartido por los artículos que apuntan a él (el modelo padre debe implementar `Clone`):
+
+```rust
+let posts = Post::all(&db).await?;
+let authors: Vec<Option<User>> = posts.load_parent(&db).await?;
+for (post, author) in posts.iter().zip(&authors) {
+    println!("{} de {}", post.title, author.as_ref().map_or("?", |a| a.name.as_str()));
+}
+```
+
+Los cargadores se encadenan a cualquier profundidad (usuarios → artículos → comentarios son tres consultas), y las listas muy largas se dividen automáticamente bajo el límite de parámetros de la base (32.766 en SQLite, 65.535 en PostgreSQL y MySQL).
+
+> **Nota** La relación viene de la clave foránea. Si el hijo no tiene ninguna columna con `references` hacia la tabla del padre, o tiene varias (un `author_id` y un `reviewer_id` que apuntan ambos a `users`), los cargadores fallan con `Error::Relation` y `belonging_to` entra en pánico. En ese caso filtra tú mismo por la columna que quieres: `Post::query().filter(Post::REVIEWER_ID.is_in(...))`.
 
 ## Relaciones muchos a muchos
 
@@ -286,6 +328,16 @@ async fn tags_of_post<E: Executor>(db: &E, post_id: i64) -> memoire_orm::Result<
 ```
 
 Los modelos de Memoire tienen una clave primaria de una sola columna, así que la tabla de enlace tiene su propio `id`. Si quieres que la base de datos prohíba los pares duplicados, añade un índice único sobre ambas columnas con una [migración](migrations) SQL.
+
+`load_via` carga los socios muchos a muchos de toda una lista en dos consultas, una sobre la tabla de enlace y otra sobre los destinos:
+
+```rust
+let posts = Post::query().order_by(Post::ID).all(&db).await?;
+let tags: Vec<Vec<Tag>> = posts.load_via::<PostTag, Tag>(&db).await?;
+// tags[i] contiene las etiquetas de posts[i], en el orden en que se crearon los enlaces
+```
+
+El modelo de enlace debe referenciar ambas tablas; funciona en los dos sentidos (`tags.load_via::<PostTag, Post>(&db)`).
 
 ## Consejos y limitaciones
 

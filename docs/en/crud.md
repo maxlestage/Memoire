@@ -90,6 +90,14 @@ let tag = Tag::get(&db, "rust").await?;              // string keys work the sam
 
 Use `find` when a missing row is a normal situation, and `get` when it is an error. The key must have the type of the primary key: `User::find(&db, "1")` does not compile.
 
+### Several rows by primary key
+
+`find_many` fetches a list of keys in one query (`WHERE id IN (...)`), instead of one `find` per key. Missing keys are skipped and the rows come back in no particular order:
+
+```rust
+let some: Vec<User> = User::find_many(&db, [3, 1, 42]).await?; // users 1 and 3
+```
+
 ### Every row, or a count
 
 ```rust
@@ -128,6 +136,19 @@ alice.update(&db).await?;
 `update` writes **every column** of the struct to the row with the same primary key. If no row has that key, it fails with `Error::NotFound`; it never creates a row.
 
 > **Note** Because `update` writes all columns, two programs that load the same row, change different fields and both call `update` will overwrite each other's change (the last write wins). For counters and other concurrent changes, use `update_many` with `increment`, or a [transaction](transactions).
+
+### Change only some columns
+
+`update_only` writes the columns you list, and only those, to the row with the same primary key. The other columns keep the value stored in the database, so a concurrent change to them is not overwritten, and less data is sent:
+
+```rust
+let mut alice = User::get(&db, 1).await?;
+alice.name = "Alice Liddell".into();
+alice.age = Some(32);
+alice.update_only(&db, (User::NAME, User::AGE)).await?; // one column: `User::NAME`
+```
+
+The columns must belong to the model: `alice.update_only(&db, Post::TITLE)` does not compile. Like `update`, it fails with `Error::NotFound` if the row does not exist.
 
 ### Change many rows
 

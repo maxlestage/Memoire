@@ -43,6 +43,7 @@ pub const SOURCES: &[(&str, [&str; 3])] = sources!(
     "deploy-heroku-mobile",
     "publish-crates-io",
     "cheatsheet",
+    "comparison",
     "faq",
 );
 

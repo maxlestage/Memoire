@@ -59,6 +59,11 @@ pub enum Error {
     #[error("table `{0}` already exists")]
     TableExists(String),
 
+    /// Two models are not related the way a relation method expects (no
+    /// foreign key between them, or several).
+    #[error("relation error: {0}")]
+    Relation(String),
+
     /// The operation is not supported by the backend.
     #[error("operation not supported by this backend: {0}")]
     Unsupported(String),

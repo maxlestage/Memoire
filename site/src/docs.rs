@@ -88,6 +88,12 @@ pub static CATEGORIES: &[DocCategory] = &[
         title: ["Reference", "Référence", "Referencia"],
         pages: &[
             page!("cheatsheet", "Cheat sheet", "Aide-mémoire", "Chuleta"),
+            page!(
+                "comparison",
+                "Memoire vs Diesel vs SeaORM",
+                "Memoire face à Diesel et SeaORM",
+                "Memoire frente a Diesel y SeaORM"
+            ),
             page!("faq", "FAQ", "FAQ", "Preguntas frecuentes"),
         ],
     },
@@ -137,7 +143,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 22);
+        assert_eq!(page_count(), 23);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

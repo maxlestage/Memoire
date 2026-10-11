@@ -13,7 +13,11 @@
 //!   `SqliteDb` (`sqlite`), `PgPool` (`postgres`), `MySqlPool` (`mysql`),
 //!   `RedisDb` (`redis`) and `MongoDb` (`mongodb`). The same test suite passes on
 //!   all of them.
-//! * **Transactions, migrations, joins, aggregates, pagination, upserts.**
+//! * **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent`,
+//!   many-to-many `load_via`, all from the foreign keys you already declare
+//!   ([`relation`]).
+//! * **Transactions, migrations, joins, aggregates, pagination, upserts, partial
+//!   updates.**
 //! * `#![forbid(unsafe_code)]`.
 //!
 //! ## Quick start
@@ -86,6 +90,7 @@ mod expr;
 pub mod migrate;
 mod model;
 mod query;
+pub mod relation;
 mod row;
 mod schema;
 pub mod sql;
@@ -97,7 +102,8 @@ pub use executor::{Database, ExecResult, Executor, Transaction};
 pub use expr::{AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, count_all, escape_like};
 pub use migrate::{Migration, Migrator};
 pub use model::Model;
-pub use query::{ColumnList, Delete, Joined, Page, Select, SumType, Update};
+pub use query::{ColumnList, Delete, Joined, ModelColumns, Page, Select, SumType, Update};
+pub use relation::LoadRelated;
 pub use row::{FromRow, RowSource, ValueRow};
 pub use schema::{ColumnDef, Dialect, ForeignKey, StaticSql, TableSchema};
 #[cfg(feature = "json")]
@@ -138,8 +144,8 @@ pub mod prelude {
     #[cfg(feature = "sqlite")]
     pub use crate::SqliteDb;
     pub use crate::{
-        Database, Dialect, Error, Executor, Expr, FromRow, JoinKind, Migration, Migrator, Model, Page, Result,
-        Transaction, Value, count_all, params,
+        Database, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadRelated, Migration, Migrator, Model, Page,
+        Result, Transaction, Value, count_all, params,
     };
 }
 

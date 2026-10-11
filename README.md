@@ -22,7 +22,8 @@
 | 🛡️ **Type-safe queries** | `User::AGE.gt(18)` compiles, `User::AGE.gt("18")` does not. Combine conditions with `&`, `\|` and `!`. |
 | 🧬 **Zero-cost row mapping** | Rows are decoded by position in a single pass; values are moved, never cloned. |
 | 🗄️ **SQL and NoSQL, one API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
-| 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, normalised errors. |
+| 🔗 **Relations without N+1** | `users.load_children::<Post>(&db)`, `load_parent`, many-to-many `load_via`: one query per level, read from the foreign keys you already declare. |
+| 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
 | 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
 
 ## Quick look
@@ -110,6 +111,13 @@ floor any SQLite ORM can reach):
 | Insert one row | 6.26 µs | 5.92 µs |
 | Insert 1 000 rows in a transaction | **1.95 ms** | 6.64 ms |
 
+On PostgreSQL (local server), the relation helpers replace round trips:
+
+| Operation | Before | Now |
+|---|---:|---:|
+| 100 users and their posts (N+1 queries → `load_children`) | 13.5 ms | **1.14 ms** (×12) |
+| `paginate` (count and page, sequential → concurrent) | 342 µs | **176 µs** (×1.9) |
+
 Details: [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 reproduce with `cargo bench -p memoire-orm --features memory,sqlite`.
 
@@ -123,7 +131,7 @@ The full guide lives in [`docs/`](docs/en) (English, [French](docs/fr), [Spanish
 | [Installation](docs/en/installation.md) | [Query builder](docs/en/queries.md) | [SQLite](docs/en/sqlite.md) | [Benchmarks](docs/en/benchmarks.md) |
 | [Quick start](docs/en/quick-start.md) | [CRUD](docs/en/crud.md) | [PostgreSQL](docs/en/postgres.md) | [Deploy from your phone](docs/en/deploy-heroku-mobile.md) |
 | | [Joins & relations](docs/en/relations.md) | [MySQL & MariaDB](docs/en/mysql.md) | [Publish to crates.io](docs/en/publish-crates-io.md) |
-| | [Transactions](docs/en/transactions.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) |
+| | [Transactions](docs/en/transactions.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) · [vs Diesel & SeaORM](docs/en/comparison.md) |
 
 API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 
