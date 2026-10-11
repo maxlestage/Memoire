@@ -25,6 +25,7 @@
 | 🔗 **Relations without N+1** | `users.load_children::<Post>(&db)`, `load_parent`, many-to-many `load_via`: one query per level, read from the foreign keys you already declare. |
 | 🔎 **Search and indexes everywhere** | Full-text search (`Post::BODY.matches("rust orm")`) and unique indexes over several columns (`#[memoire(unique(user_id, team_id))]`), with the same behaviour on all six backends. |
 | 📣 **Change notifications** | `Observed::new(db).subscribe(...)`: every write, on any backend, announced when it commits. |
+| 🌐 **Browser storage** | `Store::<Cart>::new("cart")`, a Pinia-style store saved in `localStorage`, and `LocalStorageDb::open("app")`, a whole database in `localStorage`, in step across tabs (feature `web`). |
 | 💾 **Embedded and durable** | `MemoryDb::open("app.memoire")`: the in-memory engine stored in a crash-safe file, optionally encrypted (AES-256-GCM). |
 | 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
 | 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
@@ -134,7 +135,7 @@ The full guide lives in [`docs/`](docs/en) (English, [French](docs/fr), [Spanish
 | [Installation](docs/en/installation.md) | [Query builder](docs/en/queries.md) | [SQLite](docs/en/sqlite.md) | [Benchmarks](docs/en/benchmarks.md) |
 | [Quick start](docs/en/quick-start.md) | [CRUD](docs/en/crud.md) | [PostgreSQL](docs/en/postgres.md) | [Deploy from your phone](docs/en/deploy-heroku-mobile.md) |
 | | [Joins & relations](docs/en/relations.md) | [MySQL & MariaDB](docs/en/mysql.md) | [Publish to crates.io](docs/en/publish-crates-io.md) |
-| | [Transactions](docs/en/transactions.md) · [Change notifications](docs/en/events.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) · [vs Diesel, SeaORM & Nitrite](docs/en/comparison.md) |
+| | [Transactions](docs/en/transactions.md) · [Change notifications](docs/en/events.md) · [Migrations](docs/en/migrations.md) · [Raw SQL](docs/en/raw-sql.md) | [Redis](docs/en/redis.md) · [MongoDB (NoSQL)](docs/en/mongodb.md) · [Browser storage](docs/en/browser-storage.md) | [Cheat sheet](docs/en/cheatsheet.md) · [FAQ](docs/en/faq.md) · [vs Diesel, SeaORM & Nitrite](docs/en/comparison.md) |
 
 API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

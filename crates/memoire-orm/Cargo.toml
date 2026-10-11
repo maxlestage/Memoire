@@ -45,6 +45,10 @@ postgres-tls = ["postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:webp
 ## Encryption of `MemoryDb` storage files (AES-256-GCM, key derived from a password
 ## with Argon2id).
 encryption = ["memory", "dep:aes-gcm", "dep:argon2"]
+## Browser storage: `web::Store`, a state store in the spirit of Pinia, and
+## `web::LocalStorageDb`, a Memoire database kept in `localStorage`. They use the
+## browser on wasm32; `web::MemoryStorage` works everywhere (tests, server rendering).
+web = ["memory", "dep:serde", "dep:serde_json", "dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 ## `chrono` date/time types.
 chrono = ["dep:chrono", "tokio-postgres?/with-chrono-0_4"]
 ## `uuid::Uuid` support.
@@ -52,7 +56,7 @@ uuid = ["dep:uuid", "tokio-postgres?/with-uuid-1"]
 ## JSON columns (`serde_json::Value` and `Json<T>`).
 json = ["dep:serde", "dep:serde_json", "tokio-postgres?/with-serde_json-1"]
 ## Everything.
-full = ["memory", "encryption", "sqlite", "postgres", "postgres-tls", "mysql", "mysql-tls", "redis", "redis-tls", "mongodb", "chrono", "uuid", "json"]
+full = ["memory", "encryption", "web", "sqlite", "postgres", "postgres-tls", "mysql", "mysql-tls", "redis", "redis-tls", "mongodb", "chrono", "uuid", "json"]
 
 [dependencies]
 memoire-orm-derive.workspace = true
@@ -83,6 +87,11 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
 uuid = { version = "1", optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "StorageEvent", "Event", "EventTarget"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

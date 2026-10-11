@@ -19,6 +19,8 @@
 //! * **Full-text search and multi-column indexes on every backend** —
 //!   `Post::BODY.matches("rust orm")`, `#[memoire(unique(user_id, team_id))]`.
 //! * **Change notifications** — [`Observed`] announces every write, on any backend.
+//! * **Browser storage** — `web::Store`, a state store in the spirit of Pinia, and
+//!   `web::LocalStorageDb`, a database in `localStorage` (feature `web`).
 //! * **Embedded and durable** — `MemoryDb::open(path)` stores the in-memory engine
 //!   in a crash-safe file, optionally encrypted (feature `encryption`).
 //! * **Transactions, migrations, joins, aggregates, pagination, upserts, partial
@@ -65,6 +67,7 @@
 //! |---|---|---|
 //! | `memory` | yes | In-memory engine ([`MemoryDb`]), optionally stored in a file |
 //! | `encryption` | | Encrypted [`MemoryDb`] files (AES-256-GCM) |
+//! | `web` | | Browser storage (module `web`): a Pinia-like `Store` and `LocalStorageDb` |
 //! | `sqlite` | | SQLite backend (`SqliteDb`) |
 //! | `postgres` | | PostgreSQL backend (`PgPool`, requires Tokio) |
 //! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
@@ -102,6 +105,9 @@ mod row;
 mod schema;
 pub mod sql;
 mod value;
+#[cfg(feature = "web")]
+#[cfg_attr(docsrs, doc(cfg(feature = "web")))]
+pub mod web;
 
 pub use ast::{JoinKind, Query};
 pub use error::{Error, Result};

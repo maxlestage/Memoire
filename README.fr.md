@@ -25,6 +25,7 @@
 | 🔗 **Relations sans N+1** | `users.load_children::<Post>(&db)`, `load_parent`, plusieurs-à-plusieurs avec `load_via` : une requête par niveau, déduite des clés étrangères déjà déclarées. |
 | 🔎 **Recherche et index partout** | Recherche plein texte (`Post::BODY.matches("rust orm")`) et index uniques sur plusieurs colonnes (`#[memoire(unique(user_id, team_id))]`), avec le même comportement sur les six moteurs. |
 | 📣 **Notifications de changements** | `Observed::new(db).subscribe(...)` : chaque écriture, sur n'importe quelle base, annoncée au commit. |
+| 🌐 **Stockage du navigateur** | `Store::<Cart>::new("cart")`, un store façon Pinia enregistré dans `localStorage`, et `LocalStorageDb::open("app")`, une base entière dans `localStorage`, synchronisés entre onglets (feature `web`). |
 | 💾 **Embarqué et durable** | `MemoryDb::open("app.memoire")` : le moteur en mémoire enregistré dans un fichier résistant aux crashs, chiffrable (AES-256-GCM). |
 | 🔋 **Tout est inclus** | Transactions, migrations, jointures, agrégats, `GROUP BY`, pagination, upserts, mises à jour partielles (`update_only`), `find_many`, erreurs unifiées. |
 | 🦀 **Sûr** | `#![forbid(unsafe_code)]`, la même suite de tests passe sur les six moteurs. |
@@ -134,7 +135,7 @@ Le guide complet se trouve dans [`docs/fr`](docs/fr) (aussi en [anglais](docs/en
 | [Installation](docs/fr/installation.md) | [Constructeur de requêtes](docs/fr/queries.md) | [SQLite](docs/fr/sqlite.md) | [Benchmarks](docs/fr/benchmarks.md) |
 | [Démarrage rapide](docs/fr/quick-start.md) | [CRUD](docs/fr/crud.md) | [PostgreSQL](docs/fr/postgres.md) | [Déployer depuis son téléphone](docs/fr/deploy-heroku-mobile.md) |
 | | [Jointures et relations](docs/fr/relations.md) | [MySQL et MariaDB](docs/fr/mysql.md) | [Publier sur crates.io](docs/fr/publish-crates-io.md) |
-| | [Transactions](docs/fr/transactions.md) · [Notifications](docs/fr/events.md) · [Migrations](docs/fr/migrations.md) · [SQL brut](docs/fr/raw-sql.md) | [Redis](docs/fr/redis.md) · [MongoDB (NoSQL)](docs/fr/mongodb.md) | [Aide-mémoire](docs/fr/cheatsheet.md) · [FAQ](docs/fr/faq.md) · [Face à Diesel, SeaORM et Nitrite](docs/fr/comparison.md) |
+| | [Transactions](docs/fr/transactions.md) · [Notifications](docs/fr/events.md) · [Migrations](docs/fr/migrations.md) · [SQL brut](docs/fr/raw-sql.md) | [Redis](docs/fr/redis.md) · [MongoDB (NoSQL)](docs/fr/mongodb.md) · [Stockage du navigateur](docs/fr/browser-storage.md) | [Aide-mémoire](docs/fr/cheatsheet.md) · [FAQ](docs/fr/faq.md) · [Face à Diesel, SeaORM et Nitrite](docs/fr/comparison.md) |
 
 Référence de l'API : [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

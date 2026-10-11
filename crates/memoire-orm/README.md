@@ -23,6 +23,8 @@
   and unique indexes over several columns, with the same behaviour on all six backends.
 - **Change notifications** — `Observed::new(db).subscribe(...)` hears every write, on any
   backend, when it commits.
+- **Browser storage** — `Store::<Cart>::new("cart")`, a Pinia-style store saved in
+  `localStorage`, and `LocalStorageDb`, a whole database in `localStorage` (feature `web`).
 - **Embedded and durable** — `MemoryDb::open("app.memoire")` stores the in-memory engine in
   a crash-safe file, optionally encrypted (feature `encryption`).
 - **Batteries included** — transactions, migrations, joins, aggregates,

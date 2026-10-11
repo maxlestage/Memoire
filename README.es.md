@@ -25,6 +25,7 @@
 | 🔗 **Relaciones sin N+1** | `users.load_children::<Post>(&db)`, `load_parent`, muchos a muchos con `load_via`: una consulta por nivel, deducida de las claves foráneas ya declaradas. |
 | 🔎 **Búsqueda e índices en todas partes** | Búsqueda de texto completo (`Post::BODY.matches("rust orm")`) e índices únicos sobre varias columnas (`#[memoire(unique(user_id, team_id))]`), con el mismo comportamiento en los seis motores. |
 | 📣 **Notificaciones de cambios** | `Observed::new(db).subscribe(...)`: cada escritura, en cualquier base, anunciada al confirmar. |
+| 🌐 **Almacenamiento del navegador** | `Store::<Cart>::new("cart")`, un store al estilo Pinia guardado en `localStorage`, y `LocalStorageDb::open("app")`, una base entera en `localStorage`, sincronizados entre pestañas (feature `web`). |
 | 💾 **Embebido y duradero** | `MemoryDb::open("app.memoire")`: el motor en memoria guardado en un archivo resistente a caídas, cifrable (AES-256-GCM). |
 | 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, actualizaciones parciales (`update_only`), `find_many`, errores unificados. |
 | 🦀 **Seguro** | `#![forbid(unsafe_code)]`, la misma batería de pruebas pasa en los seis motores. |
@@ -134,7 +135,7 @@ La guía completa está en [`docs/es`](docs/es) (también en [inglés](docs/en) 
 | [Instalación](docs/es/installation.md) | [Constructor de consultas](docs/es/queries.md) | [SQLite](docs/es/sqlite.md) | [Benchmarks](docs/es/benchmarks.md) |
 | [Inicio rápido](docs/es/quick-start.md) | [CRUD](docs/es/crud.md) | [PostgreSQL](docs/es/postgres.md) | [Desplegar desde el móvil](docs/es/deploy-heroku-mobile.md) |
 | | [Uniones y relaciones](docs/es/relations.md) | [MySQL y MariaDB](docs/es/mysql.md) | [Publicar en crates.io](docs/es/publish-crates-io.md) |
-| | [Transacciones](docs/es/transactions.md) · [Notificaciones](docs/es/events.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) · [Frente a Diesel, SeaORM y Nitrite](docs/es/comparison.md) |
+| | [Transacciones](docs/es/transactions.md) · [Notificaciones](docs/es/events.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) · [Almacenamiento del navegador](docs/es/browser-storage.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) · [Frente a Diesel, SeaORM y Nitrite](docs/es/comparison.md) |
 
 Referencia de la API: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

@@ -37,6 +37,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Fonts are served by the site itself (no request to Google Fonts).
 
 ### Added
+- Browser storage (feature `web`, module `memoire_orm::web`), tested in Chromium:
+  - `Store<S>`, application state in the spirit of Pinia: `Store::new("cart")` returns
+    the same store anywhere; getters (`get`), actions (`update`), `set`, `patch` (JSON
+    merge), `reset`, `subscribe`, `subscribe_local` (for the signals of UI frameworks,
+    which are not `Send`), `dispose`; saved to `localStorage` on every change, restored on
+    the next visit, versions with migrations, kept in step across tabs through `storage`
+    events.
+  - `LocalStorageDb`, a complete Memoire database in `localStorage`: one readable JSON
+    value per row, tables restored on first use, a version per table so tabs read each
+    other's changes and never reuse an id (a transaction overwriting another tab's write
+    fails with `Error::Conflict`), all-or-nothing writes when the quota is exceeded,
+    `on_external_change`, `clear`, `close`.
+  - `KeyValueStorage`, implemented by `LocalStorage`, `SessionStorage` (wasm32) and
+    `MemoryStorage` (everywhere: tests, server rendering, with tabs and a quota).
+  - `Error::Storage`.
 - Indexes over several columns, on every backend: `#[memoire(unique(a, b))]` and
   `#[memoire(index(a, b))]` on the struct (repeatable). SQL `CREATE [UNIQUE] INDEX`,
   MongoDB compound indexes, Redis unique keys, multi-column hash indexes in the in-memory

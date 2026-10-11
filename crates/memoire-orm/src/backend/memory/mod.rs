@@ -10,7 +10,7 @@
 
 mod eval;
 mod index;
-mod persist;
+pub(crate) mod persist;
 mod scan;
 
 pub use persist::StorageOptions;
@@ -506,6 +506,20 @@ impl State {
         Ok(())
     }
 
+    /// Table `name` becomes its stored copy again (`None`: gone).
+    fn replace_stored(&mut self, name: &str, stored: Option<persist::Pending>) {
+        self.tables.remove(name);
+        match stored {
+            Some(p) => {
+                self.pending.insert(name.to_owned(), Arc::new(p));
+            }
+            None => {
+                self.pending.remove(name);
+            }
+        }
+        self.clock += 1;
+    }
+
     fn needs_attach(&self, schemas: &[&'static TableSchema]) -> bool {
         !self.pending.is_empty()
             && schemas.iter().any(|s| self.pending.contains_key(s.name) && !self.tables.contains_key(s.name))
@@ -518,7 +532,7 @@ impl State {
 }
 
 /// The tables a statement reads or writes.
-fn schemas_of(q: &Query<'_>) -> Vec<&'static TableSchema> {
+pub(crate) fn schemas_of(q: &Query<'_>) -> Vec<&'static TableSchema> {
     match *q {
         Query::Select(s) => s.tables().collect(),
         Query::Insert(i) => vec![i.table],
@@ -1323,7 +1337,7 @@ pub(crate) fn decode<O: FromRow>(rows: Vec<Vec<Value>>) -> Result<Vec<O>> {
 pub struct MemoryDb {
     shared: Arc<RwLock<State>>,
     /// The storage file of a database opened with [`MemoryDb::open`].
-    store: Option<Arc<Mutex<persist::Store>>>,
+    store: Option<Arc<Mutex<Box<dyn persist::Journal>>>>,
 }
 
 impl fmt::Debug for MemoryDb {
@@ -1382,13 +1396,29 @@ impl MemoryDb {
     /// [`open`](Self::open) with options: `fsync` after every write, encryption.
     pub fn open_with(path: impl AsRef<Path>, options: StorageOptions) -> Result<Self> {
         let (store, pending) = persist::Store::open(path.as_ref(), &options)?;
+        Ok(Self::with_journal(Box::new(store), pending))
+    }
+
+    /// A database whose committed changes go to `journal`, starting from the
+    /// stored tables `pending`.
+    pub(crate) fn with_journal(
+        journal: Box<dyn persist::Journal>,
+        pending: Map<String, Arc<persist::Pending>>,
+    ) -> Self {
         let state = State { pending, journal: Some(Vec::new()), ..State::default() };
-        Ok(MemoryDb { shared: Arc::new(RwLock::new(state)), store: Some(Arc::new(Mutex::new(store))) })
+        MemoryDb { shared: Arc::new(RwLock::new(state)), store: Some(Arc::new(Mutex::new(journal))) }
+    }
+
+    /// Replaces table `name` by its stored copy (`None`: it is gone), read
+    /// again on next use. Open transactions that wrote it will conflict.
+    #[cfg_attr(not(feature = "web"), allow(dead_code))]
+    pub(crate) fn replace_stored(&self, name: &str, stored: Option<persist::Pending>) {
+        self.shared.write().replace_stored(name, stored);
     }
 
     /// The storage file, for a database opened with [`open`](Self::open).
     pub fn path(&self) -> Option<PathBuf> {
-        self.store.as_ref().map(|s| s.lock().path().to_owned())
+        self.store.as_ref().and_then(|s| s.lock().path().map(Path::to_owned))
     }
 
     /// Rewrites the storage file with only the current rows (the journal of
@@ -1428,7 +1458,17 @@ impl MemoryDb {
             return Ok(());
         }
         let mut store = store.lock();
-        store.append(&records)?;
+        if let Err(e) = store.append(&records) {
+            // A medium that undid the write gives the tables back as stored:
+            // the memory follows, so it never shows what was not saved.
+            let mut names: Vec<String> = records.iter().map(persist::Record::table).map(str::to_owned).collect();
+            names.sort();
+            names.dedup();
+            for (name, stored) in store.reload(&names).unwrap_or_default() {
+                st.replace_stored(&name, stored);
+            }
+            return Err(e);
+        }
         if store.should_compact(st.live_rows()) {
             store.compact(st)?;
         }

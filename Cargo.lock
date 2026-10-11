@@ -1601,6 +1601,7 @@ dependencies = [
  "deadpool-postgres",
  "foldhash",
  "hashbrown 0.16.1",
+ "js-sys",
  "memoire-orm-derive",
  "mongodb",
  "mysql_async",
@@ -1615,6 +1616,8 @@ dependencies = [
  "tokio-postgres",
  "tokio-postgres-rustls",
  "uuid",
+ "wasm-bindgen",
+ "web-sys",
  "webpki-roots",
 ]
 
