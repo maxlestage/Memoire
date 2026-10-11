@@ -271,6 +271,110 @@ impl<M, T: SqlType<Base = String>> Column<M, T> {
     pub fn ends_with(self, suffix: impl AsRef<str>) -> Expr {
         self.like_expr(format!("%{}", escape_like(suffix.as_ref())), false, false, true)
     }
+
+    /// Full-text search: every word of `query` appears in the column as a whole
+    /// word, ignoring case. Words are runs of letters and digits, so
+    /// `Post::BODY.matches("rust ORM")` finds "An ORM for Rust!" but not
+    /// "rusty". A query without any word matches nothing; a `NULL` column never
+    /// matches.
+    ///
+    /// The same rule applies on every backend. Mark the column
+    /// `#[memoire(fulltext)]` to index it where the backend can (a GIN index on
+    /// PostgreSQL, a word index in the in-memory engine).
+    pub fn matches(self, query: impl AsRef<str>) -> Expr {
+        Expr::Match(Box::new(TextSearch::new(self.expr(), query.as_ref())))
+    }
+}
+
+/// Splits `text` into the lower-case words used by full-text search
+/// ([`Column::matches`]): maximal runs of letters and digits.
+pub fn text_words(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase)
+}
+
+/// A full-text search built by [`Column::matches`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextSearch {
+    pub(crate) expr: Box<Expr>,
+    pub(crate) words: Vec<String>,
+    /// The words joined by spaces (bound for PostgreSQL and SQLite).
+    pub(crate) query: Value,
+    /// One regular expression per word, matching it as a whole word (bound for
+    /// MySQL and MongoDB).
+    pub(crate) patterns: Vec<Value>,
+}
+
+impl TextSearch {
+    fn new(expr: Expr, query: &str) -> Self {
+        let mut words: Vec<String> = Vec::new();
+        for w in text_words(query) {
+            if !words.contains(&w) {
+                words.push(w);
+            }
+        }
+        let patterns = words.iter().map(|w| Value::Text(word_regex(w))).collect();
+        TextSearch { expr: Box::new(expr), query: Value::Text(words.join(" ")), words, patterns }
+    }
+
+    /// The searched expression (a column).
+    pub fn expr(&self) -> &Expr {
+        &self.expr
+    }
+
+    /// The distinct lower-case words that must all appear.
+    pub fn words(&self) -> &[String] {
+        &self.words
+    }
+
+    /// `true` if every word of the search appears in `text`.
+    pub fn is_match(&self, text: &str) -> bool {
+        contains_words(&self.words, text)
+    }
+}
+
+/// `true` if every one of `words` (distinct, lower-case) appears in `text` as a
+/// whole word, ignoring case. `false` for no words.
+pub(crate) fn contains_words(words: &[String], text: &str) -> bool {
+    let n = words.len();
+    if n == 0 {
+        return false;
+    }
+    let mut found = vec![false; n];
+    let mut missing = n;
+    for word in text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
+        // ASCII words compare without allocating a lower-case copy.
+        let hit = if word.is_ascii() {
+            words.iter().position(|w| w.eq_ignore_ascii_case(word))
+        } else {
+            let lower = word.to_lowercase();
+            words.iter().position(|w| *w == lower)
+        };
+        if let Some(i) = hit
+            && !found[i]
+        {
+            found[i] = true;
+            missing -= 1;
+            if missing == 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// A regular expression (PCRE / ICU syntax) matching `word` between two
+/// characters that are not letters or digits, or the ends of the text.
+fn word_regex(word: &str) -> String {
+    let mut re = String::from("(^|[^\\p{L}\\p{M}\\p{N}])");
+    for c in word.chars() {
+        if c.is_alphanumeric() {
+            re.push(c);
+        } else {
+            re.push_str(&format!("\\x{{{:x}}}", c as u32));
+        }
+    }
+    re.push_str("([^\\p{L}\\p{M}\\p{N}]|$)");
+    re
 }
 
 impl<M, T> Column<M, T>
@@ -435,6 +539,8 @@ pub enum Expr {
         /// The pattern uses `\` as escape character.
         escaped: bool,
     },
+    /// Full-text search ([`Column::matches`]).
+    Match(Box<TextSearch>),
     /// Aggregate function call; `arg = None` means `COUNT(*)`.
     Aggregate {
         /// Function.
@@ -543,6 +649,7 @@ impl Expr {
                 expr.has_aggregate() || low.has_aggregate() || high.has_aggregate()
             }
             Expr::Like { expr, pattern, .. } => expr.has_aggregate() || pattern.has_aggregate(),
+            Expr::Match(m) => m.expr.has_aggregate(),
         }
     }
 }

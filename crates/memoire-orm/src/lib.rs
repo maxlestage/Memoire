@@ -99,13 +99,15 @@ mod value;
 pub use ast::{JoinKind, Query};
 pub use error::{Error, Result};
 pub use executor::{Database, ExecResult, Executor, Transaction};
-pub use expr::{AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, count_all, escape_like};
+pub use expr::{
+    AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, TextSearch, count_all, escape_like, text_words,
+};
 pub use migrate::{Migration, Migrator};
 pub use model::Model;
 pub use query::{ColumnList, Delete, Joined, ModelColumns, Page, Select, SumType, Update};
 pub use relation::LoadRelated;
 pub use row::{FromRow, RowSource, ValueRow};
-pub use schema::{ColumnDef, Dialect, ForeignKey, StaticSql, TableSchema};
+pub use schema::{ColumnDef, Dialect, ForeignKey, IndexDef, StaticSql, TableSchema};
 #[cfg(feature = "json")]
 pub use value::Json;
 pub use value::{Bind, ColumnType, FromValue, IntoValue, SqlType, ToValue, Value};

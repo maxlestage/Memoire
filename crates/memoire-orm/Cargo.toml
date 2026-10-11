@@ -59,7 +59,7 @@ parking_lot = { version = "0.12", optional = true }
 foldhash = { version = "0.2", optional = true }
 hashbrown = { version = "0.16", optional = true, default-features = false }
 
-rusqlite = { version = "0.40", optional = true, features = ["bundled"] }
+rusqlite = { version = "0.40", optional = true, features = ["bundled", "functions"] }
 async-lock = { version = "3", optional = true }
 
 tokio-postgres = { version = "0.7", optional = true }

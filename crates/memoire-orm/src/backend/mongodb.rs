@@ -84,7 +84,8 @@ fn map_err(err: mongodb::error::Error, table: Option<&TableSchema>) -> Error {
         let index = message.split("index: ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or_default();
         let column = match (index, table) {
             ("_id_", Some(t)) => t.pk().name.to_owned(),
-            (i, _) => i.to_owned(),
+            (i, Some(t)) => t.index_named(i).map_or_else(|| i.to_owned(), |ix| ix.label(t)),
+            (i, None) => i.to_owned(),
         };
         Some(Error::UniqueViolation { table: table.map(|t| t.name.to_owned()).unwrap_or_default(), column })
     };
@@ -393,6 +394,23 @@ fn translate(e: &Expr, table: &TableSchema, want: bool) -> Option<Document> {
                 doc! { f: regex }
             } else {
                 doc! { f: { "$type": "string", "$not": regex } }
+            })
+        }
+        Expr::Match(m) => {
+            let f = field_of(m.expr(), table)?;
+            if m.words().is_empty() {
+                return Some(if want { never() } else { always() });
+            }
+            let regex = |p: &Value| doc! { "$regex": p.as_str().unwrap_or_default(), "$options": "i" };
+            Some(if want {
+                // TRUE: every word is there.
+                let all: Vec<Document> = m.patterns.iter().map(|p| doc! { f: regex(p) }).collect();
+                doc! { "$and": all }
+            } else {
+                // FALSE: a text missing at least one word (NULL is neither).
+                let any: Vec<Document> =
+                    m.patterns.iter().map(|p| doc! { f: { "$type": "string", "$not": regex(p) } }).collect();
+                doc! { "$or": any }
             })
         }
         _ => None,
@@ -763,6 +781,26 @@ impl MongoDb {
             model.options = Some(options);
             coll.create_index(model).await.map_err(|e| map_err(e, Some(table)))?;
         }
+        for ix in table.indexes {
+            let mut keys = Document::new();
+            let mut present = Document::new();
+            for &c in ix.columns {
+                let name = table.columns[c].name;
+                keys.insert(name, 1);
+                present.insert(name, doc! { "$exists": true });
+            }
+            let mut options = IndexOptions::default();
+            options.name = Some(ix.name.to_owned());
+            if ix.unique {
+                options.unique = Some(true);
+                // A NULL (absent field) in one of the columns lifts the constraint, like SQL.
+                options.partial_filter_expression = Some(present);
+            }
+            let mut model = IndexModel::default();
+            model.keys = keys;
+            model.options = Some(options);
+            coll.create_index(model).await.map_err(|e| map_err(e, Some(table)))?;
+        }
         self.known.write().insert(table.name.to_owned());
         Ok(())
     }
@@ -877,10 +915,22 @@ impl MongoDb {
                 for r in &rows {
                     validate_row(table, r)?;
                     for &c in &indexed {
-                        if !r[c].is_null() && !seen.insert((c, r[c].to_string())) {
+                        if !r[c].is_null() && !seen.insert((vec![c], r[c].to_string())) {
                             return Err(Error::UniqueViolation {
                                 table: table.name.to_owned(),
                                 column: table.columns[c].name.to_owned(),
+                            });
+                        }
+                    }
+                    for ix in table.indexes.iter().filter(|ix| ix.unique) {
+                        if ix.columns.iter().any(|&c| r[c].is_null()) {
+                            continue;
+                        }
+                        let key: Vec<String> = ix.columns.iter().map(|&c| r[c].to_string()).collect();
+                        if !seen.insert((ix.columns.to_vec(), key.join("\u{1f}"))) {
+                            return Err(Error::UniqueViolation {
+                                table: table.name.to_owned(),
+                                column: ix.label(table),
                             });
                         }
                     }

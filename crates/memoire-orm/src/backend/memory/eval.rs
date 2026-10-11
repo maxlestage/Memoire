@@ -416,6 +416,17 @@ pub(crate) fn eval<'a>(e: &'a Expr, ctx: &Ctx<'a, '_>) -> Result<Cow<'a, Value>>
             };
             Ok(Cow::Owned(Value::Bool(m != *negated)))
         }
+        Expr::Match(m) => {
+            if m.words().is_empty() {
+                return Ok(Cow::Owned(Value::Bool(false)));
+            }
+            let v = eval(&m.expr, ctx)?;
+            match &*v {
+                Value::Null => Ok(Cow::Owned(Value::Null)),
+                Value::Text(t) => Ok(Cow::Owned(Value::Bool(m.is_match(t)))),
+                other => Err(Error::Conversion(format!("full-text search expects text, found {}", other.type_name()))),
+            }
+        }
         Expr::Aggregate { func, arg, distinct } => {
             let group = ctx
                 .group

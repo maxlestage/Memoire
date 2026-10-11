@@ -59,7 +59,8 @@ fn map_err(err: mysql_async::Error, table: Option<&'static TableSchema>) -> Erro
                 let key = key.rsplit('.').next().unwrap_or(key);
                 let column = match (key, table) {
                     ("PRIMARY", Some(t)) => t.pk().name.to_owned(),
-                    (k, _) => k.to_owned(),
+                    (k, Some(t)) => t.index_named(k).map_or_else(|| k.to_owned(), |ix| ix.label(t)),
+                    (k, None) => k.to_owned(),
                 };
                 return Error::UniqueViolation { table: table.map(|t| t.name.to_owned()).unwrap_or_default(), column };
             }
