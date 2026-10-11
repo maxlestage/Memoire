@@ -122,3 +122,41 @@ pub trait Transaction: Executor {
     /// Discards every change.
     fn rollback(self) -> impl Future<Output = Result<()>> + Send;
 }
+
+/// A shared reference to an executor is an executor: wrappers such as
+/// [`Observed`](crate::Observed) can borrow a handle instead of owning it.
+impl<E: Executor + ?Sized> Executor for &E {
+    fn dialect(&self) -> Option<Dialect> {
+        (**self).dialect()
+    }
+
+    fn fetch_all<O>(&self, query: Query<'_>) -> impl Future<Output = Result<Vec<O>>> + Send
+    where
+        O: FromRow + Send,
+    {
+        (**self).fetch_all(query)
+    }
+
+    fn execute(&self, query: Query<'_>) -> impl Future<Output = Result<ExecResult>> + Send {
+        (**self).execute(query)
+    }
+
+    fn insert_rows(
+        &self,
+        table: &'static TableSchema,
+        rows: Vec<Vec<Value>>,
+    ) -> impl Future<Output = Result<u64>> + Send {
+        (**self).insert_rows(table, rows)
+    }
+}
+
+impl<D: Database> Database for &D {
+    type Tx<'c>
+        = D::Tx<'c>
+    where
+        Self: 'c;
+
+    fn begin(&self) -> impl Future<Output = Result<Self::Tx<'_>>> + Send {
+        (**self).begin()
+    }
+}
