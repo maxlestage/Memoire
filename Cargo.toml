@@ -7,10 +7,10 @@ exclude = ["site"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-license = "MIT OR Apache-2.0"
+license-file = "LICENSE"
 repository = "https://github.com/maxlestage/Memoire"
-homepage = "https://github.com/maxlestage/Memoire"
-authors = ["Memoire ORM contributors"]
+homepage = "https://maxlestage.github.io/Memoire/"
+authors = ["Maxime Nathan Lestage"]
 
 [workspace.dependencies]
 memoire-orm-derive = { version = "=0.1.0", path = "crates/memoire-orm-derive" }

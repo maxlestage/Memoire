@@ -92,7 +92,7 @@ Each backend has its own page: [In-memory engine](memory), [SQLite](sqlite), [Po
 ## Requirements and license
 
 - **Rust 1.88 or newer** (the minimum supported Rust version, or MSRV).
-- **License:** MIT OR Apache-2.0, at your option.
+- **License:** proprietary, © Maxime Nathan Lestage, all rights reserved. Free to use as a dependency of your own programs, commercial ones included; the source is published so that it can be audited and built. See [LICENSE](https://github.com/maxlestage/Memoire/blob/master/LICENSE).
 - The `sqlite` feature compiles SQLite from source, so it needs a C compiler at build time. Every other backend is pure Rust; TLS uses `rustls`, so OpenSSL is never needed.
 
 ## Next steps

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 description = "Presentation website and documentation of Memoire ORM, written with active: server-rendered pages, WebAssembly islands, installable and offline (PWA)."
-license = "MIT OR Apache-2.0"
+license-file = "../LICENSE"
 
 # Standalone project: not part of the root workspace.
 [workspace]

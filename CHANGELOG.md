@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- License: Memoire ORM is proprietary software by Maxime Nathan Lestage, all rights
+  reserved (see `LICENSE`); it is free to use as a dependency, commercially too, but not to
+  modify or redistribute. The MIT/Apache-2.0 dual license is withdrawn.
+- Credits: Maxime Nathan Lestage is named as the author in the crate metadata, the README
+  and the website's footer, which now links the six projects of the ecosystem.
+- `memoire_orm::VERSION`, the version of the crate.
 - The website is rewritten with [active](https://github.com/maxlestage/Active) (it was a
   client-side WebAssembly app prerendered at build time): a Rust server renders every page
   with complete SEO tags (title, description, canonical, `hreflang`, Open Graph, Twitter,

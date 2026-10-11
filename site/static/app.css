@@ -1896,6 +1896,8 @@ body.has-cursor .cursor-ring {
 }
 
 /* 9. Footer & back-to-top ================================================= */
+/* The signature footer: the call to action and the install command, the link columns, the
+   sister projects, the author's signature, the giant wordmark and the legal line. */
 .footer {
   position: relative;
   z-index: 1;
@@ -1911,6 +1913,75 @@ body.has-cursor .cursor-ring {
   background: linear-gradient(90deg, transparent, #f74c00, #ffb347, #7c5cff, #22d3ee, transparent);
   background-size: 200% 100%;
   animation: border-flow 6s linear infinite;
+}
+
+.footer-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px 40px;
+  padding-block: 56px;
+  border-bottom: 1px solid var(--border);
+}
+
+.footer-cta-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.25em;
+  font: 700 clamp(28px, 4.6vw, 60px) / 1.05 var(--font-display);
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.footer-cta-link em {
+  font-style: normal;
+  background: var(--grad-rust);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.footer-cta-link .icon {
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 0.15em;
+  transition: transform 0.4s var(--ease), color 0.3s;
+}
+
+.footer-cta-link:hover .icon {
+  transform: translateX(8px) rotate(-45deg);
+  color: var(--amber);
+}
+
+/* The install command, styled as a terminal pill; one click selects the whole line. */
+.footer-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 0.95rem var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-user-select: all;
+  user-select: all;
+  cursor: text;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.footer-install::before {
+  content: "$";
+  color: var(--orange);
+}
+
+.footer-install:hover {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--orange) 14%, transparent);
 }
 
 .footer-grid {
@@ -1936,13 +2007,43 @@ body.has-cursor .cursor-ring {
   color: var(--text-muted);
 }
 
+/* Version, "100 % Rust", crates.io: small pills under the mission. */
+.footer-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.footer-badges li {
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: 500 0.72rem var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.footer-badges li.hot {
+  border-color: color-mix(in srgb, var(--orange) 50%, transparent);
+  color: var(--orange);
+}
+
+.footer-badges a {
+  color: inherit;
+}
+
 .footer-social {
   display: flex;
   gap: 10px;
   margin-top: 4px;
 }
 
-.footer-col h3 {
+.footer-col h3,
+.footer-eco-head h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1983,16 +2084,268 @@ body.has-cursor .cursor-ring {
   opacity: 0.6;
 }
 
+/* The sister projects: a hairline grid of tiles, the current one marked. */
+.footer-eco {
+  padding-block: 0 56px;
+}
+
+.footer-eco-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 32px;
+  margin-bottom: 20px;
+}
+
+.footer-eco-head h3 {
+  margin: 0;
+}
+
+.footer-eco-head p {
+  margin: 0;
+  max-width: 44em;
+  font-size: 0.92rem;
+  color: var(--text-muted);
+}
+
+.eco-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.eco {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 14px;
+  align-items: start;
+  height: 100%;
+  padding: 22px 24px;
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  transition: background 0.3s, color 0.3s;
+}
+
+.eco-name {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font: 700 1.02rem var(--font-display);
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.eco-text {
+  grid-column: 1;
+  line-height: 1.5;
+}
+
+.eco .icon {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 2px;
+  opacity: 0;
+  transform: translate(-6px, 6px) rotate(-45deg);
+  transition: opacity 0.3s, transform 0.4s var(--ease), color 0.3s;
+}
+
+.eco:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.eco:hover .icon {
+  opacity: 1;
+  transform: rotate(-45deg);
+  color: var(--amber);
+}
+
+.eco.current {
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--orange) 18%, transparent), transparent 60%),
+    var(--bg-elev);
+}
+
+.eco.current .icon {
+  display: none;
+}
+
+.eco-here {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--orange) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--orange) 10%, transparent);
+  color: var(--orange);
+  font: 500 0.66rem var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eco-here::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: ping 2.4s ease-out infinite;
+}
+
+@keyframes ping {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--orange) 60%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* The signature: who designed and built this. */
+.footer-credits {
+  display: grid;
+  justify-items: center;
+  padding-block: 64px 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.credits-by {
+  margin: 0 0 18px;
+  font: 500 0.72rem var(--font-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.credits-name {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.26em;
+  font: 700 clamp(34px, 6.4vw, 92px) / 1.05 var(--font-display);
+  letter-spacing: -0.04em;
+  background: linear-gradient(
+    100deg,
+    var(--text) 0%,
+    var(--text) 34%,
+    #f74c00 44%,
+    #ffb347 50%,
+    #7c5cff 56%,
+    var(--text) 66%,
+    var(--text) 100%
+  );
+  background-size: 300% 100%;
+  background-position: 50% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* A shine crosses the name as it scrolls into view. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .credits-name {
+      animation: name-shine linear both;
+      animation-timeline: view();
+      animation-range: entry 20% cover 55%;
+    }
+  }
+}
+
+@keyframes name-shine {
+  from {
+    background-position: 100% 0;
+  }
+}
+
+.credits-name span {
+  display: inline-block;
+  transition: transform 0.5s var(--ease);
+  transition-delay: calc(var(--i) * 60ms);
+}
+
+.credits-name:hover span {
+  transform: translateY(-4px);
+}
+
+.credits-note {
+  margin: 18px 0 0;
+  font-size: 1.05rem;
+  color: var(--text-muted);
+}
+
+/* The project name, as big as the screen: outlined, filled with the brand colors on hover. */
+.wordmark {
+  display: flex;
+  justify-content: center;
+  margin: 24px -8px 0;
+  font: 800 clamp(80px, 22vw, 340px) / 0.8 var(--font-display);
+  letter-spacing: -0.06em;
+  user-select: none;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    var(--text) 0%,
+    var(--text) 22%,
+    color-mix(in srgb, var(--text) 6%, transparent) 50%,
+    #f74c00 52%,
+    #ffb347 68%,
+    #7c5cff 84%,
+    #22d3ee 100%
+  );
+  background-size: 100% 200%;
+  background-position: 0 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: background-position 1s var(--ease);
+}
+
+.wordmark:hover {
+  background-position: 0 100%;
+}
+
+.wordmark span {
+  display: inline-block;
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
 .footer-bottom {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 24px;
+  margin-top: 26px;
   padding-block: 22px 28px;
   border-top: 1px solid var(--border);
   font-size: 0.85rem;
   color: var(--text-dim);
+}
+
+.footer-bottom > a {
+  color: var(--text-muted);
+  transition: color 0.25s;
+}
+
+.footer-bottom > a:hover {
+  color: var(--amber);
 }
 
 .footer-top {
@@ -3660,6 +4013,19 @@ html:not(.motion) .bar-fill {
 }
 
 @media (max-width: 760px) {
+  .eco-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .footer-cta {
+    padding-block: 40px;
+  }
+
+  .footer-install {
+    width: 100%;
+    justify-content: center;
+  }
+
   .reveal.slide-left { transform: translateX(20px); }
   .reveal.slide-right { transform: translateX(-20px); }
   .reveal.is-visible { transform: none; }
@@ -3718,6 +4084,10 @@ html:not(.motion) .bar-fill {
   .footer-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-block: 48px 36px;
+  }
+
+  .eco-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .footer-lang {
