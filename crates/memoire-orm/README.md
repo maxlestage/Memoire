@@ -24,7 +24,7 @@
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] } # or "postgres", "mysql", "redis", "mongodb", "full"
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["sqlite"] } # or "postgres", "mysql", "redis", "mongodb", "full"
 ```
 
 | Feature | Default | What you get |

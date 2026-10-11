@@ -10,26 +10,26 @@ La forma más rápida es `cargo add`. Elige la línea que corresponda a la base 
 
 ```bash
 # Solo el motor en memoria (la feature por defecto)
-cargo add memoire-orm
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 
 # SQLite
-cargo add memoire-orm --features sqlite
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite
 
 # PostgreSQL (necesita el runtime Tokio)
-cargo add memoire-orm --features postgres
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres
 cargo add tokio --features macros,rt-multi-thread
 
 # PostgreSQL sobre TLS (bases de datos alojadas como Heroku Postgres)
-cargo add memoire-orm --features postgres-tls
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres-tls
 
 # MySQL / MariaDB (añade "mysql-tls" para TLS)
-cargo add memoire-orm --features mysql
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mysql
 
 # Redis (añade "redis-tls" para las URL rediss://)
-cargo add memoire-orm --features redis
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features redis
 
 # MongoDB
-cargo add memoire-orm --features mongodb
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mongodb
 ```
 
 Todos los backends de servidor (PostgreSQL, MySQL/MariaDB, Redis, MongoDB) también necesitan Tokio: `cargo add tokio --features macros,rt-multi-thread`.
@@ -38,7 +38,7 @@ También puedes editar `Cargo.toml` a mano:
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] }
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["sqlite"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -68,14 +68,14 @@ Las features se suman, así que puedes combinarlas libremente:
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["postgres", "chrono", "uuid", "json"] }
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["postgres", "chrono", "uuid", "json"] }
 ```
 
 Si no necesitas el motor en memoria en absoluto, desactiva las features por defecto:
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", default-features = false, features = ["sqlite"] }
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", default-features = false, features = ["sqlite"] }
 ```
 
 > **Consejo** Mantén `memory` activada aunque en producción uses otra base de datos: hace que las pruebas unitarias sean rápidas y no requieran configuración. Puedes activarla solo para las pruebas con `[dev-dependencies]`.
@@ -86,7 +86,7 @@ Memoire no reexporta `chrono`, `uuid` ni `serde_json`. Para poder *nombrar* esos
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite", "chrono", "uuid", "json"] }
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["sqlite", "chrono", "uuid", "json"] }
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }         # "v4" para Uuid::new_v4()
 serde = { version = "1", features = ["derive"] }    # para Json<T>
@@ -145,7 +145,7 @@ Crea un proyecto nuevo y ejecuta un programa mínimo:
 ```bash
 cargo new hello-memoire
 cd hello-memoire
-cargo add memoire-orm
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 cargo add tokio --features macros,rt-multi-thread
 ```
 

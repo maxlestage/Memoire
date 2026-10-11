@@ -14,7 +14,7 @@
 ## Activar el backend
 
 ```bash
-cargo add memoire-orm --features redis
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features redis
 cargo add tokio --features macros,rt-multi-thread
 ```
 

@@ -5,14 +5,14 @@
 ## Activer le backend
 
 ```bash
-cargo add memoire-orm --features mysql
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mysql
 cargo add tokio --features macros,rt-multi-thread
 ```
 
 Pour les connexions chiffrées (la plupart des bases hébergées), utilisez plutôt la feature `mysql-tls` (elle inclut `mysql`) :
 
 ```bash
-cargo add memoire-orm --features mysql-tls
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mysql-tls
 ```
 
 Le client est `mysql_async`, une implémentation en Rust pur du protocole MySQL ; TLS utilise `rustls`. Aucune bibliothèque C ni OpenSSL n'est nécessaire.

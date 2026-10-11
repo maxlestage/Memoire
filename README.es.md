@@ -29,7 +29,7 @@
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["sqlite"] }   # o "postgres", "mysql", "redis", "mongodb", "full"
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["sqlite"] }   # o "postgres", "mysql", "redis", "mongodb", "full"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -162,7 +162,7 @@ BASE_PATH=/Memoire cargo run -- export dist-static  # archivos estáticos, como 
 
 Sin ordenador:
 
-1. Abre `https://heroku.com/deploy?template=<la dirección de tu repositorio>` en tu móvil, elige un nombre de aplicación y pulsa **Deploy app**.
+1. Abre `https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire` en tu móvil, elige un nombre de aplicación y pulsa **Deploy app**.
 2. O añade los secretos `HEROKU_API_KEY` y `HEROKU_APP_NAME` en *Settings → Secrets and variables → Actions*:
    cada push a `master` se despliega automáticamente, y puedes volver a desplegar desde la app de GitHub
    (*Actions → Deploy to Heroku → Run workflow*).

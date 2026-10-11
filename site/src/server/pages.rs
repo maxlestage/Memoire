@@ -701,8 +701,9 @@ mod tests {
 
     #[test]
     fn copy_pill_and_icons() {
-        let html = Node::from(copy_pill(Lang::Fr, "cargo add memoire-orm")).render();
-        assert!(html.contains(r#"data-copy="cargo add memoire-orm""#));
+        let html = Node::from(copy_pill(Lang::Fr, "cargo add memoire-orm --git https://github.com/maxlestage/Memoire"))
+            .render();
+        assert!(html.contains(r#"data-copy="cargo add memoire-orm --git https://github.com/maxlestage/Memoire""#));
         assert!(html.contains("Copié"));
         let icons = Node::from(copy_icons()).render();
         assert!(icons.contains("when-idle") && icons.contains("when-copied"));

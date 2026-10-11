@@ -6,8 +6,8 @@ Every common Memoire operation on one page. The examples assume `use memoire_orm
 
 | Task | Code |
 |---|---|
-| In-memory engine (default feature) | `cargo add memoire-orm` |
-| SQLite | `cargo add memoire-orm --features sqlite` |
+| In-memory engine (default feature) | `cargo add memoire-orm --git https://github.com/maxlestage/Memoire` |
+| SQLite | `cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite` |
 | PostgreSQL / with TLS | `--features postgres` / `--features postgres-tls` (plus Tokio) |
 | MySQL, MariaDB / with TLS | `--features mysql` / `--features mysql-tls` (plus Tokio) |
 | Redis / with TLS | `--features redis` / `--features redis-tls` (plus Tokio) |

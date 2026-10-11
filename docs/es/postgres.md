@@ -5,14 +5,14 @@
 ## Activar el backend
 
 ```bash
-cargo add memoire-orm --features postgres
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres
 cargo add tokio --features macros,rt-multi-thread
 ```
 
 Para las bases de datos alojadas, que exigen conexiones cifradas, usa en su lugar la feature `postgres-tls` (que incluye `postgres`):
 
 ```bash
-cargo add memoire-orm --features postgres-tls
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features postgres-tls
 ```
 
 El cliente es Rust puro: `tokio-postgres` para el protocolo, `deadpool` para el pool y, con `postgres-tls`, `rustls` para el cifrado. No hace falta ninguna biblioteca de C ni OpenSSL.

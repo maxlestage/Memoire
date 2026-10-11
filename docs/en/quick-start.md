@@ -20,7 +20,7 @@ You only need Rust 1.88 or newer. No database server is required.
 ```bash
 cargo new tasks
 cd tasks
-cargo add memoire-orm
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 cargo add tokio --features macros,rt-multi-thread
 ```
 
@@ -234,7 +234,7 @@ The value `false` is not inside the SQL text: it is sent separately as a paramet
 The in-memory database disappears when the program stops. Let's keep the tasks in a file. First enable the `sqlite` feature:
 
 ```bash
-cargo add memoire-orm --features sqlite
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features sqlite
 ```
 
 Now move the application logic into a function that accepts *any* database. The `Executor` trait is implemented by every backend (and by transactions), so the same function works with `MemoryDb`, `SqliteDb` and `PgPool`. Here is the complete program:

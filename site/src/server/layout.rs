@@ -22,7 +22,7 @@ pub struct Ctx<'a> {
     pub theme: Option<&'static str>,
 }
 
-pub const CRATES_IO: &str = "https://crates.io/crates/memoire-orm";
+pub const CRATES_IO: &str = "https://github.com/maxlestage/Memoire";
 pub const DOCS_RS: &str = "https://docs.rs/memoire-orm";
 /// The license, served by the site itself (a copy of the repository's LICENSE): proprietary,
 /// all rights reserved.
@@ -149,7 +149,7 @@ pub fn theme_toggle(lang: Lang) -> Element {
         .child(span().class("tt-icon tt-moon").child(icon(Icon::Moon)))
 }
 
-/// `cargo add memoire-orm`: click to copy, with a "Copied!" tooltip.
+/// `cargo add memoire-orm --git https://github.com/maxlestage/Memoire`: click to copy, with a "Copied!" tooltip.
 pub fn copy_pill(lang: Lang, text: &'static str) -> Element {
     let tx = t(lang);
     button()
@@ -328,9 +328,12 @@ fn page_footer(route: &Route) -> Element {
         .child(
             el("code")
                 .class("footer-install")
-                .attr("aria-label", format!("{}: cargo add memoire-orm", tx.footer_install))
+                .attr(
+                    "aria-label",
+                    format!("{}: cargo add memoire-orm --git https://github.com/maxlestage/Memoire", tx.footer_install),
+                )
                 .attr("title", tx.footer_install)
-                .text("cargo add memoire-orm"),
+                .text("cargo add memoire-orm --git https://github.com/maxlestage/Memoire"),
         );
     let brand = div()
         .class("footer-brand")
@@ -342,9 +345,9 @@ fn page_footer(route: &Route) -> Element {
                 .attr("aria-label", "Memoire ORM")
                 .child(li().class("hot").text(format!("v{}", memoire_orm::VERSION)))
                 .child(li().text(tx.footer_rust))
-                .child(li().child(external(CRATES_IO).text("crates.io"))),
+                .child(li().child(external(CRATES_IO).text("GitHub"))),
         )
-        .child(div().class("footer-social").child(social(CRATES_IO, "crates.io", Icon::Crate)).child(social(
+        .child(div().class("footer-social").child(social(CRATES_IO, "GitHub", Icon::Github)).child(social(
             DOCS_RS,
             "docs.rs",
             Icon::Book,
@@ -409,7 +412,7 @@ fn page_footer(route: &Route) -> Element {
                 )
                 .child(
                     div().class("footer-col").child(h3().text(tx.footer_community)).child(
-                        ul().child(ext(CRATES_IO.into(), "crates.io"))
+                        ul().child(ext(CRATES_IO.into(), "GitHub"))
                             .child(ext(DOCS_RS.into(), "docs.rs"))
                             .child(ext(link(LICENSE_PATH), tx.footer_license)),
                     ),

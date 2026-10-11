@@ -39,7 +39,7 @@ migrator.run(&db).await?;"#;
 
 pub const SQL_EXAMPLE: &str = r#"SELECT "users"."id", "users"."email", "users"."name", "users"."age" FROM "users" WHERE ("users"."age" >= $1 AND "users"."name" LIKE $2 ESCAPE '\') ORDER BY "users"."name" ASC LIMIT 20"#;
 
-pub const INSTALL: &str = "cargo add memoire-orm";
+pub const INSTALL: &str = "cargo add memoire-orm --git https://github.com/maxlestage/Memoire";
 
 /// A line of the fake terminal: typed commands vs. printed output.
 #[derive(Clone, Copy, PartialEq)]
@@ -52,7 +52,7 @@ pub enum TermLine {
 /// Terminal script for each code tab (same order as the tabs).
 pub const TERMINAL: [&[TermLine]; 4] = [
     &[
-        TermLine::Cmd("cargo add memoire-orm"),
+        TermLine::Cmd("cargo add memoire-orm --git https://github.com/maxlestage/Memoire"),
         TermLine::Out("    Updating crates.io index"),
         TermLine::Out("      Adding memoire-orm to dependencies"),
         TermLine::Cmd("cargo build --release"),
@@ -82,7 +82,7 @@ pub const TERMINAL: [&[TermLine]; 4] = [
 
 /// Short per-feature snippets for the /features page (same order as the features).
 pub const FEATURE_SNIPPETS: [(&str, &str); 8] = [
-    ("bash", "cargo add memoire-orm"),
+    ("bash", "cargo add memoire-orm --git https://github.com/maxlestage/Memoire"),
     (
         "rust",
         "#[derive(Model, Debug, Clone)]\n#[memoire(table = \"users\")]\npub struct User {\n    #[memoire(primary_key, auto_increment)]\n    pub id: i64,\n    pub name: String,\n}",

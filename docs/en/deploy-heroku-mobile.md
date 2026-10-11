@@ -185,7 +185,7 @@ Heroku Postgres only accepts encrypted connections, so enable the `postgres-tls`
 
 ```toml
 [dependencies]
-memoire-orm = { version = "0.1", features = ["postgres-tls"] }
+memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["postgres-tls"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 

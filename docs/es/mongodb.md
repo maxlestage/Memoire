@@ -5,7 +5,7 @@
 ## Activar el backend
 
 ```bash
-cargo add memoire-orm --features mongodb
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features mongodb
 cargo add tokio --features macros,rt-multi-thread
 ```
 

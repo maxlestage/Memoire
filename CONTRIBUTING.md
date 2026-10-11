@@ -6,7 +6,7 @@ documentation fixes, translations, new features.
 ## Getting started
 
 ```bash
-git clone <the address of the repository>
+git clone https://github.com/maxlestage/Memoire
 cd Memoire
 cargo test --workspace --features memory,sqlite
 ```
