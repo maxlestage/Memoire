@@ -318,9 +318,14 @@ pub(crate) fn matching(table: &Table, filter: Option<&Expr>) -> Result<Vec<u32>>
     // An index lookup on the first conjunct that allows one. An `IN` list is
     // answered exactly by the index (same key equality), so that term is not
     // evaluated again on the candidates.
-    let indexed = parts.iter().enumerate().find_map(|(i, e)| super::index_candidates(e, table).map(|c| (i, c)));
+    let indexed = parts
+        .iter()
+        .enumerate()
+        .find_map(|(i, e)| super::index_candidates(e, table).map(|c| (i, c)))
+        // Equalities pinning every column of a multi-column index (no term skipped).
+        .or_else(|| super::composite_candidates(filter, table).map(|c| (usize::MAX, c)));
     let skip = match &indexed {
-        Some((i, _)) if matches!(parts[*i], Expr::InList { negated: false, .. }) => Some(*i),
+        Some((i, _)) if matches!(parts.get(*i), Some(Expr::InList { negated: false, .. })) => Some(*i),
         _ => None,
     };
     let mut terms = parts
