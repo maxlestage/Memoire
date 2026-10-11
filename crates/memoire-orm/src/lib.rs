@@ -58,7 +58,8 @@
 //!
 //! | Feature | Default | Description |
 //! |---|---|---|
-//! | `memory` | yes | In-memory engine ([`MemoryDb`]) |
+//! | `memory` | yes | In-memory engine ([`MemoryDb`]), optionally stored in a file |
+//! | `encryption` | | Encrypted [`MemoryDb`] files (AES-256-GCM) |
 //! | `sqlite` | | SQLite backend (`SqliteDb`) |
 //! | `postgres` | | PostgreSQL backend (`PgPool`, requires Tokio) |
 //! | `postgres-tls` | | TLS for PostgreSQL (rustls, honours `sslmode`) |
@@ -119,7 +120,7 @@ pub use value::{Bind, ColumnType, FromValue, IntoValue, SqlType, ToValue, Value}
 pub use memoire_orm_derive::{FromRow, Model};
 
 #[cfg(feature = "memory")]
-pub use backend::memory::{MemoryDb, MemoryTransaction};
+pub use backend::memory::{MemoryDb, MemoryTransaction, StorageOptions};
 #[cfg(feature = "mongodb")]
 pub use backend::mongodb::{MongoDb, MongoTransaction};
 #[cfg(feature = "mysql")]
