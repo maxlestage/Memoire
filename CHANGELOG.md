@@ -13,7 +13,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Credits: Maxime Nathan Lestage is named as the author in the crate metadata, the README
   and the website's footer, which now links the six projects of the ecosystem.
 - `memoire_orm::VERSION`, the version of the crate.
-- The website is rewritten with [active](https://github.com/maxlestage/Active) (it was a
+- The website is rewritten with [active](https://maxlestage.github.io/Active/) (it was a
   client-side WebAssembly app prerendered at build time): a Rust server renders every page
   with complete SEO tags (title, description, canonical, `hreflang`, Open Graph, Twitter,
   JSON-LD, sitemap) in English, French and Spanish (`/en/`, `/fr/`, `/es/`), the
