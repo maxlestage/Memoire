@@ -3865,6 +3865,10 @@ html:not(.motion) .bar-fill {
 }
 
 @media (max-width: 1024px) {
+  .eco-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .features-grid,
   .backends-grid,
   .why-grid {
@@ -4013,10 +4017,6 @@ html:not(.motion) .bar-fill {
 }
 
 @media (max-width: 760px) {
-  .eco-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .footer-cta {
     padding-block: 40px;
   }
@@ -4087,7 +4087,7 @@ html:not(.motion) .bar-fill {
   }
 
   .eco-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .footer-lang {
