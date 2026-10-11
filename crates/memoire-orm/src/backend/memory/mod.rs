@@ -10,11 +10,15 @@
 
 mod eval;
 mod index;
+mod persist;
 mod scan;
+
+pub use persist::StorageOptions;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
@@ -475,6 +479,67 @@ impl Table {
 pub(crate) struct State {
     tables: Map<String, Arc<Table>>,
     clock: u64,
+    /// Tables read from a storage file whose model has not been used yet.
+    pending: Map<String, Arc<persist::Pending>>,
+    /// Row changes to write to the storage file (`None` when there is none).
+    journal: Option<Vec<persist::Record>>,
+}
+
+impl State {
+    /// Turns the stored tables used by `schemas` into live tables.
+    fn attach(&mut self, schemas: &[&'static TableSchema]) -> Result<()> {
+        for schema in schemas {
+            if self.tables.contains_key(schema.name) {
+                continue;
+            }
+            let Some(p) = self.pending.get(schema.name) else { continue };
+            self.clock += 1;
+            let table = p.to_table(schema, self.clock)?;
+            if p.differs(schema)
+                && let Some(j) = self.journal.as_mut()
+            {
+                j.push(persist::Record::create(schema));
+            }
+            self.pending.remove(schema.name);
+            self.tables.insert(schema.name.to_owned(), Arc::new(table));
+        }
+        Ok(())
+    }
+
+    fn needs_attach(&self, schemas: &[&'static TableSchema]) -> bool {
+        !self.pending.is_empty()
+            && schemas.iter().any(|s| self.pending.contains_key(s.name) && !self.tables.contains_key(s.name))
+    }
+
+    fn live_rows(&self) -> usize {
+        self.tables.values().map(|t| t.rows.len()).sum::<usize>()
+            + self.pending.values().map(|p| p.len()).sum::<usize>()
+    }
+}
+
+/// The tables a statement reads or writes.
+fn schemas_of(q: &Query<'_>) -> Vec<&'static TableSchema> {
+    match *q {
+        Query::Select(s) => s.tables().collect(),
+        Query::Insert(i) => vec![i.table],
+        Query::Update(u) => vec![u.table],
+        Query::Delete(d) => vec![d.table],
+        Query::FindByKey { table, .. }
+        | Query::InsertRow { table, .. }
+        | Query::UpsertRow { table, .. }
+        | Query::UpdateRow { table, .. }
+        | Query::DeleteByKey { table, .. }
+        | Query::CreateTable { table, .. } => vec![table],
+        _ => Vec::new(),
+    }
+}
+
+/// Records the last `n` rows of `table` (just inserted) in the journal.
+fn log_tail(state: &mut State, table: &str, n: usize) {
+    if let (Some(j), Some(t)) = (state.journal.as_mut(), state.tables.get(table)) {
+        let start = t.rows.len().saturating_sub(n);
+        j.extend(t.rows[start..].iter().map(|r| persist::Record::Put { table: table.to_owned(), row: r.clone() }));
+    }
 }
 
 impl State {
@@ -1052,24 +1117,40 @@ fn update(state: &mut State, u: &UpdateAst) -> Result<u64> {
         }
         changes.push((i, new));
     }
-    state.table_mut(u.table.name)?.replace_rows(changes)
+    let idxs: Vec<usize> = if state.journal.is_some() { changes.iter().map(|(i, _)| *i).collect() } else { Vec::new() };
+    let n = state.table_mut(u.table.name)?.replace_rows(changes)?;
+    if let (Some(j), Some(t)) = (state.journal.as_mut(), state.tables.get(u.table.name)) {
+        j.extend(idxs.iter().map(|&i| persist::Record::Put { table: u.table.name.to_owned(), row: t.rows[i].clone() }));
+    }
+    Ok(n)
 }
 
 fn delete(state: &mut State, d: &DeleteAst) -> Result<u64> {
-    let idxs = matching_rows(state.table(d.table.name)?, d.filter.as_ref())?;
+    let t = state.table(d.table.name)?;
+    let idxs = matching_rows(t, d.filter.as_ref())?;
     if idxs.is_empty() {
         return Ok(0);
+    }
+    let pk = d.table.primary_key;
+    let keys: Vec<Value> =
+        if state.journal.is_some() { idxs.iter().map(|&i| t.rows[i][pk].clone()).collect() } else { Vec::new() };
+    if let Some(j) = state.journal.as_mut() {
+        j.extend(keys.into_iter().map(|key| persist::Record::Del { table: d.table.name.to_owned(), key }));
     }
     Ok(state.table_mut(d.table.name)?.remove_rows(idxs))
 }
 
 pub(crate) fn insert_many(state: &mut State, ins: &InsertAst) -> Result<u64> {
-    insert_all(state.table_mut(ins.table.name)?, ins.rows.iter().cloned())
+    let n = insert_all(state.table_mut(ins.table.name)?, ins.rows.iter().cloned())?;
+    log_tail(state, ins.table.name, n as usize);
+    Ok(n)
 }
 
 /// [`insert_many`] with rows given by value: stored without a copy.
 pub(crate) fn insert_owned(state: &mut State, table: &TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
-    insert_all(state.table_mut(table.name)?, rows.into_iter())
+    let n = insert_all(state.table_mut(table.name)?, rows.into_iter())?;
+    log_tail(state, table.name, n as usize);
+    Ok(n)
 }
 
 /// Inserts rows, all or nothing.
@@ -1109,10 +1190,14 @@ pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, O
         }
         Query::InsertRow { table, values } => {
             let key = state.table_mut(table.name)?.insert(values.to_vec(), true)?;
+            log_tail(state, table.name, 1);
             Ok((ExecResult { rows_affected: 1, last_insert_id: Some(key) }, Some(table.name.to_owned())))
         }
         Query::UpsertRow { table, values } => {
             state.table_mut(table.name)?.upsert(values.to_vec())?;
+            if let Some(j) = state.journal.as_mut() {
+                j.push(persist::Record::Put { table: table.name.to_owned(), row: values.to_vec() });
+            }
             done(1, table.name)
         }
         Query::UpdateRow { table, values } => {
@@ -1123,6 +1208,9 @@ pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, O
             match t.lookup(table.primary_key, &values[table.primary_key]) {
                 Some(idx) => {
                     let n = state.table_mut(table.name)?.replace_rows(vec![(idx, values.to_vec())])?;
+                    if let Some(j) = state.journal.as_mut() {
+                        j.push(persist::Record::Put { table: table.name.to_owned(), row: values.to_vec() });
+                    }
                     done(n, table.name)
                 }
                 None => Ok((ExecResult::default(), None)),
@@ -1133,6 +1221,9 @@ pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, O
             match t.lookup(table.primary_key, key) {
                 Some(idx) => {
                     let n = state.table_mut(table.name)?.remove_rows(vec![idx]);
+                    if let Some(j) = state.journal.as_mut() {
+                        j.push(persist::Record::Del { table: table.name.to_owned(), key: (*key).clone() });
+                    }
                     done(n, table.name)
                 }
                 None => Ok((ExecResult::default(), None)),
@@ -1147,11 +1238,18 @@ pub(crate) fn execute(state: &mut State, q: &Query<'_>) -> Result<(ExecResult, O
             }
             state.clock += 1;
             state.tables.insert(table.name.to_owned(), Arc::new(Table::new(table, state.clock)));
+            if let Some(j) = state.journal.as_mut() {
+                j.push(persist::Record::create(table));
+            }
             done(0, table.name)
         }
         Query::DropTable { name, if_exists } => {
-            if state.tables.remove(name).is_none() && !if_exists {
+            let existed = state.tables.remove(name).is_some() | state.pending.remove(name).is_some();
+            if !existed && !if_exists {
                 return Err(Error::NoSuchTable(name.to_owned()));
+            }
+            if existed && let Some(j) = state.journal.as_mut() {
+                j.push(persist::Record::Drop { table: name.to_owned() });
             }
             state.clock += 1;
             done(0, name)
@@ -1224,33 +1322,128 @@ pub(crate) fn decode<O: FromRow>(rows: Vec<Vec<Value>>) -> Result<Vec<O>> {
 #[derive(Clone, Default)]
 pub struct MemoryDb {
     shared: Arc<RwLock<State>>,
+    /// The storage file of a database opened with [`MemoryDb::open`].
+    store: Option<Arc<Mutex<persist::Store>>>,
 }
 
 impl fmt::Debug for MemoryDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let st = self.shared.read();
         let mut names: Vec<_> = st.tables.iter().map(|(n, t)| (n.clone(), t.rows.len())).collect();
+        names.extend(st.pending.iter().map(|(n, p)| (n.clone(), p.len())));
         names.sort();
-        f.debug_struct("MemoryDb").field("tables", &names).finish()
+        f.debug_struct("MemoryDb").field("tables", &names).field("path", &self.path()).finish()
     }
 }
 
 impl MemoryDb {
-    /// Creates an empty database.
+    /// Creates an empty database that lives in memory only.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Opens (or creates) a database stored in a file.
+    ///
+    /// The data is still served from memory, with the same speed, indexes and
+    /// transactions; every committed write is also appended to the file, which
+    /// is replayed on the next `open`. See [`StorageOptions`] for `fsync` and
+    /// encryption, and [`compact`](Self::compact).
+    ///
+    /// Tables come back the first time their model is used (`User::query()`,
+    /// `create_table_if_not_exists::<User>()`...): columns are matched by name,
+    /// so adding an `Option` field to a model keeps the stored rows.
+    ///
+    /// ```
+    /// use memoire_orm::prelude::*;
+    ///
+    /// #[derive(Model, Debug, PartialEq)]
+    /// struct Note { id: i64, text: String }
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("memoire-doc-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir).unwrap();
+    /// let path = dir.join("notes.memoire");
+    /// # let _ = std::fs::remove_file(&path);
+    /// # memoire_orm::block_on(async {
+    /// let db = MemoryDb::open(&path)?;
+    /// db.create_table_if_not_exists::<Note>().await?;
+    /// Note { id: 0, text: "kept".into() }.insert(&db).await?;
+    /// drop(db);
+    ///
+    /// let db = MemoryDb::open(&path)?; // later, or after a restart
+    /// assert_eq!(Note::get(&db, 1).await?.text, "kept");
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// # std::fs::remove_dir_all(&dir).unwrap();
+    /// ```
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with(path, StorageOptions::new())
+    }
+
+    /// [`open`](Self::open) with options: `fsync` after every write, encryption.
+    pub fn open_with(path: impl AsRef<Path>, options: StorageOptions) -> Result<Self> {
+        let (store, pending) = persist::Store::open(path.as_ref(), &options)?;
+        let state = State { pending, journal: Some(Vec::new()), ..State::default() };
+        Ok(MemoryDb { shared: Arc::new(RwLock::new(state)), store: Some(Arc::new(Mutex::new(store))) })
+    }
+
+    /// The storage file, for a database opened with [`open`](Self::open).
+    pub fn path(&self) -> Option<PathBuf> {
+        self.store.as_ref().map(|s| s.lock().path().to_owned())
+    }
+
+    /// Rewrites the storage file with only the current rows (the journal of
+    /// past changes is dropped), then replaces it atomically. It also happens
+    /// on its own when the file holds far more changes than rows. Does nothing
+    /// for a database in memory only.
+    pub fn compact(&self) -> Result<()> {
+        if let Some(store) = &self.store {
+            let st = self.shared.write();
+            store.lock().compact(&st)?;
+        }
+        Ok(())
+    }
+
     /// Names of the existing tables (sorted).
     pub fn table_names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.shared.read().tables.keys().cloned().collect();
+        let st = self.shared.read();
+        let mut v: Vec<String> = st.tables.keys().chain(st.pending.keys()).cloned().collect();
         v.sort();
         v
     }
 
     /// Number of rows in a table.
     pub fn row_count(&self, table: &str) -> Result<usize> {
-        Ok(self.shared.read().table(table)?.rows.len())
+        let st = self.shared.read();
+        match st.pending.get(table) {
+            Some(p) if !st.tables.contains_key(table) => Ok(p.len()),
+            _ => Ok(st.table(table)?.rows.len()),
+        }
+    }
+
+    /// Writes the journal of the last statement to the file.
+    fn persist(&self, st: &mut State) -> Result<()> {
+        let Some(store) = &self.store else { return Ok(()) };
+        let records = st.journal.as_mut().map(std::mem::take).unwrap_or_default();
+        if records.is_empty() {
+            return Ok(());
+        }
+        let mut store = store.lock();
+        store.append(&records)?;
+        if store.should_compact(st.live_rows()) {
+            store.compact(st)?;
+        }
+        Ok(())
+    }
+
+    /// Runs a write with the stored tables it uses attached, then persists it.
+    fn write<R>(&self, schemas: &[&'static TableSchema], f: impl FnOnce(&mut State) -> Result<R>) -> Result<R> {
+        let mut st = self.shared.write();
+        st.attach(schemas)?;
+        let result = f(&mut st);
+        let persisted = self.persist(&mut st);
+        let r = result?;
+        persisted?;
+        Ok(r)
     }
 }
 
@@ -1263,15 +1456,19 @@ impl Executor for MemoryDb {
     where
         O: FromRow + Send,
     {
+        let schemas = schemas_of(&query);
+        if self.shared.read().needs_attach(&schemas) {
+            self.write(&schemas, |_| Ok(()))?;
+        }
         fetch_decode(&self.shared.read(), &query)
     }
 
     async fn execute(&self, query: Query<'_>) -> Result<ExecResult> {
-        execute(&mut self.shared.write(), &query).map(|(r, _)| r)
+        self.write(&schemas_of(&query), |st| execute(st, &query).map(|(r, _)| r))
     }
 
     async fn insert_rows(&self, table: &'static TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
-        insert_owned(&mut self.shared.write(), table, rows)
+        self.write(&[table], |st| insert_owned(st, table, rows))
     }
 }
 
@@ -1281,12 +1478,7 @@ impl Database for MemoryDb {
     async fn begin(&self) -> Result<MemoryTransaction> {
         let snapshot = self.shared.read().clone();
         let base = snapshot.tables.iter().map(|(n, t)| (n.clone(), t.version)).collect();
-        Ok(MemoryTransaction {
-            shared: Arc::clone(&self.shared),
-            base,
-            local: Mutex::new(snapshot),
-            dirty: Mutex::new(Set::default()),
-        })
+        Ok(MemoryTransaction { db: self.clone(), base, local: Mutex::new(snapshot), dirty: Mutex::new(Set::default()) })
     }
 }
 
@@ -1298,7 +1490,7 @@ impl Database for MemoryDb {
 /// another writer modified one of the tables this transaction wrote; retrying the
 /// whole transaction is then safe. Dropping it without committing discards it.
 pub struct MemoryTransaction {
-    shared: Arc<RwLock<State>>,
+    db: MemoryDb,
     base: Map<String, u64>,
     local: Mutex<State>,
     dirty: Mutex<Set<String>>,
@@ -1319,11 +1511,15 @@ impl Executor for MemoryTransaction {
     where
         O: FromRow + Send,
     {
-        fetch_decode(&self.local.lock(), &query)
+        let mut local = self.local.lock();
+        local.attach(&schemas_of(&query))?;
+        fetch_decode(&local, &query)
     }
 
     async fn execute(&self, query: Query<'_>) -> Result<ExecResult> {
-        let (res, table) = execute(&mut self.local.lock(), &query)?;
+        let mut local = self.local.lock();
+        local.attach(&schemas_of(&query))?;
+        let (res, table) = execute(&mut local, &query)?;
         if let Some(t) = table {
             self.dirty.lock().insert(t);
         }
@@ -1331,7 +1527,9 @@ impl Executor for MemoryTransaction {
     }
 
     async fn insert_rows(&self, table: &'static TableSchema, rows: Vec<Vec<Value>>) -> Result<u64> {
-        let n = insert_owned(&mut self.local.lock(), table, rows)?;
+        let mut local = self.local.lock();
+        local.attach(&[table])?;
+        let n = insert_owned(&mut local, table, rows)?;
         self.dirty.lock().insert(table.name.to_owned());
         Ok(n)
     }
@@ -1344,15 +1542,21 @@ impl Transaction for MemoryTransaction {
             return Ok(());
         }
         let mut local = self.local.into_inner();
-        let mut db = self.shared.write();
+        let mut db = self.db.shared.write();
         for name in &dirty {
             let now = db.tables.get(name).map(|t| t.version);
             if now != self.base.get(name).copied() {
                 return Err(Error::Conflict(name.clone()));
             }
         }
+        // The changes reach the file before anyone can see them.
+        if let Some(store) = &self.db.store {
+            let records = local.journal.take().unwrap_or_default();
+            store.lock().append(&records)?;
+        }
         db.clock = db.clock.max(local.clock);
         for name in dirty {
+            db.pending.remove(&name);
             match local.tables.remove(&name) {
                 Some(mut t) => {
                     // Re-stamp with a fresh version so concurrent snapshots conflict.
@@ -1414,7 +1618,7 @@ mod tests {
                 let expected: Vec<usize> = (0..t.rows.len())
                     .filter(|&i| matches!(&t.rows[i][w.col], Value::Text(s) if crate::expr::text_words(s).any(|x| x == word)))
                     .collect();
-                assert_eq!(w.candidates(&[word.clone()]), expected, "word index, {word}");
+                assert_eq!(w.candidates(std::slice::from_ref(&word)), expected, "word index, {word}");
             }
         }
         for m in &t.mirrors {
