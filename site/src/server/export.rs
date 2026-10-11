@@ -1,5 +1,6 @@
 //! `memoire-site export <dir>`: the whole site as static files, for GitHub Pages or any
-//! static host. Every file comes from the server's own handlers, so both are identical.
+//! static host. Every file comes from the server's own handlers, called in memory through
+//! Vitesse's test client, so both are identical.
 //!
 //! What a static host cannot do is replaced: `/` and the addresses of the previous site
 //! (`/features`, `/docs/models`…) get a page that sends the visitor to their language
@@ -9,9 +10,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use axum::body::{Body, to_bytes};
-use axum::http::{Request, StatusCode};
-use tower::ServiceExt;
+use vitesse::test::TestClient;
 
 use super::{Site, app, pages, site_dir};
 use crate::routes::{Lang, Page, set_base};
@@ -24,6 +23,18 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
     if site.assets.get("/pkg/memoire_site_bg.wasm").is_none() {
         eprintln!("warning: site/pkg is missing, the pages will not be interactive (see CONTRIBUTING.md)");
     }
+    let client = TestClient::new(app(site.clone()));
+    let get = |path: &str, expected: u16| {
+        let client = &client;
+        let path = path.to_string();
+        async move {
+            let response = client.get(&path).header("host", "localhost").await;
+            if response.status().as_u16() != expected {
+                return Err(io::Error::other(format!("GET {path}: {} instead of {expected}", response.status())));
+            }
+            Ok(response.bytes().to_vec())
+        }
+    };
     let mut written = 0;
     let mut write = |path: &str, bytes: &[u8]| -> io::Result<()> {
         let file = out.join(path.trim_start_matches('/'));
@@ -36,10 +47,10 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
     };
 
     for route in site.routes() {
-        let html = get(&site, &route.path(), StatusCode::OK).await?;
+        let html = get(&route.path(), 200).await?;
         write(&format!("{}index.html", route.path()), &html)?;
     }
-    write("offline/index.html", &get(&site, "/offline/", StatusCode::OK).await?)?;
+    write("offline/index.html", &get("/offline/", 200).await?)?;
 
     // The visitor's language, chosen in the browser: at the root and on a missing address (the
     // static host serves `404.html`), then the "not found" page of each language.
@@ -48,7 +59,7 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
     write("404.html", pages::language_choice(&site, &origin, &Page::NotFound).as_bytes())?;
     for lang in Lang::ALL {
         let path = format!("/{}/404/", lang.code());
-        write(&format!("{path}index.html"), &get(&site, &path, StatusCode::NOT_FOUND).await?)?;
+        write(&format!("{path}index.html"), &get(&path, 404).await?)?;
     }
     let mut legacy = vec![Page::Features, Page::Performance, Page::Playground, Page::Docs];
     legacy.extend(crate::docs::slugs().iter().map(|s| Page::Doc(s.to_string())));
@@ -59,12 +70,12 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
 
     for lang in Lang::ALL {
         let index = format!("/search/{}.txt", lang.code());
-        write(&index, &get(&site, &index, StatusCode::OK).await?)?;
+        write(&index, &get(&index, 200).await?)?;
         let manifest = format!("/{}/manifest.webmanifest", lang.code());
-        write(&manifest, &get(&site, &manifest, StatusCode::OK).await?)?;
+        write(&manifest, &get(&manifest, 200).await?)?;
     }
     for file in ["/sw.js", "/sitemap.xml", "/robots.txt"] {
-        write(file, &get(&site, file, StatusCode::OK).await?)?;
+        write(file, &get(file, 200).await?)?;
     }
     for (url, asset) in site.assets.iter() {
         write(url, &asset.bytes)?;
@@ -78,15 +89,4 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
     // Files are served as they are: no Jekyll processing on GitHub Pages.
     write(".nojekyll", b"")?;
     Ok(written)
-}
-
-/// The body of `GET path`, which must answer `expected`.
-async fn get(site: &Arc<Site>, path: &str, expected: StatusCode) -> io::Result<Vec<u8>> {
-    let request = Request::get(path).header("host", "localhost").body(Body::empty()).map_err(io::Error::other)?;
-    let response = app(site.clone()).oneshot(request).await.map_err(io::Error::other)?;
-    if response.status() != expected {
-        return Err(io::Error::other(format!("GET {path}: {} instead of {expected}", response.status())));
-    }
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.map_err(io::Error::other)?;
-    Ok(bytes.to_vec())
 }

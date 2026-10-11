@@ -2,9 +2,9 @@
 //! the inline scripts of each page (the WebAssembly loader and the service worker
 //! registration written by active) by their SHA-256 hash.
 
-use axum::http::{HeaderMap, HeaderName, HeaderValue, header};
 use base64::Engine;
 use sha2::{Digest, Sha256};
+use vitesse::http::{HeaderMap, HeaderName, HeaderValue, header};
 
 /// Bodies of the executable inline `<script>` elements of `html` (no `src`, not JSON-LD).
 pub fn inline_scripts(html: &str) -> Vec<&str> {

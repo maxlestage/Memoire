@@ -217,7 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Heroku le indica a tu servidor web qué puerto debe usar.
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8080);
     println!("ready to listen on 0.0.0.0:{port}");
-    // Arranca aquí tu framework web (axum, actix-web...), compartiendo `db` con tus handlers.
+    // Arranca aquí tu servidor web (Vitesse: `app.state(db)` comparte el pool con tus handlers).
     Ok(())
 }
 ```

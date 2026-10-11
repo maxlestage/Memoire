@@ -1,33 +1,34 @@
-//! The production server, end to end (without the network): routes, SEO tags, PWA,
-//! caching and security headers.
+//! The production server, end to end (without the network, through Vitesse's test
+//! client): routes, SEO tags, PWA, caching and security headers.
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::sync::{Arc, OnceLock};
 
-use axum::body::{Body, to_bytes};
-use axum::http::{Request, Response, StatusCode, header};
 use memoire_site::server::{Site, app, site_dir};
-use tower::ServiceExt;
+use vitesse::test::{TestClient, TestResponse};
+use vitesse::{StatusCode, header};
 
+/// The site, loaded once for every test.
 fn site() -> Arc<Site> {
     static SITE: OnceLock<Arc<Site>> = OnceLock::new();
     SITE.get_or_init(|| Arc::new(Site::load_with(&site_dir(), None))).clone()
 }
 
-async fn get(path: &str, headers: &[(&str, &str)]) -> Response<Body> {
-    let mut request = Request::get(path).header("host", "example.test");
+async fn get(path: &str, headers: &[(&str, &str)]) -> TestResponse {
+    let client = TestClient::new(app(site()));
+    let mut request = client.get(path).header("host", "example.test");
     for (name, value) in headers {
-        request = request.header(*name, *value);
+        request = request.header(name, value);
     }
-    app(site()).oneshot(request.body(Body::empty()).unwrap()).await.unwrap()
+    request.await
 }
 
-async fn text(response: Response<Body>) -> String {
-    String::from_utf8(to_bytes(response.into_body(), 20_000_000).await.unwrap().to_vec()).unwrap()
+async fn text(response: TestResponse) -> String {
+    response.text()
 }
 
-fn header_of(response: &Response<Body>, name: header::HeaderName) -> &str {
-    response.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("")
+fn header_of(response: &TestResponse, name: impl AsRef<str>) -> &str {
+    response.header(name.as_ref()).unwrap_or("")
 }
 
 #[tokio::test]

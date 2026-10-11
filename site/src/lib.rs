@@ -2,7 +2,7 @@
 //!
 //! The library is shared by both sides: texts, routes, documentation titles, search and
 //! the islands (the playground runs the real ORM). Compiled for the server it also holds
-//! the Axum server and the static export (`server`); compiled to WebAssembly it is the
+//! the Vitesse server and the static export (`server`); compiled to WebAssembly it is the
 //! browser bundle (`client`): it hydrates the islands and runs the page motion.
 
 pub mod data;

@@ -28,12 +28,8 @@ active = { git = "https://github.com/maxlestage/Active" }
 memoire-orm = { path = "../crates/memoire-orm", default-features = false, features = ["memory"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "tracing"] }
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7", features = ["compression-br", "compression-gzip", "trace"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# The web server: Vitesse, with Brotli and gzip for the pages and the search indexes.
+vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = false, features = ["compress"] }
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 # Static files are compressed once (brotli, gzip), not on every request.
 brotli = "9"
@@ -82,7 +78,12 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
+# Checks that the web app manifest and the service worker's lists are valid JSON.
 serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# `#[tokio::test]`: the tests call the server through Vitesse's test client.
+tokio = { version = "1", features = ["macros", "rt"] }
 
 # Browser bundle: `cargo build --lib --target wasm32-unknown-unknown --profile wasm-release`.
 [profile.wasm-release]
