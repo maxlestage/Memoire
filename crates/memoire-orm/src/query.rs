@@ -66,6 +66,39 @@ column_list_tuple!(M0 T0 0, M1 T1 1, M2 T2 2, M3 T3 3, M4 T4 4, M5 T5 5);
 column_list_tuple!(M0 T0 0, M1 T1 1, M2 T2 2, M3 T3 3, M4 T4 4, M5 T5 5, M6 T6 6);
 column_list_tuple!(M0 T0 0, M1 T1 1, M2 T2 2, M3 T3 3, M4 T4 4, M5 T5 5, M6 T6 6, M7 T7 7);
 
+/// Columns of model `M`, given to [`Model::update_only`]: one typed column
+/// (`User::NAME`) or a tuple of them (`(User::NAME, User::AGE)`). Columns of
+/// another model are rejected at compile time.
+pub trait ModelColumns<M> {
+    /// Positions of the columns in the schema of `M`.
+    fn indexes(self) -> Vec<usize>;
+}
+
+impl<M, T> ModelColumns<M> for Column<M, T> {
+    fn indexes(self) -> Vec<usize> {
+        vec![self.column_ref().index]
+    }
+}
+
+macro_rules! model_columns_tuple {
+    ($($t:ident $i:tt),+) => {
+        impl<M, $($t),+> ModelColumns<M> for ($(Column<M, $t>,)+) {
+            fn indexes(self) -> Vec<usize> {
+                vec![$(self.$i.column_ref().index),+]
+            }
+        }
+    };
+}
+
+model_columns_tuple!(T0 0);
+model_columns_tuple!(T0 0, T1 1);
+model_columns_tuple!(T0 0, T1 1, T2 2);
+model_columns_tuple!(T0 0, T1 1, T2 2, T3 3);
+model_columns_tuple!(T0 0, T1 1, T2 2, T3 3, T4 4);
+model_columns_tuple!(T0 0, T1 1, T2 2, T3 3, T4 4, T5 5);
+model_columns_tuple!(T0 0, T1 1, T2 2, T3 3, T4 4, T5 5, T6 6);
+model_columns_tuple!(T0 0, T1 1, T2 2, T3 3, T4 4, T5 5, T6 6, T7 7);
+
 /// Result type of `SUM` for a numeric Rust type (`i64` for integers, `f64` for
 /// floats).
 pub trait SumType {
@@ -382,12 +415,13 @@ impl<O: FromRow + Send> Select<O> {
         Ok(!rows.is_empty())
     }
 
-    /// Returns one page of results plus the total count (two queries).
+    /// Returns one page of results plus the total count. The two queries run
+    /// concurrently: on a connection pool they use two connections at once, so
+    /// a page costs one round trip instead of two.
     pub async fn paginate<E: Executor>(self, db: &E, page: u64, per_page: u64) -> Result<Page<O>> {
         let page = page.max(1);
-        let total = self.clone().count(db).await?;
-        let items = self.page(page, per_page).all(db).await?;
-        Ok(Page { items, page, per_page, total })
+        let (total, items) = crate::relation::join(self.clone().count(db), self.page(page, per_page).all(db)).await;
+        Ok(Page { items: items?, page, per_page, total: total? })
     }
 
     async fn aggregate<R: FromRow + Send, E: Executor>(self, expr: Expr, db: &E) -> Result<R> {

@@ -204,51 +204,93 @@ let counts: Vec<(i64, String, i64)> = User::query()
 
 `Post::ID.count()` compte les ids de posts non NULL : c'est pourquoi Carol obtient `0` et non `1`.
 
-## Charger les enfants sans le problème N+1
+## Les enfants d'une ligne
 
-Un besoin très courant : afficher chaque utilisateur avec ses posts. La version tentante exécute une requête par utilisateur :
+`belonging_to` démarre une requête sur les lignes qui pointent vers une ligne donnée. Memoire trouve le lien grâce à l'attribut `references` : rien d'autre à déclarer, et la requête peut encore être affinée :
 
 ```rust
-// Lent : 1 requête pour les utilisateurs + 1 requête par utilisateur ("N+1 requêtes").
+let alice = User::get(&db, 1).await?;
+let posts: Vec<Post> = Post::belonging_to(&alice)
+    .filter(Post::VIEWS.ge(10))
+    .order_by(Post::VIEWS.desc())
+    .all(&db)
+    .await?;
+// ["Hello", "Rust"]
+```
+
+Dans l'autre sens, `find_parent` suit une clé étrangère :
+
+```rust
+let post = Post::get(&db, 3).await?;
+let author: Option<User> = post.find_parent::<User, _>(&db).await?; // Some(Bob)
+```
+
+Elle renvoie `None` quand la clé étrangère vaut `NULL` (une colonne `Option<i64>`) ou désigne une ligne qui n'existe plus.
+
+## Charger les enfants sans le problème N+1
+
+Un besoin très courant : afficher chaque utilisateur avec ses articles. La version tentante lance une requête par utilisateur :
+
+```rust
+// Lent : 1 requête pour les utilisateurs + 1 requête par utilisateur (« N+1 requêtes »).
 let users = User::all(&db).await?;
 for user in &users {
-    let posts = Post::query().filter(Post::AUTHOR_ID.eq(user.id)).all(&db).await?;
-    println!("{}: {} post(s)", user.name, posts.len());
+    let posts = Post::belonging_to(user).all(&db).await?;
+    println!("{} : {} article(s)", user.name, posts.len());
 }
 ```
 
-Avec 1 000 utilisateurs, cela fait 1 001 allers-retours avec la base de données. Chargez plutôt tous les enfants en **une seule** requête avec `is_in`, puis regroupez-les en mémoire :
+Avec 1 000 utilisateurs, cela fait 1 001 allers-retours avec la base. `load_children` charge les enfants de toute une liste en **une seule** requête (`WHERE author_id IN (...)`) et les rend alignés sur la liste : `posts[i]` contient les articles de `users[i]`.
 
 ```rust
-use std::collections::HashMap;
-
 let users = User::query().order_by(User::ID).all(&db).await?;
+let posts: Vec<Vec<Post>> = users.load_children(&db).await?;
 
-let posts = Post::query()
-    .filter(Post::AUTHOR_ID.is_in(users.iter().map(|u| u.id)))
-    .all(&db)
-    .await?;
-
-let mut posts_by_author: HashMap<i64, Vec<Post>> = HashMap::new();
-for post in posts {
-    posts_by_author.entry(post.author_id).or_default().push(post);
-}
-
-for user in &users {
-    let count = posts_by_author.get(&user.id).map_or(0, Vec::len);
-    println!("{}: {} post(s)", user.name, count);
+for (user, posts) in users.iter().zip(&posts) {
+    println!("{} : {} article(s)", user.name, posts.len());
 }
 ```
 
 ```text
-Alice: 2 post(s)
-Bob: 1 post(s)
-Carol: 0 post(s)
+Alice : 2 article(s)
+Bob : 1 article(s)
+Carol : 0 article(s)
 ```
 
-Deux requêtes au total, quel que soit le nombre d'utilisateurs. Le même principe fonctionne à n'importe quelle profondeur : chargez les commentaires de tous ces posts avec une troisième requête.
+Deux requêtes au total, quel que soit le nombre d'utilisateurs. Sur PostgreSQL, pour 100 utilisateurs de 10 articles chacun, cela prend 1,1 ms au lieu de 13,5 ms (×12) sur la même machine, et l'écart grandit avec la latence réseau vers la base.
 
-> **Astuce** Si la liste d'ids peut être très longue (des dizaines de milliers), découpez-la en paquets de quelques milliers d'ids, car les bases de données limitent le nombre de paramètres qu'une requête peut avoir (32 766 sur SQLite, 65 535 sur PostgreSQL et MySQL).
+Tous les chargeurs viennent du trait `LoadRelated` (dans le prélude) et fonctionnent sur les tranches et les `Vec` :
+
+| Méthode | Renvoie | Requêtes |
+|---|---|---|
+| `users.load_children::<Post>(&db)` | `Vec<Vec<Post>>`, enfants triés par clé primaire | 1 |
+| `users.load_children_with(&db, Post::query()...)` | `Vec<Vec<Post>>`, dans l'ordre de votre requête | 1 |
+| `posts.load_parent::<User>(&db)` | `Vec<Option<User>>`, un par article | 1 |
+| `posts.load_via::<PostTag, Tag>(&db)` | `Vec<Vec<Tag>>` (plusieurs-à-plusieurs, plus bas) | 2 |
+
+`load_children_with` prend votre propre requête sur les enfants, pour les filtrer ou les trier :
+
+```rust
+let popular: Vec<Vec<Post>> = users
+    .load_children_with(&db, Post::query().filter(Post::VIEWS.ge(100)).order_by(Post::VIEWS.desc()))
+    .await?;
+```
+
+`LIMIT` et `OFFSET` dans cette requête s'appliquent à l'ensemble des enfants, pas à chaque utilisateur.
+
+`load_parent` va dans l'autre sens : une requête pour les auteurs de tous les articles, chaque auteur étant partagé par les articles qui pointent vers lui (le modèle parent doit implémenter `Clone`) :
+
+```rust
+let posts = Post::all(&db).await?;
+let authors: Vec<Option<User>> = posts.load_parent(&db).await?;
+for (post, author) in posts.iter().zip(&authors) {
+    println!("{} par {}", post.title, author.as_ref().map_or("?", |a| a.name.as_str()));
+}
+```
+
+Les chargeurs s'enchaînent à n'importe quelle profondeur (utilisateurs → articles → commentaires, trois requêtes), et les listes très longues sont découpées automatiquement sous la limite de paramètres de la base (32 766 sur SQLite, 65 535 sur PostgreSQL et MySQL).
+
+> **Note** La relation vient de la clé étrangère. Si l'enfant n'a aucune colonne avec `references` vers la table du parent, ou en a plusieurs (un `author_id` et un `reviewer_id` qui pointent tous deux vers `users`), les chargeurs échouent avec `Error::Relation` et `belonging_to` panique. Filtrez alors vous-même sur la colonne voulue : `Post::query().filter(Post::REVIEWER_ID.is_in(...))`.
 
 ## Relations plusieurs-à-plusieurs
 
@@ -286,6 +328,16 @@ async fn tags_of_post<E: Executor>(db: &E, post_id: i64) -> memoire_orm::Result<
 ```
 
 Les modèles Memoire ont une clé primaire sur une seule colonne : la table de liaison reçoit donc son propre `id`. Si vous voulez que la base de données interdise les paires en double, ajoutez un index unique sur les deux colonnes avec une [migration](migrations) SQL.
+
+`load_via` charge les partenaires plusieurs-à-plusieurs de toute une liste en deux requêtes, une sur la table de liaison et une sur les cibles :
+
+```rust
+let posts = Post::query().order_by(Post::ID).all(&db).await?;
+let tags: Vec<Vec<Tag>> = posts.load_via::<PostTag, Tag>(&db).await?;
+// tags[i] contient les étiquettes de posts[i], dans l'ordre de création des liens
+```
+
+Le modèle de liaison doit référencer les deux tables ; cela marche dans les deux sens (`tags.load_via::<PostTag, Post>(&db)`).
 
 ## Conseils et limites
 

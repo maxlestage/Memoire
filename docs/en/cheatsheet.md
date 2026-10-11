@@ -66,6 +66,7 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | By key, required | `User::get(&db, 1).await?` → `User` or `Error::NotFound` |
 | All rows | `User::all(&db).await?` |
 | Count all rows | `User::count(&db).await?` |
+| Several by key, one query | `User::find_many(&db, [1, 2, 3]).await?` → `Vec<User>` |
 | Refresh a struct | `user.reload(&db).await?` |
 | Start a query | `User::query()` |
 
@@ -136,13 +137,17 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Left join | `User::query().left_join::<Post>(Post::USER_ID.eq_col(User::ID))` | `(User, Option<Post>)` |
 | Join to filter only | `User::query().join::<Post>(JoinKind::Inner, cond).distinct()` | `User` |
 | Columns across tables | `.inner_join::<User>(cond).columns((User::NAME, Post::TITLE))` | `(String, String)` |
-| Load children in one query | `Post::query().filter(Post::USER_ID.is_in(user_ids))` | `Post` |
+| Children of one row | `Post::belonging_to(&user).all(&db).await?` | `Post` |
+| Load children in one query | `users.load_children::<Post>(&db).await?` | `Vec<Vec<Post>>` |
+| Load parents in one query | `posts.load_parent::<User>(&db).await?` | `Vec<Option<User>>` |
+| Many-to-many in two queries | `posts.load_via::<PostTag, Tag>(&db).await?` | `Vec<Vec<Tag>>` |
 
 ## Update and delete
 
 | Task | Code |
 |---|---|
 | Save one row (all columns) | `user.update(&db).await?` (`Error::NotFound` if missing) |
+| Save some columns | `user.update_only(&db, (User::NAME, User::AGE)).await?` |
 | Update many | `User::update_many().set(User::ACTIVE, false).filter(...).execute(&db).await?` → `u64` |
 | Set NULL | `.set_null(User::AGE)` |
 | Increment / decrement | `.increment(User::VISITS, 1)`, `.decrement(User::VISITS, 1)` |

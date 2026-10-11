@@ -22,7 +22,8 @@
 | 🛡️ **Requêtes typées** | `User::AGE.gt(18)` compile, `User::AGE.gt("18")` non. Combinez les conditions avec `&`, `\|` et `!`. |
 | 🧬 **Mapping sans surcoût** | Les lignes sont décodées par position en une seule passe ; les valeurs sont déplacées, jamais copiées. |
 | 🗄️ **SQL et NoSQL, une seule API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire 100 % Rust (qui tourne même en WebAssembly !). |
-| 🔋 **Tout est inclus** | Transactions, migrations, jointures, agrégats, `GROUP BY`, pagination, upserts, erreurs unifiées. |
+| 🔗 **Relations sans N+1** | `users.load_children::<Post>(&db)`, `load_parent`, plusieurs-à-plusieurs avec `load_via` : une requête par niveau, déduite des clés étrangères déjà déclarées. |
+| 🔋 **Tout est inclus** | Transactions, migrations, jointures, agrégats, `GROUP BY`, pagination, upserts, mises à jour partielles (`update_only`), `find_many`, erreurs unifiées. |
 | 🦀 **Sûr** | `#![forbid(unsafe_code)]`, la même suite de tests passe sur les six moteurs. |
 
 ## Aperçu
@@ -110,6 +111,13 @@ cache : le plancher que tout ORM SQLite peut atteindre) :
 | Insertion d'une ligne | 6,26 µs | 5,92 µs |
 | Insertion de 1 000 lignes dans une transaction | **1,95 ms** | 6,64 ms |
 
+Sur PostgreSQL (serveur local), les outils de relations suppriment des allers-retours :
+
+| Opération | Avant | Maintenant |
+|---|---:|---:|
+| 100 utilisateurs et leurs articles (N+1 requêtes → `load_children`) | 13,5 ms | **1,14 ms** (×12) |
+| `paginate` (comptage et page, à la suite → en parallèle) | 342 µs | **176 µs** (×1,9) |
+
 Détails : [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 à reproduire avec `cargo bench -p memoire-orm --features memory,sqlite`.
 
@@ -123,7 +131,7 @@ Le guide complet se trouve dans [`docs/fr`](docs/fr) (aussi en [anglais](docs/en
 | [Installation](docs/fr/installation.md) | [Constructeur de requêtes](docs/fr/queries.md) | [SQLite](docs/fr/sqlite.md) | [Benchmarks](docs/fr/benchmarks.md) |
 | [Démarrage rapide](docs/fr/quick-start.md) | [CRUD](docs/fr/crud.md) | [PostgreSQL](docs/fr/postgres.md) | [Déployer depuis son téléphone](docs/fr/deploy-heroku-mobile.md) |
 | | [Jointures et relations](docs/fr/relations.md) | [MySQL et MariaDB](docs/fr/mysql.md) | [Publier sur crates.io](docs/fr/publish-crates-io.md) |
-| | [Transactions](docs/fr/transactions.md) · [Migrations](docs/fr/migrations.md) · [SQL brut](docs/fr/raw-sql.md) | [Redis](docs/fr/redis.md) · [MongoDB (NoSQL)](docs/fr/mongodb.md) | [Aide-mémoire](docs/fr/cheatsheet.md) · [FAQ](docs/fr/faq.md) |
+| | [Transactions](docs/fr/transactions.md) · [Migrations](docs/fr/migrations.md) · [SQL brut](docs/fr/raw-sql.md) | [Redis](docs/fr/redis.md) · [MongoDB (NoSQL)](docs/fr/mongodb.md) | [Aide-mémoire](docs/fr/cheatsheet.md) · [FAQ](docs/fr/faq.md) · [Face à Diesel et SeaORM](docs/fr/comparison.md) |
 
 Référence de l'API : [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

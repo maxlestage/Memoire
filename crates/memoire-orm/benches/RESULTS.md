@@ -66,3 +66,30 @@ is spent in SQLite itself; on bulk reads and writes Memoire is within a few
 percent of it, and `insert_many` beats the hand-written loop by batching rows
 into multi-row `INSERT`s. (A single primary-key lookup takes under a
 microsecond either way; the difference is the ORM's query and row handling.)
+
+## Relations: N+1 queries vs `load_children`
+
+100 users with 10 posts each; "N+1" loads the users then runs
+`Post::belonging_to(user)` for each one, `load_children` loads every post in one
+`WHERE user_id IN (...)` query and groups them.
+
+| Backend | N+1 (101 queries) | `load_children` (2 queries) | Speed-up |
+|---|---:|---:|---:|
+| PostgreSQL 16, local socket over TCP | 13.5 ms | **1.14 ms** | **×12** |
+| SQLite, in-memory (`relations/sqlite_*`) | 354 µs | 347 µs | ×1.0 |
+| In-memory engine (`relations/memory_*`) | 145 µs | 165 µs | ×0.9 |
+
+The gain is the round trips: with a database across a network, every saved
+query saves a full network latency, so the speed-up grows well beyond ×12. An
+embedded database (SQLite, the in-memory engine) has no round trip; there both
+versions cost about the same, dominated by decoding the 1 000 posts.
+`load_children` also sorts the children by primary key, which the N+1 version
+does not do.
+
+`Select::paginate` runs its two queries (count and page) concurrently. On the
+same PostgreSQL server, 20 rows per page: 342 µs sequential, **176 µs**
+concurrent (×1.9).
+
+The PostgreSQL numbers come from a timing loop (200 and 2 000 iterations after
+warm-up) against PostgreSQL 16 on the same machine, not from criterion.
+

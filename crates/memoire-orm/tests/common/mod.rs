@@ -37,6 +37,18 @@ pub struct Tag {
     pub label: String,
 }
 
+/// Junction table of the many-to-many relation between posts and tags.
+#[derive(Model, Debug, Clone, PartialEq)]
+#[memoire(table = "post_tags")]
+pub struct PostTag {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    #[memoire(references = "posts(id)", on_delete = "cascade", index)]
+    pub post_id: i64,
+    #[memoire(references = "tags(slug)", on_delete = "cascade", index)]
+    pub tag_slug: String,
+}
+
 #[derive(FromRow, Debug, PartialEq)]
 pub struct UserStats {
     pub user_id: i64,
@@ -49,6 +61,7 @@ pub fn user(email: &str, name: &str, age: Option<i32>, score: f64) -> User {
 }
 
 async fn reset<E: Executor>(db: &E) -> Result<()> {
+    db.drop_table_if_exists::<PostTag>().await?;
     db.drop_table_if_exists::<Post>().await?;
     db.drop_table_if_exists::<User>().await?;
     db.drop_table_if_exists::<Tag>().await?;
@@ -56,6 +69,7 @@ async fn reset<E: Executor>(db: &E) -> Result<()> {
     db.create_table::<User>().await?;
     db.create_table::<Post>().await?;
     db.create_table::<Tag>().await?;
+    db.create_table::<PostTag>().await?;
     Ok(())
 }
 
@@ -84,6 +98,8 @@ pub async fn run_suite<D: Database>(db: &D) -> Result<()> {
     updates_and_deletes(db).await?;
     reset(db).await?;
     joins_and_groups(db).await?;
+    reset(db).await?;
+    relations(db).await?;
     reset(db).await?;
     transactions(db).await?;
     reset(db).await?;
@@ -324,6 +340,80 @@ async fn joins_and_groups<E: Executor>(db: &E) -> Result<()> {
     Ok(())
 }
 
+async fn relations<E: Executor>(db: &E) -> Result<()> {
+    let users = seed(db).await?;
+    let mut posts = vec![
+        Post { id: 0, user_id: 1, title: "Hello".into(), views: 120 },
+        Post { id: 0, user_id: 1, title: "Rust".into(), views: 30 },
+        Post { id: 0, user_id: 2, title: "Bob's".into(), views: 5 },
+        Post { id: 0, user_id: 4, title: "Dave's".into(), views: 50 },
+    ];
+    for p in &mut posts {
+        p.insert(db).await?;
+    }
+
+    // find_many: one query, missing keys skipped.
+    let mut found = User::find_many(db, [5, 1, 42, 1]).await?;
+    found.sort_by_key(|u| u.id);
+    assert_eq!(found.iter().map(|u| u.id).collect::<Vec<_>>(), vec![1, 5]);
+    assert!(User::find_many(db, Vec::<i64>::new()).await?.is_empty());
+    assert_eq!(Tag::find_many(db, ["nope"]).await?, vec![]);
+
+    // belonging_to / find_parent.
+    let alice_posts = Post::belonging_to(&users[0]).order_by(Post::ID).all(db).await?;
+    assert_eq!(alice_posts, posts[..2].to_vec());
+    assert_eq!(Post::belonging_to(&users[2]).count(db).await?, 0);
+    assert_eq!(posts[2].find_parent::<User, _>(db).await?, Some(users[1].clone()));
+    assert!(users[0].find_parent::<Post, _>(db).await.unwrap_err().to_string().contains("no column"));
+
+    // load_children: aligned with the parents, children in query order.
+    let children: Vec<Vec<Post>> = users.load_children(db).await?;
+    assert_eq!(children.iter().map(Vec::len).collect::<Vec<_>>(), vec![2, 1, 0, 1, 0]);
+    let popular =
+        users.load_children_with(db, Post::query().filter(Post::VIEWS.ge(30)).order_by(Post::VIEWS.desc())).await?;
+    assert_eq!(popular[0].iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), vec!["Hello", "Rust"]);
+    assert!(popular[1].is_empty());
+    let none: Vec<Vec<Post>> = Vec::<User>::new().load_children(db).await?;
+    assert!(none.is_empty());
+
+    // load_parent: one parent per child.
+    let authors: Vec<Option<User>> = posts.load_parent(db).await?;
+    let names: Vec<_> = authors.iter().map(|a| a.as_ref().map(|u| u.name.as_str())).collect();
+    assert_eq!(names, vec![Some("Alice"), Some("Alice"), Some("Bob"), Some("Dave")]);
+
+    // load_via: many-to-many through post_tags.
+    for (slug, label) in [("rust", "Rust"), ("orm", "ORM"), ("news", "News")] {
+        Tag { slug: slug.into(), label: label.into() }.insert(db).await?;
+    }
+    for (post_id, slug) in [(1, "rust"), (1, "orm"), (2, "rust"), (4, "news")] {
+        PostTag { id: 0, post_id, tag_slug: slug.into() }.insert(db).await?;
+    }
+    let tags: Vec<Vec<Tag>> = posts.load_via::<PostTag, Tag>(db).await?;
+    let slugs: Vec<Vec<&str>> = tags.iter().map(|t| t.iter().map(|t| t.slug.as_str()).collect()).collect();
+    assert_eq!(slugs, vec![vec!["rust", "orm"], vec!["rust"], vec![], vec!["news"]]);
+    let tagged: Vec<Vec<Post>> = Tag::all(db).await?.load_via::<PostTag, Post>(db).await?;
+    assert_eq!(tagged.iter().map(Vec::len).sum::<usize>(), 4);
+
+    // update_only: the other columns keep the value stored in the database.
+    let mut stale = User::get(db, 1).await?;
+    User::update_many().set(User::SCORE, 7.0).filter(User::ID.eq(1)).execute(db).await?;
+    stale.name = "Alicia".into();
+    stale.age = None;
+    stale.score = 0.0;
+    stale.update_only(db, (User::NAME, User::AGE)).await?;
+    let fresh = User::get(db, 1).await?;
+    assert_eq!((fresh.name.as_str(), fresh.age, fresh.score), ("Alicia", None, 7.0));
+    stale.update_only(db, User::NAME).await?;
+    let mut ghost = stale.clone();
+    ghost.id = 999;
+    assert!(ghost.update_only(db, User::NAME).await.unwrap_err().is_not_found());
+
+    // paginate (count and page run concurrently).
+    let page = User::query().order_by(User::ID).paginate(db, 2, 2).await?;
+    assert_eq!((page.total, page.items.iter().map(|u| u.id).collect::<Vec<_>>()), (5, vec![3, 4]));
+    Ok(())
+}
+
 async fn transactions<D: Database>(db: &D) -> Result<()> {
     let tx = db.begin().await?;
     let mut a = user("tx1@example.com", "Tx One", None, 0.0);
@@ -403,6 +493,7 @@ async fn errors<E: Executor>(db: &E) -> Result<()> {
     tag.insert(db).await?;
     assert!(tag.insert(db).await.unwrap_err().is_unique_violation());
 
+    db.drop_table::<PostTag>().await?;
     db.drop_table::<Tag>().await?;
     assert!(matches!(Tag::count(db).await.unwrap_err(), Error::NoSuchTable(t) if t == "tags"));
     assert!(matches!(db.create_table::<User>().await.unwrap_err(), Error::TableExists(t) if t == "users"));
@@ -412,6 +503,7 @@ async fn errors<E: Executor>(db: &E) -> Result<()> {
 }
 
 async fn migrations<D: Database>(db: &D) -> Result<()> {
+    db.drop_table_if_exists::<PostTag>().await?;
     db.drop_table_if_exists::<Post>().await?;
     db.drop_table_if_exists::<User>().await?;
     let m = Migrator::new()

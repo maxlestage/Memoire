@@ -22,7 +22,8 @@
 | 🛡️ **Consultas con tipado seguro** | `User::AGE.gt(18)` compila, `User::AGE.gt("18")` no. Combina condiciones con `&`, `\|` y `!`. |
 | 🧬 **Mapeo sin sobrecoste** | Las filas se decodifican por posición en una sola pasada; los valores se mueven, nunca se copian. |
 | 🗄️ **SQL y NoSQL, una sola API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria 100 % Rust (¡que funciona incluso en WebAssembly!). |
-| 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, errores unificados. |
+| 🔗 **Relaciones sin N+1** | `users.load_children::<Post>(&db)`, `load_parent`, muchos a muchos con `load_via`: una consulta por nivel, deducida de las claves foráneas ya declaradas. |
+| 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, actualizaciones parciales (`update_only`), `find_many`, errores unificados. |
 | 🦀 **Seguro** | `#![forbid(unsafe_code)]`, la misma batería de pruebas pasa en los seis motores. |
 
 ## Vistazo rápido
@@ -110,6 +111,13 @@ caché: el límite al que puede llegar cualquier ORM sobre SQLite):
 | Inserción de una fila | 6,26 µs | 5,92 µs |
 | Inserción de 1 000 filas en una transacción | **1,95 ms** | 6,64 ms |
 
+En PostgreSQL (servidor local), las utilidades de relaciones eliminan idas y vueltas:
+
+| Operación | Antes | Ahora |
+|---|---:|---:|
+| 100 usuarios y sus artículos (N+1 consultas → `load_children`) | 13,5 ms | **1,14 ms** (×12) |
+| `paginate` (recuento y página, en serie → en paralelo) | 342 µs | **176 µs** (×1,9) |
+
 Detalles: [`crates/memoire-orm/benches/RESULTS.md`](crates/memoire-orm/benches/RESULTS.md) ·
 reprodúcelo con `cargo bench -p memoire-orm --features memory,sqlite`.
 
@@ -123,7 +131,7 @@ La guía completa está en [`docs/es`](docs/es) (también en [inglés](docs/en) 
 | [Instalación](docs/es/installation.md) | [Constructor de consultas](docs/es/queries.md) | [SQLite](docs/es/sqlite.md) | [Benchmarks](docs/es/benchmarks.md) |
 | [Inicio rápido](docs/es/quick-start.md) | [CRUD](docs/es/crud.md) | [PostgreSQL](docs/es/postgres.md) | [Desplegar desde el móvil](docs/es/deploy-heroku-mobile.md) |
 | | [Uniones y relaciones](docs/es/relations.md) | [MySQL y MariaDB](docs/es/mysql.md) | [Publicar en crates.io](docs/es/publish-crates-io.md) |
-| | [Transacciones](docs/es/transactions.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) |
+| | [Transacciones](docs/es/transactions.md) · [Migraciones](docs/es/migrations.md) · [SQL sin procesar](docs/es/raw-sql.md) | [Redis](docs/es/redis.md) · [MongoDB (NoSQL)](docs/es/mongodb.md) | [Chuleta](docs/es/cheatsheet.md) · [Preguntas frecuentes](docs/es/faq.md) · [Frente a Diesel y SeaORM](docs/es/comparison.md) |
 
 Referencia de la API: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 

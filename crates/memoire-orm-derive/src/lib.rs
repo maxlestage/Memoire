@@ -516,6 +516,11 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
         quote!(#krate::ToValue::to_value(&self.#id))
     });
 
+    let value_at = cols.iter().enumerate().map(|(i, f)| {
+        let id = &f.ident;
+        quote!(#i => #krate::ToValue::to_value(&self.#id))
+    });
+
     let decode_fields = decode_fields_tokens(&info.fields, table, krate);
 
     let column_consts = cols.iter().enumerate().map(|(i, f)| {
@@ -556,6 +561,14 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
             #[inline]
             fn to_values(&self) -> ::std::vec::Vec<#krate::Value> {
                 ::std::vec![#(#to_values),*]
+            }
+
+            #[inline]
+            fn value_at(&self, index: usize) -> #krate::Value {
+                match index {
+                    #(#value_at,)*
+                    _ => #krate::Value::Null,
+                }
             }
         }
 

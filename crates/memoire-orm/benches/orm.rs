@@ -27,6 +27,16 @@ pub struct User {
     pub score: f64,
 }
 
+#[derive(Model, Debug, Clone)]
+#[memoire(table = "posts")]
+pub struct Post {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    #[memoire(references = "users(id)", index)]
+    pub user_id: i64,
+    pub title: String,
+}
+
 fn sample(i: i64) -> User {
     User {
         id: 0,
@@ -269,5 +279,38 @@ fn sqlite(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, sql_rendering, memory, sqlite);
+/// 100 users with 10 posts each: one query per user (N+1) against
+/// `load_children` (two queries), on SQLite and on the memory engine.
+fn relations(c: &mut Criterion) {
+    let mut g = c.benchmark_group("relations");
+    fn setup<E: Executor>(db: &E) {
+        block_on(db.create_table::<User>()).unwrap();
+        block_on(db.create_table::<Post>()).unwrap();
+        seed(db, 100);
+        let posts: Vec<Post> =
+            (0..1000).map(|i| Post { id: 0, user_id: i / 10 + 1, title: format!("Post {i}") }).collect();
+        block_on(Post::insert_many(db, &posts)).unwrap();
+    }
+    let lite = SqliteDb::open_in_memory().unwrap();
+    let mem = MemoryDb::new();
+    setup(&lite);
+    setup(&mem);
+
+    fn n_plus_one<E: Executor>(db: &E) -> usize {
+        let users = block_on(User::all(db)).unwrap();
+        users.iter().map(|u| block_on(Post::belonging_to(u).all(db)).unwrap().len()).sum()
+    }
+    fn eager<E: Executor>(db: &E) -> usize {
+        let users = block_on(User::all(db)).unwrap();
+        block_on(users.load_children::<Post>(db)).unwrap().iter().map(Vec::len).sum()
+    }
+
+    g.bench_function("sqlite_100_users_x_10_posts/n_plus_one", |b| b.iter(|| black_box(n_plus_one(&lite))));
+    g.bench_function("sqlite_100_users_x_10_posts/load_children", |b| b.iter(|| black_box(eager(&lite))));
+    g.bench_function("memory_100_users_x_10_posts/n_plus_one", |b| b.iter(|| black_box(n_plus_one(&mem))));
+    g.bench_function("memory_100_users_x_10_posts/load_children", |b| b.iter(|| black_box(eager(&mem))));
+    g.finish();
+}
+
+criterion_group!(benches, sql_rendering, memory, sqlite, relations);
 criterion_main!(benches);
