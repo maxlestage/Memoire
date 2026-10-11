@@ -171,6 +171,7 @@ Attributes go in `#[memoire(...)]` above a field. You can combine several, separ
 | `auto_increment` | `#[memoire(primary_key, auto_increment)]` | The database generates the key (alias: `auto`; `auto_increment = false` disables the implicit rule) |
 | `unique` | `#[memoire(unique)]` | Adds a `UNIQUE` constraint; duplicates fail with `Error::UniqueViolation` |
 | `index` | `#[memoire(index)]` | Creates an index named `idx_<table>_<column>` |
+| `fulltext` | `#[memoire(fulltext)]` | Indexes the words of a text column for full-text search (`matches`) |
 | `column` | `#[memoire(column = "e_mail")]` | Stores the field under another column name (alias: `rename`) |
 | `sql_type` | `#[memoire(sql_type = "VARCHAR(120)")]` | Overrides the SQL type used in `CREATE TABLE` |
 | `default` | `#[memoire(default = "0")]` | Adds `DEFAULT <SQL expression>` to the column |
@@ -218,6 +219,31 @@ CREATE INDEX "idx_posts_author_id" ON "posts" ("author_id");
 
 - `unique` makes the database reject a second row with the same value. Memoire reports it as `Error::UniqueViolation { table, column }` on every backend. A `unique` column is automatically indexed by the database.
 - `index` speeds up filters, joins and sorting on that column. Use it on columns you search by often, such as foreign keys. SQL databases, MongoDB and the in-memory engine create a real index; Redis ignores it.
+
+### Indexes over several columns
+
+`unique(...)` and `index(...)` on the **struct** cover several fields at once. Repeat them as needed:
+
+```rust
+#[derive(Model, Debug, Clone)]
+#[memoire(table = "memberships", unique(user_id, team_id), index(team_id, role))]
+pub struct Membership {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    pub user_id: i64,
+    pub team_id: i64,
+    pub role: String,
+}
+```
+
+- `unique(user_id, team_id)` refuses a second row with the same *pair*; each column alone may repeat. The error is `Error::UniqueViolation { column: "user_id, team_id", .. }` on every backend. As in SQL, a row with a `NULL` in one of the columns is not constrained.
+- `index(team_id, role)` speeds up filters that pin every column of the index, such as `Membership::TEAM_ID.eq(3) & Membership::ROLE.eq("admin")`.
+
+The indexes are named `uq_<table>_<a>_<b>` and `idx_<table>_<a>_<b>` (shortened with a hash past 63 characters). Every backend enforces the unique ones: SQL databases with a `UNIQUE INDEX`, MongoDB with a compound unique index, Redis with one key per combination, and the in-memory engine with a hash index that it also uses for lookups.
+
+### `fulltext`
+
+`#[memoire(fulltext)]` on a text column prepares it for [full-text search](queries) with `matches`. Searching works without it; the attribute makes it fast where the backend can: a GIN index on PostgreSQL, and a word index in the in-memory engine (`MemoryDb::new()` and `MemoryDb::open()`). The other backends check the rows one by one.
 
 ### `column` (rename)
 
@@ -476,7 +502,7 @@ Columns are decoded **by position**, in the order the fields are declared: the f
 
 | Not supported | What to do instead |
 |---|---|
-| Composite primary keys (two `primary_key` fields) | Add a surrogate `id` key and a `unique` column, or create a composite constraint with a SQL [migration](migrations) |
+| Composite primary keys (two `primary_key` fields) | Add a surrogate `id` key and `#[memoire(unique(a, b))]` on the struct |
 | Generic structs, tuple structs, enums as models | Use a plain struct with named fields |
 | `u64`, `usize`, `i128` fields | Use `i64` |
 | Automatic schema diffing | Write [migrations](migrations) |

@@ -50,6 +50,7 @@ pub static CATEGORIES: &[DocCategory] = &[
             ),
             page!("relations", "Joins & relations", "Jointures et relations", "Uniones y relaciones"),
             page!("transactions", "Transactions", "Transactions", "Transacciones"),
+            page!("events", "Change notifications", "Notifications de changements", "Notificaciones de cambios"),
             page!("migrations", "Migrations", "Migrations", "Migraciones"),
             page!("raw-sql", "Raw SQL", "SQL brut", "SQL sin procesar"),
         ],
@@ -90,9 +91,9 @@ pub static CATEGORIES: &[DocCategory] = &[
             page!("cheatsheet", "Cheat sheet", "Aide-mémoire", "Chuleta"),
             page!(
                 "comparison",
-                "Memoire vs Diesel vs SeaORM",
-                "Memoire face à Diesel et SeaORM",
-                "Memoire frente a Diesel y SeaORM"
+                "Memoire vs Diesel, SeaORM, Nitrite",
+                "Memoire face à Diesel, SeaORM, Nitrite",
+                "Memoire frente a Diesel, SeaORM, Nitrite"
             ),
             page!("faq", "FAQ", "FAQ", "Preguntas frecuentes"),
         ],
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 23);
+        assert_eq!(page_count(), 24);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

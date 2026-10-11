@@ -171,6 +171,7 @@ Les attributs se placent dans `#[memoire(...)]` au-dessus d'un champ. Vous pouve
 | `auto_increment` | `#[memoire(primary_key, auto_increment)]` | La base de données génère la clé (alias : `auto` ; `auto_increment = false` désactive la règle implicite) |
 | `unique` | `#[memoire(unique)]` | Ajoute une contrainte `UNIQUE` ; les doublons échouent avec `Error::UniqueViolation` |
 | `index` | `#[memoire(index)]` | Crée un index nommé `idx_<table>_<column>` |
+| `fulltext` | `#[memoire(fulltext)]` | Indexe les mots d'une colonne de texte pour la recherche plein texte (`matches`) |
 | `column` | `#[memoire(column = "e_mail")]` | Stocke le champ sous un autre nom de colonne (alias : `rename`) |
 | `sql_type` | `#[memoire(sql_type = "VARCHAR(120)")]` | Remplace le type SQL utilisé dans `CREATE TABLE` |
 | `default` | `#[memoire(default = "0")]` | Ajoute `DEFAULT <expression SQL>` à la colonne |
@@ -218,6 +219,31 @@ CREATE INDEX "idx_posts_author_id" ON "posts" ("author_id");
 
 - `unique` fait refuser par la base de données une deuxième ligne ayant la même valeur. Memoire le signale sous la forme `Error::UniqueViolation { table, column }` sur tous les backends. Une colonne `unique` est automatiquement indexée par la base de données.
 - `index` accélère les filtres, les jointures et les tris sur cette colonne. Utilisez-le sur les colonnes sur lesquelles vous recherchez souvent, comme les clés étrangères. Les bases de données SQL, MongoDB et le moteur en mémoire créent un vrai index ; Redis l'ignore.
+
+### Index sur plusieurs colonnes
+
+`unique(...)` et `index(...)` placés sur la **struct** couvrent plusieurs champs à la fois. Répétez-les autant que nécessaire :
+
+```rust
+#[derive(Model, Debug, Clone)]
+#[memoire(table = "memberships", unique(user_id, team_id), index(team_id, role))]
+pub struct Membership {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    pub user_id: i64,
+    pub team_id: i64,
+    pub role: String,
+}
+```
+
+- `unique(user_id, team_id)` refuse une deuxième ligne avec la même *paire* ; chaque colonne seule peut se répéter. L'erreur est `Error::UniqueViolation { column: "user_id, team_id", .. }` sur toutes les bases. Comme en SQL, une ligne qui a un `NULL` dans l'une des colonnes n'est pas contrainte.
+- `index(team_id, role)` accélère les filtres qui fixent toutes les colonnes de l'index, comme `Membership::TEAM_ID.eq(3) & Membership::ROLE.eq("admin")`.
+
+Les index s'appellent `uq_<table>_<a>_<b>` et `idx_<table>_<a>_<b>` (raccourcis avec un hash au-delà de 63 caractères). Toutes les bases font respecter les index uniques : les bases SQL avec un `UNIQUE INDEX`, MongoDB avec un index composé unique, Redis avec une clé par combinaison, et le moteur en mémoire avec un index de hachage qu'il utilise aussi pour les recherches.
+
+### `fulltext`
+
+`#[memoire(fulltext)]` sur une colonne de texte la prépare à la [recherche plein texte](queries) avec `matches`. La recherche fonctionne sans ; l'attribut la rend rapide là où la base le permet : un index GIN sur PostgreSQL, et un index de mots dans le moteur en mémoire (`MemoryDb::new()` et `MemoryDb::open()`). Les autres bases examinent les lignes une à une.
 
 ### `column` (renommage)
 
@@ -476,7 +502,7 @@ Les colonnes sont décodées **par position**, dans l'ordre de déclaration des 
 
 | Non pris en charge | Que faire à la place |
 |---|---|
-| Clés primaires composites (deux champs `primary_key`) | Ajoutez une clé de substitution `id` et une colonne `unique`, ou créez une contrainte composite avec une [migration](migrations) SQL |
+| Clés primaires composites (deux champs `primary_key`) | Ajoutez une clé de substitution `id` et `#[memoire(unique(a, b))]` sur la struct |
 | Structs génériques, tuple structs, enums comme modèles | Utilisez une struct simple à champs nommés |
 | Champs `u64`, `usize`, `i128` | Utilisez `i64` |
 | Comparaison automatique des schémas | Écrivez des [migrations](migrations) |

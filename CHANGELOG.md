@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- In-memory engine: a non-unique index keeps a set of rows per value, so inserting into a
+  low-cardinality indexed column (a `bool`) no longer slows down as the table grows;
+  equality lookups on an indexed column are faster too (1.1 µs → 0.77 µs on 10 000 rows).
+- Redis: a primary-key `IN` list repeating a key returned that row twice.
 - `Select::paginate` runs the count and the page concurrently: on a connection pool,
   one round trip instead of two (×1.9 on a local PostgreSQL).
 - In-memory engine (and Redis, MongoDB, which use it): an `IN (...)` list on an indexed
@@ -33,6 +37,28 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Fonts are served by the site itself (no request to Google Fonts).
 
 ### Added
+- Indexes over several columns, on every backend: `#[memoire(unique(a, b))]` and
+  `#[memoire(index(a, b))]` on the struct (repeatable). SQL `CREATE [UNIQUE] INDEX`,
+  MongoDB compound indexes, Redis unique keys, multi-column hash indexes in the in-memory
+  engine (used for lookups too). Violations report `column: "a, b"` everywhere; a `NULL`
+  in one of the columns lifts the constraint, like SQL. `TableSchema::indexes`, `IndexDef`.
+- Full-text search on every backend: `Column::matches("rust orm")` keeps the rows whose
+  text holds every word as a whole word, ignoring case, with the same rule everywhere
+  (PostgreSQL `tsvector`, a `memoire_match` function registered on SQLite connections,
+  `REGEXP` on MySQL, `$regex` on MongoDB, the in-memory engine for itself and Redis).
+  `#[memoire(fulltext)]` adds a GIN index on PostgreSQL and a word index in the in-memory
+  engine. `text_words`, `TextSearch`.
+- Change notifications on every backend: `Observed::new(db)` wraps any handle; its
+  `subscribe` and `channel` receive a `Change` (table, kind, rows, key, row) after each
+  write made through it, transactions at commit and never on rollback. `Executor` and
+  `Database` are implemented for `&D`.
+- `MemoryDb::open(path)`: the in-memory engine stored in a file (an append-only journal of
+  committed row changes with checksums, replayed on open, a torn tail dropped), with
+  `compact()` (also automatic), `StorageOptions::sync` and, with the new `encryption`
+  feature, `StorageOptions::password` (AES-256-GCM, Argon2id). Tables come back when their
+  model is used, matched by column name.
+- Documentation: "Change notifications" page; full-text search, indexes over several
+  columns and file storage in the guides; Nitrite in the comparison page.
 - Relations and eager loading, read from the foreign keys declared with
   `#[memoire(references = "table(column)")]` (no extra declaration):
   `Post::belonging_to(&user)` (a query on the children of one row),

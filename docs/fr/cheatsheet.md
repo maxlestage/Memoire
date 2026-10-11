@@ -15,6 +15,7 @@ Toutes les opérations courantes de Memoire sur une seule page. Les exemples sup
 | Types de colonnes supplémentaires | `--features chrono,uuid,json` (ou `full`) |
 | Tout importer | `use memoire_orm::prelude::*;` |
 | Ouvrir en mémoire | `let db = MemoryDb::new();` |
+| Ouvrir en mémoire, enregistré dans un fichier | `MemoryDb::open("app.memoire")?` ; chiffré : `MemoryDb::open_with(path, StorageOptions::new().password(pw))?` |
 | Ouvrir un fichier SQLite / en mémoire | `SqliteDb::open("app.db")?` / `SqliteDb::open_in_memory()?` |
 | Se connecter à PostgreSQL | `PgPool::connect(url).await?` ou `PgPool::connect_with(url, 10).await?` |
 | Se connecter à MySQL / MariaDB | `MySqlPool::connect("mysql://user:pass@host:3306/app").await?` |
@@ -32,6 +33,8 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Clé primaire | `#[memoire(primary_key)]` (un champ nommé `id` est la clé par défaut) |
 | Clé générée | `#[memoire(primary_key, auto_increment)]` (implicite pour un `id` entier sans attribut) |
 | Unique / index | `#[memoire(unique)]`, `#[memoire(index)]` |
+| Index sur plusieurs champs | `#[memoire(unique(user_id, team_id), index(team_id, role))]` sur la struct |
+| Index plein texte | `#[memoire(fulltext)]` |
 | Nom de colonne | `#[memoire(column = "e_mail")]` |
 | Type SQL | `#[memoire(sql_type = "VARCHAR(120)")]` |
 | Valeur par défaut | `#[memoire(default = "0")]` |
@@ -94,6 +97,7 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Motif, insensible à la casse | `User::EMAIL.ilike("%@EXAMPLE.com")` |
 | Contient (échappé) | `User::NAME.contains("ad")`, `User::NAME.icontains("AD")` |
 | Commence / se termine par (échappé) | `User::NAME.starts_with("A")`, `User::EMAIL.ends_with(".org")` |
+| Tous les mots, mots entiers, sans casse | `Post::BODY.matches("rust orm")` |
 
 ## Tri et pagination
 
@@ -155,6 +159,14 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Supprimer une ligne | `user.delete(&db).await?` → `bool` |
 | Supprimer par clé | `User::delete_by_key(&db, 1).await?` → `bool` |
 | Supprimer plusieurs lignes | `User::delete_many().filter(...).execute(&db).await?` → `u64` |
+
+## Notifications de changements
+
+| Tâche | Code |
+|---|---|
+| Suivre les écritures | `let db = Observed::new(db); let _sub = db.subscribe(\|change\| println!("{change:?}"));` |
+| Les recevoir sur un canal | `let (_sub, changes) = db.channel();` |
+| Arrêter | abandonner la subscription (drop), ou `sub.unsubscribe()` |
 
 ## Transactions
 

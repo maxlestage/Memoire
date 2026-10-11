@@ -30,6 +30,7 @@ pub const SOURCES: &[(&str, [&str; 3])] = sources!(
     "crud",
     "relations",
     "transactions",
+    "events",
     "migrations",
     "raw-sql",
     "memory",

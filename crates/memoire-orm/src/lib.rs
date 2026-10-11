@@ -16,6 +16,11 @@
 //! * **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent`,
 //!   many-to-many `load_via`, all from the foreign keys you already declare
 //!   ([`relation`]).
+//! * **Full-text search and multi-column indexes on every backend** —
+//!   `Post::BODY.matches("rust orm")`, `#[memoire(unique(user_id, team_id))]`.
+//! * **Change notifications** — [`Observed`] announces every write, on any backend.
+//! * **Embedded and durable** — `MemoryDb::open(path)` stores the in-memory engine
+//!   in a crash-safe file, optionally encrypted (feature `encryption`).
 //! * **Transactions, migrations, joins, aggregates, pagination, upserts, partial
 //!   updates.**
 //! * `#![forbid(unsafe_code)]`.

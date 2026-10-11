@@ -57,6 +57,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `redis` | no | `RedisDb`, tablas almacenadas en Redis (requiere Tokio; incluye `memory`) |
 | `redis-tls` | no | URL `rediss://` con `rustls`; añade `#insecure` al final para los certificados autofirmados. Implica `redis` |
 | `mongodb` | no | `MongoDb`, colecciones en MongoDB a través del driver oficial (requiere Tokio; incluye `memory`) |
+| `encryption` | no | Archivos `MemoryDb` cifrados (AES-256-GCM, clave derivada de una contraseña con Argon2id). Implica `memory` |
 | `chrono` | no | Columnas de fecha y hora: `NaiveDateTime`, `DateTime<Utc>`, `NaiveDate`, `NaiveTime` |
 | `uuid` | no | Columnas `uuid::Uuid` |
 | `json` | no | Columnas JSON: `serde_json::Value` y `Json<T>` para cualquier tipo `serde` |
