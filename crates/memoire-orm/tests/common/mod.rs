@@ -135,6 +135,8 @@ pub async fn run_suite<D: Database>(db: &D) -> Result<()> {
     reset(db).await?;
     full_text(db).await?;
     reset(db).await?;
+    events(db).await?;
+    reset(db).await?;
     transactions(db).await?;
     reset(db).await?;
     bulk(db).await?;
@@ -553,6 +555,70 @@ async fn full_text<E: Executor>(db: &E) -> Result<()> {
     assert!(ids(db, Article::BODY.matches("nails")).await?.is_empty());
     Article::delete_many().filter(Article::BODY.matches("orm")).execute(db).await?;
     assert_eq!(ids(db, Article::BODY.matches("rust")).await?, vec![5, 6]);
+    Ok(())
+}
+
+async fn events<D: Database>(db: &D) -> Result<()> {
+    use memoire_orm::events::{Change, ChangeKind, Observed};
+    let obs = Observed::new(db);
+    let (sub, rx) = obs.channel();
+    let drain = || rx.try_iter().collect::<Vec<Change>>();
+
+    let mut u = user("ev@x.dev", "Ev", Some(1), 0.0);
+    u.insert(&obs).await?;
+    let c = drain();
+    assert_eq!(c.len(), 1);
+    assert_eq!((c[0].table.as_str(), c[0].kind, c[0].rows), ("users", ChangeKind::Insert, 1));
+    assert_eq!(c[0].key.as_ref().and_then(Value::as_i64), Some(u.id), "generated key");
+    let row = c[0].row.as_ref().expect("the row");
+    assert_eq!(row[0].as_i64(), Some(u.id));
+    assert_eq!(row[2].as_str(), Some("Ev"));
+
+    u.name = "Eve".into();
+    u.update(&obs).await?;
+    u.update_only(&obs, User::AGE).await?;
+    u.upsert(&obs).await?;
+    let kinds: Vec<ChangeKind> = drain().iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, vec![ChangeKind::Update, ChangeKind::Update, ChangeKind::Upsert]);
+
+    // Reads and writes that change nothing are silent.
+    User::get(&obs, u.id).await?;
+    User::update_many().set(User::AGE, 3).filter(User::ID.eq(-1)).execute(&obs).await?;
+    let mut ghost = u.clone();
+    ghost.id = 999_999;
+    assert!(!ghost.delete(&obs).await?);
+    assert!(drain().is_empty());
+
+    User::insert_many(&obs, &[user("e1@x.dev", "E1", None, 0.0), user("e2@x.dev", "E2", None, 0.0)]).await?;
+    let n = User::update_many().set(User::ACTIVE, false).filter(User::NAME.starts_with("E")).execute(&obs).await?;
+    let c = drain();
+    assert_eq!(
+        c.iter().map(|c| (c.kind, c.rows)).collect::<Vec<_>>(),
+        vec![(ChangeKind::Insert, 2), (ChangeKind::Update, n)]
+    );
+    assert!(c.iter().all(|c| c.key.is_none() && c.row.is_none()));
+
+    // A transaction announces its changes when it commits, never when it rolls back.
+    let tx = obs.begin().await?;
+    user("t1@x.dev", "T1", None, 0.0).insert(&tx).await?;
+    assert!(drain().is_empty(), "nothing before commit");
+    tx.commit().await?;
+    assert_eq!(drain().iter().map(|c| c.kind).collect::<Vec<_>>(), vec![ChangeKind::Insert]);
+    let tx = obs.begin().await?;
+    user("t2@x.dev", "T2", None, 0.0).insert(&tx).await?;
+    tx.rollback().await?;
+    assert!(drain().is_empty(), "nothing after rollback");
+
+    assert!(u.delete(&obs).await?);
+    let c = drain();
+    assert_eq!((c[0].kind, c[0].key.as_ref().and_then(Value::as_i64)), (ChangeKind::Delete, Some(u.id)));
+
+    // Dropping the subscription stops the notifications.
+    assert_eq!(obs.listener_count(), 1);
+    drop(sub);
+    assert_eq!(obs.listener_count(), 0);
+    user("late@x.dev", "Late", None, 0.0).insert(&obs).await?;
+    assert!(drain().is_empty());
     Ok(())
 }
 

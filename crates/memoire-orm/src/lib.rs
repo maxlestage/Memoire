@@ -85,6 +85,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod ast;
 pub mod backend;
 mod error;
+pub mod events;
 mod executor;
 mod expr;
 pub mod migrate;
@@ -98,6 +99,7 @@ mod value;
 
 pub use ast::{JoinKind, Query};
 pub use error::{Error, Result};
+pub use events::{Change, ChangeKind, Observed};
 pub use executor::{Database, ExecResult, Executor, Transaction};
 pub use expr::{
     AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, TextSearch, count_all, escape_like, text_words,
@@ -146,8 +148,8 @@ pub mod prelude {
     #[cfg(feature = "sqlite")]
     pub use crate::SqliteDb;
     pub use crate::{
-        Database, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadRelated, Migration, Migrator, Model, Page,
-        Result, Transaction, Value, count_all, params,
+        Database, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadRelated, Migration, Migrator, Model, Observed,
+        Page, Result, Transaction, Value, count_all, params,
     };
 }
 
