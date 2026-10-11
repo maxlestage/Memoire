@@ -40,10 +40,10 @@ other than those written below.
    permitted by law.
 
 4. Trademarks
-   The names and logos "Active", "Vitesse", "Securite", "Memoire", "Paquets"
-   and "FerroSwift" identify the Author's projects. This license grants no
-   right to use them, except to truthfully state that your program uses the
-   Software.
+   The names and logos "Active", "Vitesse", "Securite", "Memoire", "Paquets",
+   "FerroSwift" and "Solidify" identify the Author's projects. This license
+   grants no right to use them, except to truthfully state that your program
+   uses the Software.
 
 5. Termination
    This license ends automatically if you breach any of its terms. You must
