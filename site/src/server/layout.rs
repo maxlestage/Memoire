@@ -559,7 +559,8 @@ pub fn document(ctx: &Ctx<'_>, content: Node) -> String {
         .image("/static/og-image.png")
         .locale(lang.locale())
         .meta_property("og:image:width", "1200")
-        .meta_property("og:image:height", "630");
+        .meta_property("og:image:height", "630")
+        .meta_property("og:image:alt", "Memoire ORM: the blazing-fast, pure-Rust ORM.");
     let manifest = pwa::manifest(lang);
     let head_manifest =
         if ctx.theme == Some("light") { manifest.clone().theme_color(pwa::THEME_LIGHT) } else { manifest };

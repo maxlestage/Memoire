@@ -57,6 +57,11 @@ async fn every_page_has_complete_seo_tags_in_every_language() {
                 assert!(html.contains(&format!(r#"hreflang="{alt}""#)), "{path} {alt}");
             }
             assert!(html.contains(r#"<meta property="og:image" content="https://example.test/static/og-image.png"/>"#));
+            // The card of a shared link: the image, its size and its description.
+            assert!(html.contains(r#"<meta property="og:image:width" content="1200"/>"#));
+            assert!(html.contains(r#"<meta property="og:image:height" content="630"/>"#));
+            assert!(html.contains(r#"<meta property="og:image:alt" content="#));
+            assert!(html.contains(r#"<meta name="twitter:card" content="summary_large_image"/>"#));
             assert!(html.contains(r#"<link rel="canonical" href="https://example.test/"#), "{path}");
             assert!(html.contains(&format!(r#"<link rel="manifest" href="/{lang}/manifest.webmanifest"/>"#)));
             assert!(html.contains(r##"<meta name="theme-color" content="#07070d"/>"##));

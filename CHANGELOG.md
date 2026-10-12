@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Website: the root address, the one people share, has the share image too, and every
+  card describes its image (`og:image:alt`).
 - In-memory engine: a non-unique index keeps a set of rows per value, so inserting into a
   low-cardinality indexed column (a `bool`) no longer slows down as the table grows;
   equality lookups on an indexed column are faster too (1.1 µs → 0.77 µs on 10 000 rows).

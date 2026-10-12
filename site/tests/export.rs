@@ -51,6 +51,9 @@ async fn exports_every_page_behind_the_base_path() {
     let root = read(&dir, "index.html");
     assert!(root.contains(r#"data-redirect="/""#));
     assert!(root.contains(r#"content="0; url=/Memoire/en/""#));
+    // The address people share most: its card has the image.
+    assert!(root.contains(r#"<meta property="og:image" content="https://"#));
+    assert!(root.contains(r#"/Memoire/static/og-image.png"/>"#));
     let legacy = read(&dir, "docs/models/index.html");
     assert!(legacy.contains(r#"data-redirect="/docs/models/""#));
     assert!(legacy.contains(r#"href="/Memoire/es/docs/models/""#));
