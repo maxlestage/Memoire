@@ -702,11 +702,25 @@ body.has-cursor .cursor-ring {
 }
 
 .navbar.scrolled {
+  border-bottom-color: var(--border);
+  box-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.5);
+}
+
+/* The bar's tint and blur live on a layer of their own: a backdrop-filter on the bar
+   itself would make it the containing block of the full-screen menu (a fixed element
+   inside it), and cut the menu to the bar's height once the page is scrolled. */
+.navbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  transition: background-color 0.4s var(--ease);
+}
+
+.navbar.scrolled::before {
   background: color-mix(in srgb, var(--bg) 68%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
-  border-bottom-color: var(--border);
-  box-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.5);
 }
 
 .nav-inner {
