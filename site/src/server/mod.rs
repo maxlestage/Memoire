@@ -314,7 +314,7 @@ pub fn app(site: Arc<Site>) -> App {
     route(&mut app, "/static/*path", &site, files);
     route(&mut app, "/pkg/*path", &site, files);
     route(&mut app, "/favicon.svg", &site, root_file);
-    route(&mut app, "/og-image.png", &site, root_file);
+    route(&mut app, "/og-image.jpg", &site, root_file);
     app.fallback(move |req: Request| {
         let site = site.clone();
         async move { page(&site, &req) }

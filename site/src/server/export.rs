@@ -81,7 +81,7 @@ pub async fn export(out: &Path, base: &str, site_url: Option<String>) -> io::Res
         write(url, &asset.bytes)?;
     }
     // Served at the root by the server too.
-    for file in ["favicon.svg", "og-image.png"] {
+    for file in ["favicon.svg", "og-image.jpg"] {
         if let Some(asset) = site.assets.get(&format!("/static/{file}")) {
             write(file, &asset.bytes)?;
         }
