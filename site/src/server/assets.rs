@@ -28,6 +28,7 @@ pub fn content_type(path: &str) -> &'static str {
         "wasm" => "application/wasm",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
         "woff2" => "font/woff2",
         "txt" => "text/plain; charset=utf-8",
         "json" => "application/json",
@@ -147,6 +148,7 @@ mod tests {
         assert!(css.gzip().unwrap().len() < css.bytes.len());
         let png = Asset::new(vec![7; 4096], content_type("icon.png"));
         assert!(png.brotli().is_none() && png.gzip().is_none());
+        assert_eq!(content_type("og-image.jpg"), "image/jpeg");
         assert_eq!(content_type("manifest.webmanifest"), "application/manifest+json");
     }
 }

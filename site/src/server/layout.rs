@@ -556,7 +556,7 @@ pub fn document(ctx: &Ctx<'_>, content: Node) -> String {
         .title_template("%s · Memoire ORM")
         .description(tx.meta_description)
         .base_url(ctx.origin)
-        .image("/static/og-image.png")
+        .image("/static/og-image.jpg")
         .locale(lang.locale())
         .meta_property("og:image:width", "1200")
         .meta_property("og:image:height", "630")
