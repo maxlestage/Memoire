@@ -618,6 +618,10 @@ pub fn language_choice(site: &Site, origin: &str, page: &Page) -> String {
         .title("Memoire ORM")
         .description(t(Lang::En).meta_description)
         .base_url(origin)
+        .image("/static/og-image.png")
+        .meta_property("og:image:width", "1200")
+        .meta_property("og:image:height", "630")
+        .meta_property("og:image:alt", "Memoire ORM: the blazing-fast, pure-Rust ORM.")
         .canonical(english.path())
         .noindex(true);
     let body = main()
