@@ -1,3 +1,5 @@
+[![Memoire ORM: the blazing-fast, pure-Rust ORM](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://maxlestage.github.io/Memoire/)
+
 # Memoire ORM
 
 [![crates.io](https://img.shields.io/crates/v/memoire-orm.svg)](https://crates.io/crates/memoire-orm)

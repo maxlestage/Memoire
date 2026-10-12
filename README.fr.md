@@ -1,5 +1,7 @@
 <div align="center">
 
+[![Memoire ORM : l'ORM ultra-rapide, en pur Rust](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://maxlestage.github.io/Memoire/)
+
 # Memoire ORM
 
 **L'ORM Rust natif, ultra-rapide et typé.**
