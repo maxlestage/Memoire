@@ -704,6 +704,10 @@ mod tests {
         let html = Node::from(copy_pill(Lang::Fr, "cargo add memoire-orm --git https://github.com/maxlestage/Memoire"))
             .render();
         assert!(html.contains(r#"data-copy="cargo add memoire-orm --git https://github.com/maxlestage/Memoire""#));
+        // On a phone, the command wraps after the slashes of its URL.
+        assert!(
+            html.contains("<code>cargo add memoire-orm --git https://github.com/<wbr/>maxlestage/<wbr/>Memoire</code>")
+        );
         assert!(html.contains("Copié"));
         let icons = Node::from(copy_icons()).render();
         assert!(icons.contains("when-idle") && icons.contains("when-copied"));

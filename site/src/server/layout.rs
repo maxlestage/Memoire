@@ -161,9 +161,27 @@ pub fn copy_pill(lang: Lang, text: &'static str) -> Element {
         .attr("data-copy", text)
         .attr("data-copied", tx.copied)
         .child(span().class("copy-prompt").attr("aria-hidden", "true").text("$"))
-        .child(code().text(text))
+        .child(command(text))
         .child(copy_icons().class("copy-icon"))
         .child(span().class("copy-tip").attr("role", "status"))
+}
+
+/// A shell command in `<code>`, whose URL may break after its slashes on a narrow screen:
+/// `<wbr>` adds nothing to what is selected and copied.
+fn command(text: &str) -> Element {
+    let mut code = code();
+    let mut part = String::new();
+    let mut chars = text.chars().peekable();
+    let mut previous = ' ';
+    while let Some(c) = chars.next() {
+        part.push(c);
+        let next = chars.peek().copied();
+        if c == '/' && previous != '/' && next.is_some_and(|n| n != '/') {
+            code = code.child(Node::from(std::mem::take(&mut part))).child(wbr());
+        }
+        previous = c;
+    }
+    code.child(Node::from(part))
 }
 
 /// The copy icon, and the check mark shown once copied (`.is-copied`).
