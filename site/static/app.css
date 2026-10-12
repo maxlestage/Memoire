@@ -957,6 +957,11 @@ body.has-cursor .cursor-ring {
   text-align: center;
 }
 
+/* Nothing in the hero is wider than the screen, the install command included. */
+.hero-inner > * {
+  max-width: 100%;
+}
+
 .hero-anim {
   opacity: 0;
   animation: hero-in 1s var(--ease) forwards;
@@ -1095,10 +1100,11 @@ body.has-cursor .cursor-ring {
   box-shadow: 0 0 0 4px rgba(255, 179, 71, 0.08), 0 10px 30px -14px rgba(0, 0, 0, 0.6);
 }
 
+/* On one line when there is room; otherwise it wraps after the slashes of the URL. */
 .copy-pill code {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .copy-prompt {
@@ -4220,6 +4226,7 @@ html:not(.motion) .bar-fill {
 
   .copy-pill {
     font-size: 0.85rem;
+    border-radius: 22px;
   }
 }
 
