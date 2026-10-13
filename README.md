@@ -1,6 +1,6 @@
 <div align="center">
 
-[![Memoire ORM: the blazing-fast, pure-Rust ORM](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://maxlestage.github.io/Memoire/)
+[![Memoire ORM: the blazing-fast, pure-Rust ORM](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://memoire-7f4525f1fdaf.herokuapp.com/)
 
 # Memoire ORM
 
@@ -155,7 +155,7 @@ Dockerfile, heroku.yml             Docker image (Heroku container stack, any Doc
 
 ## The website
 
-The presentation site is written in Rust with [Active](https://maxlestage.github.io/Active/):
+The presentation site is written in Rust with [Active](https://active-c1883a966650.herokuapp.com/):
 a small Rust server renders every page (complete SEO tags, in English, French and Spanish),
 and only the interactive parts (the playground, the code tabs, the docs search) wake up in the
 browser as WebAssembly. The playground runs the real in-memory engine in your browser. The site
@@ -222,4 +222,4 @@ to the author, as the license states.
 ## Credits
 
 Designed and developed by Maxime Nathan Lestage,
-as part of one family of Rust projects: [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/), [FerroSwift](https://maxlestage.github.io/FerroSwift/) and [Solidify](https://maxlestage.github.io/Solidify/).
+as part of one family of Rust projects: [Active](https://active-c1883a966650.herokuapp.com/), [Vitesse](https://vitesse-f16135654c3d.herokuapp.com/), [Securite](https://securite-2db4c1994be7.herokuapp.com/), [Memoire](https://memoire-7f4525f1fdaf.herokuapp.com/) and [Paquets](https://paquets-90dfc06b6fea.herokuapp.com/).

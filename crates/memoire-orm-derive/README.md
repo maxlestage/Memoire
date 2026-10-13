@@ -7,4 +7,4 @@ You should not depend on this crate directly: use `memoire-orm`, which re-export
 
 Proprietary software: © 2026 Maxime Nathan Lestage, all rights reserved. Free to use as a
 dependency of your own programs, commercial ones included; see
-[LICENSE](https://maxlestage.github.io/Memoire/LICENSE.txt).
+[LICENSE](https://memoire-7f4525f1fdaf.herokuapp.com/static/LICENSE.txt).

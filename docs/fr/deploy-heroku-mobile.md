@@ -6,7 +6,7 @@ Vous pouvez mettre en ligne le site de Memoire, et le maintenir à jour, uniquem
 
 Il vous faut :
 
-- un **compte GitHub** et votre propre copie du dépôt : ouvrez `https://maxlestage.github.io/Memoire/` et appuyez sur **Fork** (nécessaire uniquement pour les méthodes 2 et 3) ;
+- un **compte GitHub** et votre propre copie du dépôt : ouvrez `https://github.com/maxlestage/Memoire` et appuyez sur **Fork** (nécessaire uniquement pour les méthodes 2 et 3) ;
 - un **compte Heroku** (inscrivez-vous sur `https://signup.heroku.com` depuis le navigateur de votre téléphone) ;
 - un **moyen de paiement** enregistré sur le compte Heroku. Heroku n'a plus d'offre gratuite depuis novembre 2022 : le site tourne sur un dyno *Basic* (environ 7 USD par mois au moment où ces lignes sont écrites), et Heroku ne démarre pas d'applications sur un compte non vérifié. Consultez `https://www.heroku.com/pricing` pour connaître les tarifs actuels.
 
@@ -46,7 +46,7 @@ Ce qui se passe en coulisses :
 
 - `app.json` décrit l'application pour Heroku : son nom et sa description, la stack **heroku-26** avec le buildpack **emk/rust** ([heroku-buildpack-rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)), un dyno `web` de taille *Basic* et le réglage `RUST_LOG`.
 - `RustConfig` configure le buildpack : il installe la version de Rust fixée dans ce fichier (la même que dans le `Dockerfile`), saute sa propre compilation (`RUST_SKIP_BUILD=1`) et lance `heroku-build.sh` à la place.
-- `heroku-build.sh` compile le serveur web du site, écrit en Rust avec [Active](https://maxlestage.github.io/Active/), dans `site/` avec `cargo build --release --locked`. Le serveur rend chaque page et embarque la documentation. Il construit ensuite le paquet du navigateur dans `site/pkg` : les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`.
+- `heroku-build.sh` compile le serveur web du site, écrit en Rust avec [Active](https://active-c1883a966650.herokuapp.com/), dans `site/` avec `cargo build --release --locked`. Le serveur rend chaque page et embarque la documentation. Il construit ensuite le paquet du navigateur dans `site/pkg` : les parties interactives et le moteur en mémoire du bac à sable, compilés en WebAssembly avec `wasm-bindgen`.
 - `Procfile` indique à Heroku comment démarrer le processus `web` : `web: SITE_DIR=site exec site/target/release/memoire-site`.
 
 Le `Dockerfile` et `heroku.yml` sont toujours là : ils construisent le même site sous forme d'image Docker, pour la stack **container** de Heroku (méthode 2 avec `HEROKU_BUILD` réglé sur `docker`) ou tout autre hôte Docker.

@@ -74,7 +74,7 @@ Cada `update` modifica el estado, lo guarda en `localStorage` con la clave `memo
 
 ### Actualizar una interfaz
 
-`subscribe` recibe oyentes `Send + Sync`. Las señales de los frameworks de interfaz normalmente no lo son: usa `subscribe_local`, que ejecuta el oyente en el hilo que lo registró (el único en un navegador). Con [Active](https://maxlestage.github.io/Active/):
+`subscribe` recibe oyentes `Send + Sync`. Las señales de los frameworks de interfaz normalmente no lo son: usa `subscribe_local`, que ejecuta el oyente en el hilo que lo registró (el único en un navegador). Con [Active](https://active-c1883a966650.herokuapp.com/):
 
 ```rust
 use active::prelude::*;

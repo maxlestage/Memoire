@@ -74,7 +74,7 @@ Every `update` changes the state, saves it to `localStorage` under `memoire:stor
 
 ### Updating a user interface
 
-`subscribe` takes listeners that are `Send + Sync`. The signals of UI frameworks usually are not, so use `subscribe_local`, which runs the listener on the thread that registered it (the only one in a browser). With [Active](https://maxlestage.github.io/Active/):
+`subscribe` takes listeners that are `Send + Sync`. The signals of UI frameworks usually are not, so use `subscribe_local`, which runs the listener on the thread that registered it (the only one in a browser). With [Active](https://active-c1883a966650.herokuapp.com/):
 
 ```rust
 use active::prelude::*;

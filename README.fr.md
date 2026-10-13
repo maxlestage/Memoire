@@ -1,6 +1,6 @@
 <div align="center">
 
-[![Memoire ORM : l'ORM ultra-rapide, en pur Rust](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://maxlestage.github.io/Memoire/)
+[![Memoire ORM : l'ORM ultra-rapide, en pur Rust](https://raw.githubusercontent.com/maxlestage/Memoire/master/site/static/og-image.jpg)](https://memoire-7f4525f1fdaf.herokuapp.com/)
 
 # Memoire ORM
 
@@ -155,7 +155,7 @@ Dockerfile, heroku.yml             image Docker (stack container de Heroku, tout
 
 ## Le site web
 
-Le site de présentation est écrit en Rust avec [Active](https://maxlestage.github.io/Active/) :
+Le site de présentation est écrit en Rust avec [Active](https://active-c1883a966650.herokuapp.com/) :
 un petit serveur Rust rend chaque page (balises SEO complètes, en anglais, français et espagnol),
 et seules les parties interactives (le bac à sable, les onglets de code, la recherche dans la
 doc) se réveillent dans le navigateur en WebAssembly. Le bac à sable exécute le vrai moteur en
@@ -223,4 +223,4 @@ les droits à l'auteur, comme l'indique la licence.
 ## Crédits
 
 Conçu et développé par Maxime Nathan Lestage,
-au sein d'une même famille de projets Rust : [Active](https://maxlestage.github.io/Active/), [Vitesse](https://maxlestage.github.io/Vitesse/), [Securite](https://maxlestage.github.io/Securite/), [Memoire](https://maxlestage.github.io/Memoire/), [Paquets](https://maxlestage.github.io/Paquets/), [FerroSwift](https://maxlestage.github.io/FerroSwift/) et [Solidify](https://maxlestage.github.io/Solidify/).
+au sein d'une même famille de projets Rust : [Active](https://active-c1883a966650.herokuapp.com/), [Vitesse](https://vitesse-f16135654c3d.herokuapp.com/), [Securite](https://securite-2db4c1994be7.herokuapp.com/), [Memoire](https://memoire-7f4525f1fdaf.herokuapp.com/) et [Paquets](https://paquets-90dfc06b6fea.herokuapp.com/).

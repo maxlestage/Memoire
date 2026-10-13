@@ -92,7 +92,7 @@ Chaque backend a sa propre page : [Moteur en mémoire](memory), [SQLite](sqlite)
 ## Prérequis et licence
 
 - **Rust 1.88 ou plus récent** (la version minimale de Rust prise en charge, ou MSRV).
-- **Licence :** propriétaire, © Maxime Nathan Lestage, tous droits réservés. Utilisation libre comme dépendance de vos propres programmes, y compris commerciaux ; le code source est publié pour pouvoir être audité et compilé. Voir [LICENSE](https://maxlestage.github.io/Memoire/LICENSE.txt).
+- **Licence :** propriétaire, © Maxime Nathan Lestage, tous droits réservés. Utilisation libre comme dépendance de vos propres programmes, y compris commerciaux ; le code source est publié pour pouvoir être audité et compilé. Voir [LICENSE](https://memoire-7f4525f1fdaf.herokuapp.com/static/LICENSE.txt).
 - La feature `sqlite` compile SQLite depuis les sources : il faut donc un compilateur C au moment du build. Tous les autres backends sont écrits en Rust pur ; TLS utilise `rustls`, OpenSSL n'est donc jamais nécessaire.
 
 ## Étapes suivantes
