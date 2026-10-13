@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Links to the websites of Active, Vitesse, Securite, Memoire and Paquets (README, docs,
+  crate metadata, `app.json`, the website's footer) point to their Heroku addresses instead
+  of GitHub Pages; the license is linked at `/static/LICENSE.txt`, where the site serves it.
+- The ecosystem is five projects: FerroSwift and Solidify are no longer listed by the
+  README, the docs, `PUBLISHING.md` or the website's footer.
 - Website: the root address, the one people share, has the share image too, and every
   card describes its image (`og:image:alt`).
 - Website: the share image shows today's install command (`cargo add memoire-orm --git …`).
@@ -27,7 +32,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Credits: Solidify joins the projects linked by the README, the license and the website's
   footer.
 - `memoire_orm::VERSION`, the version of the crate.
-- The website is rewritten with [Active](https://maxlestage.github.io/Active/) (it was a
+- The website is rewritten with [Active](https://active-c1883a966650.herokuapp.com/) (it was a
   client-side WebAssembly app prerendered at build time): a Rust server renders every page
   with complete SEO tags (title, description, canonical, `hreflang`, Open Graph, Twitter,
   JSON-LD, sitemap) in English, French and Spanish (`/en/`, `/fr/`, `/es/`), the

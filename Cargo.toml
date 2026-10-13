@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license-file = "LICENSE"
-homepage = "https://maxlestage.github.io/Memoire/"
+homepage = "https://memoire-7f4525f1fdaf.herokuapp.com/"
 repository = "https://github.com/maxlestage/Memoire"
 authors = ["Maxime Nathan Lestage"]
 

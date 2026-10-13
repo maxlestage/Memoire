@@ -186,7 +186,7 @@ Then `cargo run` should print `#1 says: Hello, Memoire!`.
 | Minimum Rust version (MSRV) | 1.88 |
 | Build-time tools | A C compiler when the `sqlite` feature is enabled (SQLite is compiled from source) |
 | Run-time dependencies | None for memory and SQLite; a reachable server for PostgreSQL, MySQL/MariaDB, Redis or MongoDB |
-| License | Proprietary (© Maxime Nathan Lestage, all rights reserved): free to use as a dependency, see [LICENSE](https://maxlestage.github.io/Memoire/LICENSE.txt) |
+| License | Proprietary (© Maxime Nathan Lestage, all rights reserved): free to use as a dependency, see [LICENSE](https://memoire-7f4525f1fdaf.herokuapp.com/static/LICENSE.txt) |
 
 ## Next steps
 

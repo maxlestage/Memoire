@@ -186,7 +186,7 @@ async fn main() -> memoire_orm::Result<()> {
 | Version minimale de Rust (MSRV) | 1.88 |
 | Outils nécessaires à la compilation | Un compilateur C lorsque la feature `sqlite` est activée (SQLite est compilé depuis les sources) |
 | Dépendances à l'exécution | Aucune pour la mémoire et SQLite ; un serveur accessible pour PostgreSQL, MySQL/MariaDB, Redis ou MongoDB |
-| Licence | Propriétaire (© Maxime Nathan Lestage, tous droits réservés) : utilisation libre comme dépendance, voir [LICENSE](https://maxlestage.github.io/Memoire/LICENSE.txt) |
+| Licence | Propriétaire (© Maxime Nathan Lestage, tous droits réservés) : utilisation libre comme dépendance, voir [LICENSE](https://memoire-7f4525f1fdaf.herokuapp.com/static/LICENSE.txt) |
 
 ## Étapes suivantes
 

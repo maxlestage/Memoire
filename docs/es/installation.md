@@ -186,7 +186,7 @@ Después, `cargo run` debería imprimir `#1 says: Hello, Memoire!`.
 | Versión mínima de Rust (MSRV) | 1.88 |
 | Herramientas en tiempo de compilación | Un compilador de C cuando la feature `sqlite` está activada (SQLite se compila desde el código fuente) |
 | Dependencias en tiempo de ejecución | Ninguna para memoria y SQLite; un servidor accesible para PostgreSQL, MySQL/MariaDB, Redis o MongoDB |
-| Licencia | Propietaria (© Maxime Nathan Lestage, todos los derechos reservados): uso libre como dependencia, ver [LICENSE](https://maxlestage.github.io/Memoire/LICENSE.txt) |
+| Licencia | Propietaria (© Maxime Nathan Lestage, todos los derechos reservados): uso libre como dependencia, ver [LICENSE](https://memoire-7f4525f1fdaf.herokuapp.com/static/LICENSE.txt) |
 
 ## Próximos pasos
 

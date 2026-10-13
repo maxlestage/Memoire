@@ -30,6 +30,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # The repositories are private: Cargo fetches the git dependencies (the other
+  # repositories of the ecosystem) through git, which asks GitHub's credentials to a
+  # helper reading the REPOS_TOKEN secret, a GitHub token that can read them. The
+  # token stays out of every URL; without the secret, nothing changes.
+  REPOS_TOKEN: ${{ secrets.REPOS_TOKEN }}
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  GIT_CONFIG_COUNT: ${{ secrets.REPOS_TOKEN != '' && 1 || 0 }}
+  GIT_CONFIG_KEY_0: credential.https://github.com.helper
+  GIT_CONFIG_VALUE_0: '!f() { test "$1" = get && echo username=x-access-token && echo "password=$REPOS_TOKEN"; }; f'
   CARGO_TERM_COLOR: always
 
 jobs:

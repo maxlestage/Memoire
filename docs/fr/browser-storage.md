@@ -74,7 +74,7 @@ Chaque `update` modifie l'état, l'enregistre dans `localStorage` sous `memoire:
 
 ### Mettre à jour une interface
 
-`subscribe` prend des écouteurs `Send + Sync`. Les signaux des frameworks d'interface ne le sont généralement pas : utilisez `subscribe_local`, qui exécute l'écouteur sur le thread qui l'a enregistré (le seul dans un navigateur). Avec [Active](https://maxlestage.github.io/Active/) :
+`subscribe` prend des écouteurs `Send + Sync`. Les signaux des frameworks d'interface ne le sont généralement pas : utilisez `subscribe_local`, qui exécute l'écouteur sur le thread qui l'a enregistré (le seul dans un navigateur). Avec [Active](https://active-c1883a966650.herokuapp.com/) :
 
 ```rust
 use active::prelude::*;

@@ -81,7 +81,7 @@ Without it, the table name is the struct name in `snake_case`, **without** plura
 
 ## Using Memoire through another crate
 
-`#[derive(Model)]` writes code that refers to `::memoire_orm`. A framework that re-exports Memoire (such as [Paquets](https://maxlestage.github.io/Paquets/), where it is `paquets::orm`) tells the derive where to find it with the struct attribute `crate`, so your project does not need its own `memoire-orm` dependency:
+`#[derive(Model)]` writes code that refers to `::memoire_orm`. A framework that re-exports Memoire (such as [Paquets](https://paquets-90dfc06b6fea.herokuapp.com/), where it is `paquets::orm`) tells the derive where to find it with the struct attribute `crate`, so your project does not need its own `memoire-orm` dependency:
 
 ```rust
 #[derive(paquets::orm::Model)]

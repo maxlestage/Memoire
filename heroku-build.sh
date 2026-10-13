@@ -4,6 +4,21 @@
 # installed Rust. Works by hand too, from the repository: ./heroku-build.sh
 # The Procfile starts site/target/release/memoire-site.
 set -euo pipefail
+
+# The repositories are private: Cargo fetches the git dependencies (the other
+# repositories of the ecosystem) through git, which asks GitHub's credentials to a
+# helper reading the REPOS_TOKEN config var, a GitHub token that can read them (the
+# buildpack hands config vars over in ENV_DIR). The token stays out of every URL.
+if [ -z "${REPOS_TOKEN:-}" ] && [ -n "${ENV_DIR:-}" ] && [ -f "$ENV_DIR/REPOS_TOKEN" ]; then
+  REPOS_TOKEN=$(<"$ENV_DIR/REPOS_TOKEN")
+fi
+if [ -n "${REPOS_TOKEN:-}" ]; then
+  export REPOS_TOKEN CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=credential.https://github.com.helper \
+    GIT_CONFIG_VALUE_0='!f() { test "$1" = get && echo username=x-access-token && echo "password=$REPOS_TOKEN"; }; f'
+else
+  echo "       no REPOS_TOKEN config var: the private git dependencies cannot be fetched"
+fi
 cd "$(dirname "$0")/site"
 # On Heroku, Cargo builds into the buildpack's cache (CARGO_TARGET_DIR).
 target="${CARGO_TARGET_DIR:-target}"

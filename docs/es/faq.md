@@ -135,7 +135,7 @@ No. El crate se compila con `#![forbid(unsafe_code)]`, así que no puede contene
 
 Las contribuciones de cualquier tamaño son bienvenidas: informes de bugs, correcciones de la documentación, traducciones y nuevas funcionalidades.
 
-1. Haz un fork de `https://maxlestage.github.io/Memoire/` y clónalo.
+1. Haz un fork de `https://github.com/maxlestage/Memoire` y clónalo.
 2. Ejecuta las pruebas: `cargo test --workspace --features memory,sqlite`. Para incluir los backends de servidor, activa todas las features y define `MEMOIRE_PG_URL`, `MEMOIRE_MYSQL_URL`, `MEMOIRE_REDIS_URL` y `MEMOIRE_MONGO_URL` con servidores de prueba (MongoDB como replica set).
 3. Antes de abrir una pull request, ejecuta `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` y las pruebas.
 4. Añade las pruebas de comportamiento a `crates/memoire-orm/tests/common/mod.rs`, para que se ejecuten en todos los backends.

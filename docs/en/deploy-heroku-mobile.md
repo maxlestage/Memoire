@@ -6,7 +6,7 @@ You can put the Memoire website online, and keep it up to date, using only a pho
 
 You need:
 
-- a **GitHub account** and your own copy of the repository: open `https://maxlestage.github.io/Memoire/` and tap **Fork** (only needed for methods 2 and 3);
+- a **GitHub account** and your own copy of the repository: open `https://github.com/maxlestage/Memoire` and tap **Fork** (only needed for methods 2 and 3);
 - a **Heroku account** (sign up at `https://signup.heroku.com` in your phone's browser);
 - a **payment method** on the Heroku account. Heroku has had no free plan since November 2022: the website runs on a *Basic* dyno (about 7 USD per month at the time of writing) and Heroku will not start apps on an unverified account. Check `https://www.heroku.com/pricing` for current prices.
 
@@ -46,7 +46,7 @@ What happens behind the scenes:
 
 - `app.json` describes the app for Heroku: its name and description, the **heroku-26** stack with the **emk/rust** buildpack ([heroku-buildpack-rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)), one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
 - `RustConfig` configures the buildpack: it installs the Rust version pinned in that file (the same as in the `Dockerfile`), skips its own build (`RUST_SKIP_BUILD=1`) and runs `heroku-build.sh` instead.
-- `heroku-build.sh` compiles the web server of the website, written in Rust with [Active](https://maxlestage.github.io/Active/), in `site/` with `cargo build --release --locked`. The server renders every page and embeds the documentation. It then builds the browser bundle into `site/pkg`: the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`.
+- `heroku-build.sh` compiles the web server of the website, written in Rust with [Active](https://active-c1883a966650.herokuapp.com/), in `site/` with `cargo build --release --locked`. The server renders every page and embeds the documentation. It then builds the browser bundle into `site/pkg`: the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`.
 - `Procfile` tells Heroku how to start the `web` process: `web: SITE_DIR=site exec site/target/release/memoire-site`.
 
 The `Dockerfile` and `heroku.yml` are still there: they build the same website as a Docker image, for Heroku's **container** stack (method 2 with `HEROKU_BUILD` set to `docker`) or any other Docker host.

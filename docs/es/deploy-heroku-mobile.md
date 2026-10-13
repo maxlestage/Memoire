@@ -6,7 +6,7 @@ Puedes poner en línea el sitio web de Memoire, y mantenerlo actualizado, usando
 
 Necesitas:
 
-- una **cuenta de GitHub** y tu propia copia del repositorio: abre `https://maxlestage.github.io/Memoire/` y toca **Fork** (solo hace falta para los métodos 2 y 3);
+- una **cuenta de GitHub** y tu propia copia del repositorio: abre `https://github.com/maxlestage/Memoire` y toca **Fork** (solo hace falta para los métodos 2 y 3);
 - una **cuenta de Heroku** (regístrate en `https://signup.heroku.com` desde el navegador de tu teléfono);
 - un **método de pago** en la cuenta de Heroku. Heroku no tiene plan gratuito desde noviembre de 2022: el sitio web se ejecuta en un dyno *Basic* (unos 7 USD al mes en el momento de escribir esto) y Heroku no arranca aplicaciones en una cuenta sin verificar. Consulta `https://www.heroku.com/pricing` para ver los precios actuales.
 
@@ -46,7 +46,7 @@ Lo que ocurre entre bastidores:
 
 - `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **heroku-26** con el buildpack **emk/rust** ([heroku-buildpack-rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)), un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
 - `RustConfig` configura el buildpack: instala la versión de Rust fijada en ese archivo (la misma que en el `Dockerfile`), omite su propia compilación (`RUST_SKIP_BUILD=1`) y ejecuta `heroku-build.sh` en su lugar.
-- `heroku-build.sh` compila el servidor web del sitio, escrito en Rust con [Active](https://maxlestage.github.io/Active/), en `site/` con `cargo build --release --locked`. El servidor renderiza cada página e incluye la documentación. Después compila el paquete del navegador en `site/pkg`: las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`.
+- `heroku-build.sh` compila el servidor web del sitio, escrito en Rust con [Active](https://active-c1883a966650.herokuapp.com/), en `site/` con `cargo build --release --locked`. El servidor renderiza cada página e incluye la documentación. Después compila el paquete del navegador en `site/pkg`: las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`.
 - `Procfile` le indica a Heroku cómo arrancar el proceso `web`: `web: SITE_DIR=site exec site/target/release/memoire-site`.
 
 El `Dockerfile` y `heroku.yml` siguen ahí: construyen el mismo sitio como imagen Docker, para el stack **container** de Heroku (método 2 con `HEROKU_BUILD` en `docker`) o cualquier otro host Docker.
