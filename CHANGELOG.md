@@ -40,13 +40,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
   export <dir>` writes the static site for GitHub Pages (replacing `site/build-static.sh`).
 - Fonts are served by the site itself (no request to Google Fonts).
 - Heroku builds the website with the [emk/rust buildpack](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)
-  on the heroku-24 stack: `RustConfig` (built in `site/` with `--release --locked`, Rust
-  pinned like the `Dockerfile`), `heroku-build.sh` (the WebAssembly islands, into
-  `site/pkg`) and `Procfile`; `app.json` (the Deploy to Heroku button) uses them too. The
+  on the heroku-26 stack: `RustConfig` (Rust pinned like the `Dockerfile`, the buildpack's
+  own build skipped for `heroku-build.sh`), `heroku-build.sh` (the server, built in `site/`
+  with `--release --locked`, then the WebAssembly islands, into `site/pkg`) and `Procfile`; `app.json` (the Deploy to Heroku button) uses them too. The
   "Deploy to Heroku" workflow uploads the source to Heroku, which builds it, after moving the
-  app to heroku-24 and setting the buildpack; the repository variable `HEROKU_BUILD=docker`
+  app to heroku-26 and setting the buildpack; the repository variable `HEROKU_BUILD=docker`
   keeps the previous way (the image built on GitHub from the `Dockerfile` and pushed to the
-  container registry). Without GitHub Actions: `heroku create --stack heroku-24 --buildpack
+  container registry). Without GitHub Actions: `heroku create --stack heroku-26 --buildpack
   emk/rust`, then `git push heroku master`.
 
 ### Added

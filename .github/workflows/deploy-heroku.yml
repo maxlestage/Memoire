@@ -9,7 +9,7 @@ name: Deploy to Heroku
 #
 # Optional repository variable HEROKU_BUILD, how the app is built:
 #   buildpack (default)  on Heroku, with the emk/rust buildpack (RustConfig, Procfile),
-#                        on the heroku-24 stack
+#                        on the heroku-26 stack
 #   docker               here, from the Dockerfile, pushed to the Heroku container
 #                        registry (container stack)
 
@@ -51,7 +51,7 @@ jobs:
         if: steps.config.outputs.enabled == 'true'
         run: |
           case "$HEROKU_BUILD" in
-            buildpack) stack=heroku-24 ;;
+            buildpack) stack=heroku-26 ;;
             docker) stack=container ;;
             *) echo "::error::HEROKU_BUILD must be buildpack or docker, not \"$HEROKU_BUILD\"."; exit 1 ;;
           esac
