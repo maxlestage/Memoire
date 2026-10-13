@@ -42,6 +42,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Fonts are served by the site itself (no request to Google Fonts).
 
 ### Added
+- Releases are automatic: once CI is green on `master`, a version of the root `Cargo.toml`
+  that has no tag yet is tagged (`v0.1.0` for `0.1.0`), gets its GitHub release with its
+  section of `CHANGELOG.md` as notes, and both crates are published on crates.io. Publishing
+  a version is bumping it, writing its changelog section and pushing (see `PUBLISHING.md`).
 - Browser storage (feature `web`, module `memoire_orm::web`), tested in Chromium:
   - `Store<S>`, application state in the spirit of Pinia: `Store::new("cart")` returns
     the same store anywhere; getters (`get`), actions (`update`), `set`, `patch` (JSON

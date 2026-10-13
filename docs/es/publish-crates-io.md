@@ -1,13 +1,14 @@
 # Publicar en crates.io
 
-Memoire ORM se publica en [crates.io](https://crates.io/crates/memoire-orm), el registro de paquetes de Rust, como dos crates: `memoire-orm-derive` (las macros derive) y `memoire-orm` (el ORM, que depende del primero). Esta página explica cómo se publica una nueva versión, ya sea con un workflow de GitHub que puedes lanzar desde el móvil, o a mano desde un ordenador.
+Memoire ORM se publica en [crates.io](https://crates.io/crates/memoire-orm), el registro de paquetes de Rust, como dos crates: `memoire-orm-derive` (las macros derive) y `memoire-orm` (el ORM, que depende del primero). Esta página explica cómo se publica una nueva versión, ya sea con un workflow de GitHub que lo hace solo en cuanto la nueva versión llega a `master` (no hay nada que rellenar, así que basta con el móvil), o a mano desde un ordenador.
 
 ## Cómo funcionan las publicaciones
 
 El workflow `.github/workflows/publish.yml`, llamado **Publish to crates.io**, se ejecuta cuando:
 
+- la CI está en verde tras un push a `master`: si la versión del `Cargo.toml` raíz aún no tiene tag, el workflow crea el tag (`v0.2.0` para la versión `0.2.0`) y la **release** de GitHub, con la sección de esa versión en `CHANGELOG.md` como notas de la versión (o notas generadas por GitHub si no hay sección), y luego publica; si el tag ya existe, no hace nada, o
 - se hace push de un tag cuyo nombre empieza por `v` (por ejemplo, `v0.2.0`), o
-- se publica una **release** de GitHub, o
+- se publica a mano una **release** de GitHub, o
 - lo lanzas a mano desde la pestaña **Actions** (por defecto como ejecución de prueba, o dry run, que lo comprueba todo sin subir nada).
 
 Cuando se ejecuta:
@@ -37,6 +38,8 @@ El workflow necesita un token de API de crates.io guardado como secreto del repo
 2. Toca **New repository secret**.
 3. Nombre (Name): `CARGO_REGISTRY_TOKEN`. Valor (Value): el token. Toca **Add secret**.
 
+Sin este secreto, la publicación automática crea igualmente el tag y la release de GitHub, pero la publicación en crates.io se aplaza (un aviso lo indica en la ejecución). Añade el secreto y luego lanza el workflow a mano desde **Actions → Publish to crates.io → Run workflow** con **dry_run** desmarcado.
+
 > **Nota** Solo los propietarios de un crate en crates.io pueden publicar nuevas versiones de él. Si trabajas en un fork, los nombres de los crates ya pertenecen a los autores originales.
 
 ## Publicar una nueva versión
@@ -51,24 +54,19 @@ Hay que cambiar tres sitios:
 |---|---|
 | `Cargo.toml` (raíz del repositorio), `[workspace.package]` | `version = "0.2.0"`: ambos crates toman su versión de aquí |
 | `Cargo.toml` (raíz del repositorio), `[workspace.dependencies]` | `memoire-orm-derive = { version = "=0.2.0", path = "crates/memoire-orm-derive" }`: la versión fijada con exactitud debe coincidir con la nueva versión |
-| `CHANGELOG.md` | Mueve los elementos de `[Unreleased]` a una nueva sección `[0.2.0] - YYYY-MM-DD` |
+| `CHANGELOG.md` | Mueve los elementos de `[Unreleased]` a una nueva sección `[0.2.0] - YYYY-MM-DD`: será el texto de las notas de la versión |
 
 El `=` de `"=0.2.0"` fija `memoire-orm` exactamente al crate derive correspondiente, de modo que los dos crates siempre se usan juntos.
 
 Desde el móvil, edita estos archivos en el sitio web de GitHub: abre el archivo, toca el icono del lápiz, haz el cambio y elige **Create a new branch for this commit and start a pull request** (crear una rama nueva para este commit y abrir una pull request). En cuanto pasen las comprobaciones de CI, la pull request se fusiona automáticamente en `master`.
 
-### 2. Crear la release
+### 2. Hacer push
 
-Una vez que el cambio de versión esté en `master`:
+Eso es todo. Una vez que el cambio de versión esté en `master` y la CI en verde, el workflow arranca solo: crea el tag `v0.2.0` y la release de GitHub, con la sección `[0.2.0]` de `CHANGELOG.md` como notas, y luego publica los dos crates. Síguelo en la app de GitHub, en **Actions → Publish to crates.io**. Cuando esté en verde, la nueva versión estará en crates.io, y docs.rs generará la documentación de la API poco después.
 
-1. En el navegador del móvil, abre la página **Releases** del repositorio y toca **Draft a new release** (o ve directamente a `https://github.com/<owner>/Memoire/releases/new`).
-2. Toca **Choose a tag**, escribe el nuevo tag, por ejemplo `v0.2.0`, y selecciona **Create new tag: v0.2.0 on publish**. Deja `master` como destino (target).
-3. Escribe un título (por ejemplo, `v0.2.0`) y las notas de la versión; el botón **Generate release notes** las rellena a partir de las pull requests fusionadas.
-4. Toca **Publish release**.
+Una release se puede seguir creando a mano: en la página **Releases** del repositorio, toca **Draft a new release**, crea el tag `v0.2.0` sobre `master` y toca **Publish release** (o haz push del tag). El workflow publica entonces de la misma manera.
 
-El workflow arranca en cuestión de segundos. Síguelo en la app de GitHub, en **Actions → Publish to crates.io**. Cuando esté en verde, la nueva versión estará en crates.io, y docs.rs generará la documentación de la API poco después.
-
-> **Consejo** Publicar una release también crea el tag, así que puede que el workflow arranque dos veces. No pasa nada: las ejecuciones se ponen en cola una detrás de otra, y la segunda omite los crates que ya están publicados.
+> **Consejo** Una release publicada a mano también crea el tag, así que puede que el workflow arranque dos veces. No pasa nada: las ejecuciones se ponen en cola una detrás de otra, y la segunda omite los crates que ya están publicados.
 
 ### Comprobar sin publicar
 
@@ -93,9 +91,8 @@ cargo publish --workspace --dry-run
 # Publica, primero el crate derive
 cargo publish -p memoire-orm-derive && cargo publish -p memoire-orm
 
-# Etiqueta la versión
-git tag v0.2.0
-git push origin v0.2.0
+# Sube el cambio de versión: con la CI en verde, el workflow crea el tag y la release
+git push origin master
 ```
 
 Con un Cargo más antiguo, comprueba el crate derive con `cargo publish -p memoire-orm-derive --dry-run`; un dry run de `memoire-orm` por sí solo solo funciona cuando la versión correspondiente del crate derive ya está en crates.io.
@@ -107,7 +104,7 @@ Con un Cargo más antiguo, comprueba el crate derive con `cargo publish -p memoi
 - [ ] `CHANGELOG.md` actualizado con la nueva versión y la fecha
 - [ ] CI en verde en `master`
 - [ ] El dry run pasa (`cargo publish --workspace --dry-run`, o el workflow con **dry_run**)
-- [ ] Release `vX.Y.Z` publicada (o tag subido con push)
+- [ ] Tag `vX.Y.Z` y release de GitHub creados por el workflow (o a mano)
 - [ ] Nueva versión visible en crates.io y documentación generada en docs.rs
 
 > **Atención** Una versión publicada nunca se puede cambiar ni eliminar. Si una versión está rota, publica una versión corregida y haz *yank* de la rota (`cargo yank memoire-orm --version X.Y.Z`, y lo mismo con `memoire-orm-derive` si hace falta), lo que impide que los proyectos nuevos la seleccionen.

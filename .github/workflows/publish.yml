@@ -1,12 +1,21 @@
 name: Publish to crates.io
 
-# Publish a new version from anywhere (even a phone):
+# Releases on its own: once CI is green on master, a version of the root Cargo.toml
+# that has no tag yet gets its tag (v0.1.0 for 0.1.0) and its GitHub release, with
+# the notes of its section in CHANGELOG.md, then both crates are published. Nothing
+# to fill in by hand:
 #   1. bump `version` in the root Cargo.toml (and the `=x.y.z` pin of memoire-orm-derive),
-#   2. create a GitHub release with the tag `vX.Y.Z` (or push the tag).
-# Requires the repository secret CARGO_REGISTRY_TOKEN (crates.io → Account Settings → API Tokens).
+#   2. write its section in CHANGELOG.md, push.
+# A GitHub release created by hand with the tag `vX.Y.Z` (or a pushed tag) publishes too.
+# Requires the repository secret CARGO_REGISTRY_TOKEN (crates.io → Account Settings → API Tokens);
+# without it, the automatic release still tags the version and creates its GitHub release.
 # Already-published crates are skipped, so re-running the workflow is safe.
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
   push:
     tags: ["v*"]
   release:
@@ -26,13 +35,60 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tag:
+    name: Tag the new version
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.release.outputs.created }}
+      sha: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Release the workspace version if it is new
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "memoire-orm") | .version')
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" > /dev/null; then
+            echo "${tag} already exists: nothing to release."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The notes: the section of this version in CHANGELOG.md.
+          awk -v head="## [${version}]" 'index($0, head) == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release create "${tag}" --target "${SHA}" --title "${tag}" --notes-file notes.md
+          else
+            gh release create "${tag}" --target "${SHA}" --title "${tag}" --generate-notes
+          fi
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "### 🏷️ [${tag}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${tag}) released" >> "$GITHUB_STEP_SUMMARY"
+
   publish:
+    needs: tag
+    # `needs` skips this job for the other events unless `always()` lets them through.
+    if: >-
+      always() &&
+      (github.event_name != 'workflow_run' || needs.tag.outputs.created == 'true')
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.tag.outputs.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -48,15 +104,27 @@ jobs:
             exit 1
           fi
 
+      # On the automatic release, a missing token only postpones the publication.
+      - name: Ready to publish
+        id: ready
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ] && [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "::notice::Released on GitHub; add the CARGO_REGISTRY_TOKEN secret to publish on crates.io too, then run this workflow by hand."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Test
+        if: steps.ready.outputs.ready == 'true'
         run: cargo test --workspace --features memory,sqlite
 
       - name: Dry run
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        if: steps.ready.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && inputs.dry_run
         run: cargo publish --workspace --dry-run
 
       - name: Publish
-        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        if: steps.ready.outputs.ready == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
         run: |
           if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
             echo "::error::Add the CARGO_REGISTRY_TOKEN repository secret (crates.io → Account Settings → API Tokens)."
