@@ -193,8 +193,9 @@ Guide pas à pas : [docs/fr/deploy-heroku-mobile.md](docs/fr/deploy-heroku-mobil
   la CI est verte (puis les déploiements Heroku et GitHub Pages sont lancés).
 - **Déploiement** (`deploy-heroku.yml`) : chaque push sur `master` déploie le site sur Heroku.
 - **GitHub Pages** (`pages.yml`) : chaque push sur `master` qui modifie le site ou la documentation le publie sur GitHub Pages.
-- **Publication** (`publish.yml`) : pousser un tag `v*` (ou publier une release GitHub) publie les crates sur
-  crates.io — voir [Publier sur crates.io](docs/fr/publish-crates-io.md).
+- **Publication** (`publish.yml`) : une fois la CI au vert sur `master`, une nouvelle version du `Cargo.toml`
+  racine est taguée, publiée en release GitHub (notes tirées de `CHANGELOG.md`) et ses crates sont publiées sur
+  crates.io ; un tag `v*` ou une release GitHub créée à la main publie aussi — voir [Publier sur crates.io](docs/fr/publish-crates-io.md).
 
 ## Contribuer
 
