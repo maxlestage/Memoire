@@ -16,11 +16,11 @@ Todos los pasos de Heroku se hacen en el panel de Heroku (`https://dashboard.her
 
 ## ¿Qué método debería elegir?
 
-| Método | Esfuerzo | Actualizaciones tras el primer despliegue | Dónde se construye la imagen |
+| Método | Esfuerzo | Actualizaciones tras el primer despliegue | Dónde se construye el sitio |
 |---|---|---|---|
-| 1. Botón "Deploy to Heroku" | El mínimo: unos pocos toques | Ninguna: despliega una sola vez | En Heroku |
-| 2. Workflow de GitHub Actions | Medio: hay que añadir dos secretos | Automáticas en cada push a `master`, o con un toque en la app de GitHub | En GitHub, y luego se envía a Heroku |
-| 3. Integración de Heroku con GitHub | Medio: conectar GitHub con Heroku | Automáticas en cada push a `master` | En Heroku |
+| 1. Botón "Deploy to Heroku" | El mínimo: unos pocos toques | Ninguna: despliega una sola vez | En Heroku, con el buildpack de Rust |
+| 2. Workflow de GitHub Actions | Medio: hay que añadir dos secretos | Automáticas en cada push a `master`, o con un toque en la app de GitHub | En Heroku, con el buildpack de Rust (o en GitHub como imagen Docker, si lo eliges) |
+| 3. Integración de Heroku con GitHub | Medio: conectar GitHub con Heroku | Automáticas en cada push a `master` | En Heroku, con el buildpack de Rust |
 
 Una combinación habitual: el método 1 para el primerísimo despliegue y luego el método 2 o el 3 para mantener el sitio actualizado. No actives los métodos 2 y 3 a la vez, o cada push se desplegará dos veces.
 
@@ -44,9 +44,12 @@ https://dashboard.heroku.com/new-app
 
 Lo que ocurre entre bastidores:
 
-- `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **container**, un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
-- `heroku.yml` le indica a Heroku que construya el proceso `web` a partir del `Dockerfile` de la raíz del repositorio.
-- El `Dockerfile` compila el sitio web, escrito en Rust con [Active](https://maxlestage.github.io/Active/), en una primera etapa: el paquete del navegador (las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`) y luego el servidor web, que renderiza cada página e incluye la documentación. Después copia solo el binario del servidor y los archivos estáticos en una imagen final ligera.
+- `app.json` describe la aplicación para Heroku: su nombre y su descripción, el stack **heroku-24** con el buildpack **emk/rust** ([heroku-buildpack-rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)), un dyno `web` de tamaño *Basic* y el ajuste `RUST_LOG`.
+- `RustConfig` configura el buildpack: compila el servidor web del sitio, escrito en Rust con [Active](https://maxlestage.github.io/Active/), en `site/` con `cargo build --release --locked`, con la versión de Rust fijada en ese archivo (la misma que en el `Dockerfile`). El servidor renderiza cada página e incluye la documentación.
+- `heroku-build.sh` compila después el paquete del navegador en `site/pkg`: las partes interactivas y el motor en memoria del playground, compilados a WebAssembly con `wasm-bindgen`.
+- `Procfile` le indica a Heroku cómo arrancar el proceso `web`: `web: SITE_DIR=site exec site/target/release/memoire-site`.
+
+El `Dockerfile` y `heroku.yml` siguen ahí: construyen el mismo sitio como imagen Docker, para el stack **container** de Heroku (método 2 con `HEROKU_BUILD` en `docker`) o cualquier otro host Docker.
 
 > **Nota** El botón despliega el repositorio tal como está en ese momento. Para obtener los cambios posteriores, usa el método 2 o el 3, o vuelve a tocar el botón para crear una aplicación nueva.
 
@@ -77,6 +80,8 @@ Los secretos no se pueden editar en la app de GitHub, así que usa el sitio web 
 
 `HEROKU_APP_NAME` también se puede crear como **variable** del repositorio (la pestaña **Variables** de la misma página), ya que no es secreto. Si la aplicación aún no existe, el workflow la crea por ti.
 
+Por defecto, Heroku construye él mismo el sitio con el buildpack de Rust. Para construir en su lugar una imagen Docker en las máquinas de GitHub, añade una **variable** del repositorio (en la misma pestaña **Variables**) llamada `HEROKU_BUILD` con el valor `docker`. El valor `buildpack`, o no crear la variable, mantiene el comportamiento por defecto.
+
 ### Paso 3: desplegar
 
 A partir de ahora, cualquier push a `master` despliega automáticamente. Para desplegar en el acto desde la **app móvil de GitHub**:
@@ -90,10 +95,11 @@ A partir de ahora, cualquier push a `master` despliega automáticamente. Para de
 ### Qué hace el workflow
 
 1. **Comprueba la configuración.** Si falta un secreto, se detiene educadamente con un aviso ("Heroku deployment skipped") en lugar de fallar.
-2. **Prepara la aplicación.** Crea la aplicación de Heroku si aún no existe y se asegura de que use el stack **container**.
-3. **Construye la imagen Docker** a partir del `Dockerfile` de la raíz en las máquinas de GitHub, reutilizando una caché de compilación entre ejecuciones para que los despliegues posteriores sean más rápidos.
-4. **Sube la imagen** al registro de contenedores de Heroku (`registry.heroku.com`) y la **publica** como nueva versión del proceso `web`.
-5. **Comprueba el estado** del sitio: llama a `/healthz` en tu aplicación durante un máximo de cinco minutos e informa del resultado.
+2. **Prepara la aplicación.** Crea la aplicación de Heroku si aún no existe, en el stack **heroku-24**, y configura el buildpack **emk/rust**. Una aplicación en el stack **container** pasa a heroku-24.
+3. **Construye en Heroku.** Sube el código fuente del commit a Heroku, que lo compila con el buildpack (`RustConfig` y luego `heroku-build.sh`) y lo **publica** como nueva versión del proceso `web`. El registro de la compilación se muestra en la ejecución; el buildpack guarda las dependencias compiladas en su caché, así que los despliegues posteriores son más rápidos.
+4. **Comprueba el estado** del sitio: llama a `/healthz` en tu aplicación durante un máximo de cinco minutos e informa del resultado.
+
+Con `HEROKU_BUILD` en `docker`, el paso 2 pone la aplicación en el stack **container**, y el paso 3 construye la imagen Docker a partir del `Dockerfile` de la raíz en las máquinas de GitHub (reutilizando una caché de compilación entre ejecuciones), la sube al registro de contenedores de Heroku (`registry.heroku.com`) y la publica.
 
 Solo se ejecuta un despliegue a la vez; un nuevo push espera a que termine el despliegue en curso.
 
@@ -101,14 +107,32 @@ Solo se ejecuta un despliegue a la vez; un nuevo push espera a que termine el de
 
 Heroku puede vigilar tu repositorio y construir él mismo cada nuevo commit.
 
-1. Crea primero la aplicación con el método 1 o el 2 (ambos configuran el stack **container** que necesita este método).
+1. Crea primero la aplicación con el método 1 o el 2 (ambos configuran el stack **heroku-24** y el buildpack **emk/rust** que necesita este método). Para una aplicación creada de otra forma, abre **Settings → Buildpacks → Add buildpack**, escribe `emk/rust` y toca **Save changes**; la aplicación no debe estar en el stack **container**.
 2. En el panel de Heroku, abre tu aplicación y toca la pestaña **Deploy**.
 3. En **Deployment method**, toca **GitHub**, luego **Connect to GitHub**, y autoriza a Heroku.
 4. Busca tu repositorio (`Memoire`) y toca **Connect**.
 5. En **Automatic deploys**, elige la rama `master` y toca **Enable Automatic Deploys**. Si quieres, marca "Wait for CI to pass before deploy" (esperar a que pase la CI antes de desplegar).
 6. Para desplegar de inmediato, desplázate hasta **Manual deploy** y toca **Deploy Branch**.
 
-A partir de ahí, Heroku construye la imagen a partir de `heroku.yml` y del `Dockerfile` en cada push a `master`.
+A partir de ahí, Heroku construye el sitio con el buildpack (`RustConfig`, `Procfile`) en cada push a `master`.
+
+## Desde un ordenador: la CLI de Heroku
+
+Sin GitHub Actions, la [CLI de Heroku](https://devcenter.heroku.com/articles/heroku-cli) despliega el repositorio con un simple `git push`. En tu copia del repositorio:
+
+```bash
+heroku create my-memoire --stack heroku-24 --buildpack emk/rust
+git push heroku master
+```
+
+Para una aplicación que ya existe (en el stack container, por ejemplo), configura primero su stack y su buildpack:
+
+```bash
+heroku git:remote -a my-memoire
+heroku stack:set heroku-24
+heroku buildpacks:set emk/rust
+git push heroku master
+```
 
 ## GitHub Pages: la opción gratuita
 
@@ -161,7 +185,8 @@ El resultado: apruebas o abres una pull request desde el móvil, esperas a las c
 | `401` o "Invalid credentials" en el workflow | La clave de API es incorrecta, ha caducado o se ha revocado: crea una nueva y actualiza el secreto |
 | "Name is already taken" | Los nombres de las aplicaciones son globales en Heroku: elige otro `HEROKU_APP_NAME` |
 | Heroku pide verificar la cuenta | Añade un método de pago en **Account settings → Billing** |
-| El método 3 no consigue detectar un buildpack | La aplicación no está en el stack container: créala con el método 1 o el 2 |
+| "No default language could be detected" | La aplicación no tiene buildpack: **Settings → Buildpacks → Add buildpack** → `emk/rust` (la aplicación no debe estar en el stack container), o lanza una vez el método 2 |
+| La compilación pide un Rust más reciente | Sube `VERSION` en `RustConfig`, y con ella la versión de Rust del `Dockerfile` |
 
 Conviene saber que:
 
@@ -236,7 +261,21 @@ Los demás backends de servidor funcionan igual: añade el servicio y luego lee 
 
 ### 3. Construir y desplegar
 
-Añade a tu repositorio un `Dockerfile` y un `heroku.yml`, como hace el repositorio de Memoire. Un `Dockerfile` mínimo para un binario de Rust llamado `my-app`:
+Lo más sencillo es el buildpack de Rust, como en el repositorio de Memoire. Para un binario de Rust llamado `my-app`, añade un `Procfile` en la raíz de tu repositorio:
+
+```text
+web: ./target/release/my-app
+```
+
+Y, para fijar la versión de Rust, un `RustConfig`:
+
+```text
+VERSION=1.99
+```
+
+El buildpack ejecuta `cargo build --release` y guarda las dependencias compiladas en su caché entre compilaciones. El soporte de TLS de Memoire es Rust puro (`rustls`), así que nada necesita OpenSSL. Después copia `.github/workflows/deploy-heroku.yml` en tu repositorio, añade los dos secretos como en el método 2, y cada push a `master` desplegará tu aplicación (el método 3 también funciona, una vez añadido el buildpack `emk/rust` a la aplicación).
+
+Para construir en su lugar una imagen Docker, añade a tu repositorio un `Dockerfile` y un `heroku.yml`, y pon la variable `HEROKU_BUILD` en `docker` (método 2). Un `Dockerfile` mínimo:
 
 ```dockerfile
 FROM rust:1-slim-bookworm AS builder
@@ -257,7 +296,7 @@ build:
     web: Dockerfile
 ```
 
-El soporte de TLS de Memoire es Rust puro (`rustls`), así que la imagen final no necesita OpenSSL. Después copia `.github/workflows/deploy-heroku.yml` en tu repositorio, añade los dos secretos como en el método 2, y cada push a `master` desplegará tu aplicación.
+También aquí, la imagen final no necesita OpenSSL.
 
 ## Próximos pasos
 

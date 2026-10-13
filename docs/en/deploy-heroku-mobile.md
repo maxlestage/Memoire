@@ -16,11 +16,11 @@ All the Heroku steps happen in the Heroku dashboard (`https://dashboard.heroku.c
 
 ## Which method should I choose?
 
-| Method | Effort | Updates after the first deploy | Where the image is built |
+| Method | Effort | Updates after the first deploy | Where the site is built |
 |---|---|---|---|
-| 1. "Deploy to Heroku" button | Lowest: a few taps | None: it deploys once | On Heroku |
-| 2. GitHub Actions workflow | Medium: two secrets to add | Automatic on every push to `master`, or one tap in the GitHub app | On GitHub, then sent to Heroku |
-| 3. Heroku's GitHub integration | Medium: connect GitHub to Heroku | Automatic on every push to `master` | On Heroku |
+| 1. "Deploy to Heroku" button | Lowest: a few taps | None: it deploys once | On Heroku, with the Rust buildpack |
+| 2. GitHub Actions workflow | Medium: two secrets to add | Automatic on every push to `master`, or one tap in the GitHub app | On Heroku, with the Rust buildpack (or on GitHub as a Docker image, if you choose) |
+| 3. Heroku's GitHub integration | Medium: connect GitHub to Heroku | Automatic on every push to `master` | On Heroku, with the Rust buildpack |
 
 A common combination: method 1 for the very first deploy, then method 2 or 3 to keep the site updated. Do not enable methods 2 and 3 at the same time, or every push will be deployed twice.
 
@@ -44,9 +44,12 @@ https://dashboard.heroku.com/new-app
 
 What happens behind the scenes:
 
-- `app.json` describes the app for Heroku: its name and description, the **container** stack, one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
-- `heroku.yml` tells Heroku to build the `web` process from the `Dockerfile` at the root of the repository.
-- The `Dockerfile` builds the website, written in Rust with [Active](https://maxlestage.github.io/Active/), in a first stage: the browser bundle (the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`), then the web server, which renders every page and embeds the documentation. It then copies only the server binary and the static files into a slim final image.
+- `app.json` describes the app for Heroku: its name and description, the **heroku-24** stack with the **emk/rust** buildpack ([heroku-buildpack-rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust)), one `web` dyno of size *Basic*, and the `RUST_LOG` setting.
+- `RustConfig` configures the buildpack: it compiles the web server of the website, written in Rust with [Active](https://maxlestage.github.io/Active/), in `site/` with `cargo build --release --locked`, using the Rust version pinned in that file (the same as in the `Dockerfile`). The server renders every page and embeds the documentation.
+- `heroku-build.sh` then builds the browser bundle into `site/pkg`: the interactive parts and the playground's in-memory engine, compiled to WebAssembly with `wasm-bindgen`.
+- `Procfile` tells Heroku how to start the `web` process: `web: SITE_DIR=site exec site/target/release/memoire-site`.
+
+The `Dockerfile` and `heroku.yml` are still there: they build the same website as a Docker image, for Heroku's **container** stack (method 2 with `HEROKU_BUILD` set to `docker`) or any other Docker host.
 
 > **Note** The button deploys the repository as it is at that moment. To get later changes, use method 2 or 3, or tap the button again to create a fresh app.
 
@@ -77,6 +80,8 @@ Secrets cannot be edited in the GitHub app, so use the website in your mobile br
 
 `HEROKU_APP_NAME` may also be created as a repository **variable** (the **Variables** tab of the same page), since it is not secret. If the app does not exist yet, the workflow creates it for you.
 
+By default, Heroku builds the website itself with the Rust buildpack. To build a Docker image on GitHub's machines instead, add a repository **variable** (on the same **Variables** tab) named `HEROKU_BUILD` with the value `docker`. The value `buildpack`, or no variable at all, keeps the default.
+
 ### Step 3: deploy
 
 Any push to `master` now deploys automatically. To deploy right away from the **GitHub mobile app**:
@@ -90,10 +95,11 @@ Any push to `master` now deploys automatically. To deploy right away from the **
 ### What the workflow does
 
 1. **Checks the configuration.** If a secret is missing, it stops politely with a notice ("Heroku deployment skipped") instead of failing.
-2. **Prepares the app.** It creates the Heroku app if it does not exist yet, and makes sure it uses the **container** stack.
-3. **Builds the Docker image** from the root `Dockerfile` on GitHub's machines, reusing a build cache between runs so later deploys are faster.
-4. **Pushes the image** to Heroku's container registry (`registry.heroku.com`) and **releases** it as the new version of the `web` process.
-5. **Checks the health** of the site: it calls `/healthz` on your app for up to five minutes and reports the result.
+2. **Prepares the app.** It creates the Heroku app if it does not exist yet, on the **heroku-24** stack, and sets the **emk/rust** buildpack. An app on the **container** stack is moved to heroku-24.
+3. **Builds on Heroku.** It uploads the source of the commit to Heroku, which builds it with the buildpack (`RustConfig`, then `heroku-build.sh`) and **releases** it as the new version of the `web` process. The build log is shown in the run; the buildpack keeps the compiled dependencies in its cache, so later deploys are faster.
+4. **Checks the health** of the site: it calls `/healthz` on your app for up to five minutes and reports the result.
+
+With `HEROKU_BUILD` set to `docker`, step 2 puts the app on the **container** stack instead, and step 3 builds the Docker image from the root `Dockerfile` on GitHub's machines (reusing a build cache between runs), pushes it to Heroku's container registry (`registry.heroku.com`) and releases it.
 
 Only one deployment runs at a time; a new push waits for the current deployment to finish.
 
@@ -101,14 +107,32 @@ Only one deployment runs at a time; a new push waits for the current deployment 
 
 Heroku can watch your repository and build each new commit itself.
 
-1. Create the app first with method 1 or method 2 (both set up the **container** stack this method needs).
+1. Create the app first with method 1 or method 2 (both set up the **heroku-24** stack and the **emk/rust** buildpack this method needs). For an app created otherwise, open **Settings → Buildpacks → Add buildpack**, enter `emk/rust` and tap **Save changes**; this needs an app that is not on the **container** stack.
 2. In the Heroku dashboard, open your app and tap the **Deploy** tab.
 3. Under **Deployment method**, tap **GitHub**, then **Connect to GitHub**, and authorise Heroku.
 4. Search for your repository (`Memoire`), then tap **Connect**.
 5. Under **Automatic deploys**, choose the `master` branch and tap **Enable Automatic Deploys**. Optionally tick "Wait for CI to pass before deploy".
 6. To deploy immediately, scroll to **Manual deploy** and tap **Deploy Branch**.
 
-Heroku then builds the image from `heroku.yml` and the `Dockerfile` on every push to `master`.
+Heroku then builds the website with the buildpack (`RustConfig`, `Procfile`) on every push to `master`.
+
+## From a computer: the Heroku CLI
+
+Without GitHub Actions, the [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) deploys the repository with a plain `git push`. In your copy of the repository:
+
+```bash
+heroku create my-memoire --stack heroku-24 --buildpack emk/rust
+git push heroku master
+```
+
+For an app that already exists (on the container stack, for example), set its stack and its buildpack first:
+
+```bash
+heroku git:remote -a my-memoire
+heroku stack:set heroku-24
+heroku buildpacks:set emk/rust
+git push heroku master
+```
 
 ## GitHub Pages: the free option
 
@@ -161,7 +185,8 @@ The result: approve or open a pull request from your phone, wait for the checks,
 | `401` or "Invalid credentials" in the workflow | The API key is wrong, expired or revoked: create a new one and update the secret |
 | "Name is already taken" | App names are global on Heroku: choose another `HEROKU_APP_NAME` |
 | Heroku asks to verify the account | Add a payment method under **Account settings → Billing** |
-| Method 3 fails to detect a buildpack | The app is not on the container stack: create it with method 1 or 2 |
+| "No default language could be detected" | The app has no buildpack: **Settings → Buildpacks → Add buildpack** → `emk/rust` (the app must not be on the container stack), or run method 2 once |
+| The build asks for a newer Rust | Raise `VERSION` in `RustConfig`, and the Rust version of the `Dockerfile` with it |
 
 Good to know:
 
@@ -236,7 +261,21 @@ The other server backends work the same way: add the service, then read its URL 
 
 ### 3. Build and deploy
 
-Give your repository a `Dockerfile` and a `heroku.yml`, like the Memoire repository does. A minimal `Dockerfile` for a Rust binary called `my-app`:
+The simplest is the Rust buildpack, like the Memoire repository. For a Rust binary called `my-app`, add a `Procfile` at the root of your repository:
+
+```text
+web: ./target/release/my-app
+```
+
+And, to pin the Rust version, a `RustConfig`:
+
+```text
+VERSION=1.99
+```
+
+The buildpack runs `cargo build --release` and keeps the compiled dependencies in its cache between builds. Memoire's TLS support is pure Rust (`rustls`), so nothing needs OpenSSL. Then copy `.github/workflows/deploy-heroku.yml` into your repository, add the two secrets as in method 2, and every push to `master` deploys your app (method 3 works too, once the app has the `emk/rust` buildpack).
+
+To build a Docker image instead, give your repository a `Dockerfile` and a `heroku.yml`, and set the `HEROKU_BUILD` variable to `docker` (method 2). A minimal `Dockerfile`:
 
 ```dockerfile
 FROM rust:1-slim-bookworm AS builder
@@ -257,7 +296,7 @@ build:
     web: Dockerfile
 ```
 
-Memoire's TLS support is pure Rust (`rustls`), so the final image needs no OpenSSL. Then copy `.github/workflows/deploy-heroku.yml` into your repository, add the two secrets as in method 2, and every push to `master` deploys your app.
+Here too, the final image needs no OpenSSL.
 
 ## Next steps
 

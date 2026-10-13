@@ -148,7 +148,8 @@ crates/memoire-orm/          el ORM (publicado en crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] y #[derive(FromRow)]
 docs/{en,fr,es}/             documentación (mostrada por el sitio web)
 site/                        sitio de presentación, escrito con active (servidor + islas WebAssembly, PWA)
-Dockerfile, heroku.yml, app.json   despliegue en Heroku con un clic
+RustConfig, Procfile, app.json     despliegue en Heroku con un clic (buildpack emk/rust, heroku-build.sh)
+Dockerfile, heroku.yml             imagen Docker (stack container de Heroku, cualquier host Docker)
 .github/workflows/           CI, fusión automática, despliegue en Heroku y GitHub Pages, publicación en crates.io
 ```
 
@@ -179,9 +180,13 @@ Sin ordenador:
 1. Abre `https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire` en tu móvil, elige un nombre de aplicación y pulsa **Deploy app**.
 2. O añade los secretos `HEROKU_API_KEY` y `HEROKU_APP_NAME` en *Settings → Secrets and variables → Actions*:
    cada push a `master` se despliega automáticamente, y puedes volver a desplegar desde la app de GitHub
-   (*Actions → Deploy to Heroku → Run workflow*).
+   (*Actions → Deploy to Heroku → Run workflow*). Heroku construye el sitio con el
+   [buildpack emk/rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust); pon la variable del
+   repositorio `HEROKU_BUILD` en `docker` para construir en su lugar la imagen Docker en GitHub.
 3. O publica el sitio **gratis en GitHub Pages**: *Settings → Pages → Source: GitHub Actions* y luego
    *Actions → Deploy to GitHub Pages → Run workflow*. Queda en línea en `https://<tu-usuario>.github.io/Memoire/`.
+
+Desde un ordenador: `heroku create --stack heroku-24 --buildpack emk/rust` y luego `git push heroku master`.
 
 Guía paso a paso: [docs/es/deploy-heroku-mobile.md](docs/es/deploy-heroku-mobile.md).
 
@@ -191,7 +196,8 @@ Guía paso a paso: [docs/es/deploy-heroku-mobile.md](docs/es/deploy-heroku-mobil
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), cada feature por separado, compilación WebAssembly, compilación del sitio.
 - **Fusión automática** (`ci.yml`): las pull requests hacia `master` se fusionan automáticamente en cuanto la CI
   está en verde (y se lanzan los despliegues en Heroku y GitHub Pages).
-- **Despliegue** (`deploy-heroku.yml`): cada push a `master` despliega el sitio en Heroku.
+- **Despliegue** (`deploy-heroku.yml`): cada push a `master` despliega el sitio en Heroku, que lo construye con el
+  buildpack emk/rust (o como imagen Docker en GitHub, con la variable del repositorio `HEROKU_BUILD=docker`).
 - **GitHub Pages** (`pages.yml`): cada push a `master` que cambia el sitio o la documentación lo publica en GitHub Pages.
 - **Publicación** (`publish.yml`): en cuanto la CI está en verde en `master`, una versión nueva del `Cargo.toml`
   raíz recibe su tag y su release de GitHub (notas sacadas de `CHANGELOG.md`) y sus crates se publican en

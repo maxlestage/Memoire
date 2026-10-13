@@ -13,7 +13,12 @@
     "pwa",
     "documentation"
   ],
-  "stack": "container",
+  "stack": "heroku-24",
+  "buildpacks": [
+    {
+      "url": "emk/rust"
+    }
+  ],
   "formation": {
     "web": {
       "quantity": 1,

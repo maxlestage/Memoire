@@ -6,6 +6,12 @@ name: Deploy to Heroku
 # Required repository secrets (Settings → Secrets and variables → Actions):
 #   HEROKU_API_KEY   Heroku → Account settings → API Key (or an authorization token)
 #   HEROKU_APP_NAME  the app name, e.g. "memoire-orm" (created automatically if missing)
+#
+# Optional repository variable HEROKU_BUILD, how the app is built:
+#   buildpack (default)  on Heroku, with the emk/rust buildpack (RustConfig, Procfile),
+#                        on the heroku-24 stack
+#   docker               here, from the Dockerfile, pushed to the Heroku container
+#                        registry (container stack)
 
 on:
   push:
@@ -21,11 +27,12 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build image & release
+    name: Build & release
     runs-on: ubuntu-latest
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME || vars.HEROKU_APP_NAME }}
+      HEROKU_BUILD: ${{ vars.HEROKU_BUILD || 'buildpack' }}
     steps:
       - name: Check configuration
         id: config
@@ -40,9 +47,14 @@ jobs:
       - uses: actions/checkout@v5
         if: steps.config.outputs.enabled == 'true'
 
-      - name: Create the app if needed and switch it to the container stack
+      - name: Create the app if needed and set its stack
         if: steps.config.outputs.enabled == 'true'
         run: |
+          case "$HEROKU_BUILD" in
+            buildpack) stack=heroku-24 ;;
+            docker) stack=container ;;
+            *) echo "::error::HEROKU_BUILD must be buildpack or docker, not \"$HEROKU_BUILD\"."; exit 1 ;;
+          esac
           api() {
             curl -sS -o /tmp/heroku.json -w '%{http_code}' \
               -H "Accept: application/vnd.heroku+json; version=3" \
@@ -52,23 +64,66 @@ jobs:
           code=$(api "https://api.heroku.com/apps/${HEROKU_APP_NAME}")
           if [ "$code" = "404" ]; then
             echo "Creating the Heroku app ${HEROKU_APP_NAME}"
-            code=$(api -X POST https://api.heroku.com/apps -d "{\"name\":\"${HEROKU_APP_NAME}\",\"stack\":\"container\"}")
+            code=$(api -X POST https://api.heroku.com/apps -d "{\"name\":\"${HEROKU_APP_NAME}\",\"stack\":\"${stack}\"}")
             if [ "$code" != "201" ]; then cat /tmp/heroku.json; exit 1; fi
           elif [ "$code" != "200" ]; then
             cat /tmp/heroku.json; exit 1
           fi
-          code=$(api -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}" -d '{"build_stack":"container"}')
-          if [ "$code" != "200" ]; then cat /tmp/heroku.json; exit 1; fi
+          current=$(jq -r '.build_stack.name' /tmp/heroku.json)
+          # Docker images need the container stack; a buildpack app keeps its heroku-NN stack.
+          if { [ "$HEROKU_BUILD" = docker ] && [ "$current" != container ]; } ||
+             { [ "$HEROKU_BUILD" = buildpack ] && [ "$current" = container ]; }; then
+            echo "Switching the app from the ${current} stack to ${stack}"
+            code=$(api -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}" -d "{\"build_stack\":\"${stack}\"}")
+            if [ "$code" != "200" ]; then cat /tmp/heroku.json; exit 1; fi
+          fi
+          if [ "$HEROKU_BUILD" = buildpack ]; then
+            echo "Buildpack: emk/rust (RustConfig, Procfile)"
+            code=$(api -X PUT "https://api.heroku.com/apps/${HEROKU_APP_NAME}/buildpack-installations" \
+              -d '{"updates":[{"buildpack":"emk/rust"}]}')
+            if [ "$code" != "200" ]; then cat /tmp/heroku.json; exit 1; fi
+          fi
 
+      # --- buildpack: Heroku builds the source with emk/rust, then releases it.
+      - name: Build and release on Heroku (emk/rust buildpack)
+        if: steps.config.outputs.enabled == 'true' && env.HEROKU_BUILD == 'buildpack'
+        run: |
+          set -euo pipefail
+          api() {
+            curl -fsS -H "Accept: application/vnd.heroku+json; version=3" \
+              -H "Authorization: Bearer ${HEROKU_API_KEY}" \
+              -H "Content-Type: application/json" "$@"
+          }
+          git archive --format=tar.gz -o "${RUNNER_TEMP}/source.tgz" HEAD
+          sources=$(api -X POST https://api.heroku.com/sources)
+          curl -fsS -X PUT -H "Content-Type:" --data-binary @"${RUNNER_TEMP}/source.tgz" \
+            "$(jq -r '.source_blob.put_url' <<< "$sources")"
+          echo "Building on Heroku (the first build takes several minutes)…"
+          build=$(api -X POST "https://api.heroku.com/apps/${HEROKU_APP_NAME}/builds" \
+            -d "{\"source_blob\":{\"url\":\"$(jq -r '.source_blob.get_url' <<< "$sources")\",\"version\":\"${GITHUB_SHA}\"}}")
+          id=$(jq -r '.id' <<< "$build")
+          curl -sSN "$(jq -r '.output_stream_url' <<< "$build")" || true
+          result=pending
+          for _ in $(seq 1 240); do
+            result=$(api "https://api.heroku.com/apps/${HEROKU_APP_NAME}/builds/${id}" | jq -r '.status')
+            [ "$result" != "pending" ] && break
+            sleep 5
+          done
+          if [ "$result" != "succeeded" ]; then
+            echo "::error::The Heroku build ended with status \"${result}\"."
+            exit 1
+          fi
+
+      # --- docker: the image is built here and pushed to the Heroku registry.
       - uses: docker/setup-buildx-action@v3
-        if: steps.config.outputs.enabled == 'true'
+        if: steps.config.outputs.enabled == 'true' && env.HEROKU_BUILD == 'docker'
 
       - name: Log in to the Heroku container registry
-        if: steps.config.outputs.enabled == 'true'
+        if: steps.config.outputs.enabled == 'true' && env.HEROKU_BUILD == 'docker'
         run: echo "${HEROKU_API_KEY}" | docker login --username=_ --password-stdin registry.heroku.com
 
       - name: Build and push the image
-        if: steps.config.outputs.enabled == 'true'
+        if: steps.config.outputs.enabled == 'true' && env.HEROKU_BUILD == 'docker'
         run: |
           docker buildx build \
             --platform linux/amd64 \
@@ -80,7 +135,7 @@ jobs:
           docker push "registry.heroku.com/${HEROKU_APP_NAME}/web"
 
       - name: Release
-        if: steps.config.outputs.enabled == 'true'
+        if: steps.config.outputs.enabled == 'true' && env.HEROKU_BUILD == 'docker'
         run: |
           # Heroku releases an image by its config digest; read it from the registry
           # (works whatever the local Docker image store is).
