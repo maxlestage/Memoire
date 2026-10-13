@@ -148,7 +148,8 @@ crates/memoire-orm/          the ORM (published on crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] and #[derive(FromRow)]
 docs/{en,fr,es}/             documentation (rendered by the website)
 site/                        presentation website, written with active (server + WebAssembly islands, PWA)
-Dockerfile, heroku.yml, app.json   one-click Heroku deployment
+RustConfig, Procfile, app.json     one-click Heroku deployment (emk/rust buildpack, heroku-build.sh)
+Dockerfile, heroku.yml             Docker image (Heroku container stack, any Docker host)
 .github/workflows/           CI, auto-merge, Heroku and GitHub Pages deployment, crates.io publishing
 ```
 
@@ -178,9 +179,13 @@ No computer needed:
 1. Open `https://heroku.com/deploy?template=https://github.com/maxlestage/Memoire` on your phone, pick an app name, tap **Deploy app**.
 2. Or add the `HEROKU_API_KEY` and `HEROKU_APP_NAME` secrets in *Settings → Secrets and variables → Actions*:
    every push to `master` is then deployed automatically, and you can redeploy from the GitHub
-   app (*Actions → Deploy to Heroku → Run workflow*).
+   app (*Actions → Deploy to Heroku → Run workflow*). Heroku builds the site with the
+   [emk/rust buildpack](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust); set the repository
+   variable `HEROKU_BUILD` to `docker` to build the Docker image on GitHub instead.
 3. Or publish the website **for free on GitHub Pages**: *Settings → Pages → Source: GitHub Actions*, then
    *Actions → Deploy to GitHub Pages → Run workflow*. It goes online at `https://<your-user>.github.io/Memoire/`.
+
+From a computer: `heroku create --stack heroku-24 --buildpack emk/rust`, then `git push heroku master`.
 
 Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobile.md).
 
@@ -190,7 +195,8 @@ Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobi
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), every feature on its own, WebAssembly build, website build.
 - **Auto-merge** (`ci.yml`): pull requests to `master` are merged automatically as soon as CI is green
   (and the Heroku and GitHub Pages deployments are triggered).
-- **Deploy** (`deploy-heroku.yml`): every push to `master` deploys the website to Heroku.
+- **Deploy** (`deploy-heroku.yml`): every push to `master` deploys the website to Heroku, built there with the
+  emk/rust buildpack (or as a Docker image on GitHub, with the repository variable `HEROKU_BUILD=docker`).
 - **GitHub Pages** (`pages.yml`): every push to `master` that changes the website or the docs publishes it on GitHub Pages.
 - **Publish** (`publish.yml`): once CI is green on `master`, a new version of the root `Cargo.toml` is tagged,
   released on GitHub (notes from `CHANGELOG.md`) and its crates published to crates.io; a `v*` tag or a
