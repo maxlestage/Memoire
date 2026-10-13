@@ -185,7 +185,7 @@ No computer needed:
 3. Or publish the website **for free on GitHub Pages**: *Settings → Pages → Source: GitHub Actions*, then
    *Actions → Deploy to GitHub Pages → Run workflow*. It goes online at `https://<your-user>.github.io/Memoire/`.
 
-From a computer: `heroku create --stack heroku-24 --buildpack emk/rust`, then `git push heroku master`.
+From a computer: `heroku create --stack heroku-26 --buildpack emk/rust`, then `git push heroku master`.
 
 Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobile.md).
 
