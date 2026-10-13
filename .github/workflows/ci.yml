@@ -212,7 +212,8 @@ jobs:
 
   # Pull requests targeting master are merged automatically once every check
   # is green. Merges made with GITHUB_TOKEN do not start new workflows, so the
-  # Heroku and GitHub Pages deployments are triggered explicitly afterwards.
+  # Heroku and GitHub Pages deployments, and the release of a new version, are
+  # triggered explicitly afterwards.
   auto-merge:
     name: Auto-merge into master
     needs: [lint, test, features, msrv, wasm, package, site]
@@ -240,3 +241,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run pages.yml --ref master --repo "$GITHUB_REPOSITORY"
+      - name: Release a new version (tag, GitHub release, crates.io)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run publish.yml --ref master --repo "$GITHUB_REPOSITORY" -f release=true
