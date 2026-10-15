@@ -214,15 +214,15 @@ jobs:
           wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
       - name: Tests (pages, SEO, PWA, static export, every documentation page in every language)
         run: cargo test
-      - name: Static export for GitHub Pages (served under /Memoire/)
+      - name: Static export (kept working, served by no host)
         run: BASE_PATH=/Memoire SITE_URL=https://maxlestage.github.io/Memoire cargo run -- export dist-static
       - name: Build the server (release, as on Heroku)
         run: cargo build --release
 
   # Pull requests targeting master are merged automatically once every check
   # is green. Merges made with GITHUB_TOKEN do not start new workflows, so the
-  # Heroku and GitHub Pages deployments, and the release of a new version, are
-  # triggered explicitly afterwards.
+  # Heroku deployment and the release of a new version are triggered explicitly
+  # afterwards.
   auto-merge:
     name: Auto-merge into master
     needs: [lint, test, features, msrv, wasm, package, site]
@@ -246,10 +246,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run deploy-heroku.yml --ref master --repo "$GITHUB_REPOSITORY"
-      - name: Trigger the GitHub Pages deployment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run pages.yml --ref master --repo "$GITHUB_REPOSITORY"
       - name: Release a new version (tag, GitHub release, crates.io)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
