@@ -5,9 +5,11 @@ version = 4
 [[package]]
 name = "active"
 version = "0.1.0"
-source = "git+https://github.com/maxlestage/Active#18545bbd7a78823fbe42df61091e7016eb31ae90"
+source = "git+https://github.com/maxlestage/Active#01d0a6612cbc1a61fdc71a81e781ac40b49e1f75"
 dependencies = [
+ "js-sys",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -431,6 +433,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
+
+[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -648,7 +656,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vitesse"
 version = "0.1.0"
-source = "git+https://github.com/maxlestage/Vitesse#4232e1c76c6d29cc08f1ba928a6bec93f1e77bc2"
+source = "git+https://github.com/maxlestage/Vitesse#deadcc68fff30a08104ae076805b10e660e9b026"
 dependencies = [
  "brotli",
  "bytes",
@@ -660,6 +668,7 @@ dependencies = [
  "http-body-util",
  "httparse",
  "pin-project-lite",
+ "regex-lite",
  "serde",
  "serde_json",
  "serde_urlencoded",
