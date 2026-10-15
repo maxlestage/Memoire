@@ -3711,7 +3711,7 @@ html:not(.motion) .bar-fill {
 }
 
 .reveal.fade-up { transform: translateY(36px); }
-.reveal.scale-in { transform: scale(0.92); filter: blur(4px); }
+.reveal.scale-in { transform: scale(0.92); }
 .reveal.slide-left { transform: translateX(48px); }
 .reveal.slide-right { transform: translateX(-48px); }
 .reveal.timeline-anim { opacity: 1; }
