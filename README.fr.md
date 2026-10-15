@@ -151,7 +151,7 @@ docs/{en,fr,es}/             documentation (affichée par le site)
 site/                        site de présentation, écrit avec active (serveur + îlots WebAssembly, PWA)
 RustConfig, Procfile, app.json     déploiement Heroku en un clic (buildpack emk/rust, heroku-build.sh)
 Dockerfile, heroku.yml             image Docker (stack container de Heroku, tout hôte Docker)
-.github/workflows/           CI, fusion automatique, déploiement Heroku et GitHub Pages, publication crates.io
+.github/workflows/           CI, fusion automatique, déploiement Heroku, publication crates.io
 ```
 
 ## Le site web
@@ -162,7 +162,8 @@ et seules les parties interactives (le bac à sable, les onglets de code, la rec
 doc) se réveillent dans le navigateur en WebAssembly. Le bac à sable exécute le vrai moteur en
 mémoire dans votre navigateur. Le site est une PWA : installez-le sur l'écran d'accueil de votre
 téléphone ; une fois ouvert, il fonctionne même hors ligne, bac à sable compris. Le même serveur
-exporte tout le site en fichiers statiques pour GitHub Pages.
+sait aussi exporter tout le site en fichiers statiques, ce que vérifie la CI. Le site est servi
+uniquement par Heroku, à l'adresse <https://memoire-7f4525f1fdaf.herokuapp.com/>.
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -171,7 +172,7 @@ cd site
 cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
 wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
 cargo run                                          # http://localhost:8080
-BASE_PATH=/Memoire cargo run -- export dist-static  # fichiers statiques, comme sur GitHub Pages
+BASE_PATH=/Memoire cargo run -- export dist-static  # tout le site en fichiers statiques
 ```
 
 ## Déployer depuis son téléphone 📱
@@ -184,8 +185,6 @@ Aucun ordinateur nécessaire :
    GitHub (*Actions → Deploy to Heroku → Run workflow*). Heroku construit le site avec le
    [buildpack emk/rust](https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust) ; réglez la variable de
    dépôt `HEROKU_BUILD` sur `docker` pour construire plutôt l'image Docker sur GitHub.
-3. Ou publiez le site **gratuitement sur GitHub Pages** : *Settings → Pages → Source : GitHub Actions*, puis
-   *Actions → Deploy to GitHub Pages → Run workflow*. Il est alors en ligne sur `https://<votre-compte>.github.io/Memoire/`.
 
 Depuis un ordinateur : `heroku create --stack heroku-26 --buildpack emk/rust`, puis `git push heroku master`.
 
@@ -196,10 +195,9 @@ Guide pas à pas : [docs/fr/deploy-heroku-mobile.md](docs/fr/deploy-heroku-mobil
 - **CI** (`ci.yml`) : formatage, clippy, la même suite de tests sur **les six moteurs** (mémoire, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), chaque feature isolément, compilation WebAssembly, compilation du site.
 - **Fusion automatique** (`ci.yml`) : les pull requests vers `master` sont fusionnées automatiquement dès que
-  la CI est verte (puis les déploiements Heroku et GitHub Pages sont lancés).
+  la CI est verte (puis le déploiement Heroku est lancé).
 - **Déploiement** (`deploy-heroku.yml`) : chaque push sur `master` déploie le site sur Heroku, qui le construit avec
   le buildpack emk/rust (ou en image Docker sur GitHub, avec la variable de dépôt `HEROKU_BUILD=docker`).
-- **GitHub Pages** (`pages.yml`) : chaque push sur `master` qui modifie le site ou la documentation le publie sur GitHub Pages.
 - **Publication** (`publish.yml`) : une fois la CI au vert sur `master`, une nouvelle version du `Cargo.toml`
   racine est taguée, publiée en release GitHub (notes tirées de `CHANGELOG.md`) et ses crates sont publiées sur
   crates.io ; un tag `v*` ou une release GitHub créée à la main publie aussi — voir [Publier sur crates.io](docs/fr/publish-crates-io.md).

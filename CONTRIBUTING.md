@@ -54,7 +54,7 @@ cd site
 cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
 wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
 cargo run                                          # http://localhost:8080
-BASE_PATH=/Memoire cargo run -- export dist-static  # the static site, as on GitHub Pages
+BASE_PATH=/Memoire cargo run -- export dist-static  # the whole site as static files (checked by CI)
 ```
 
 Before opening a pull request that touches the site (the CI runs the same):
