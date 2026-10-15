@@ -83,6 +83,17 @@ pub enum Error {
     #[error("validation failed: {0}")]
     Validation(String),
 
+    /// Optimistic locking: the row was changed (or deleted and re-created) by
+    /// another writer since it was read, so the write was refused. Reload the
+    /// row and apply the change again. See `#[memoire(version)]`.
+    #[error("stale row `{table}` {key}: another writer changed it since it was read, reload it and retry")]
+    StaleRow {
+        /// Table name.
+        table: String,
+        /// Primary key of the row.
+        key: String,
+    },
+
     /// The transaction was already committed or rolled back.
     #[error("transaction already finished")]
     TransactionFinished,
@@ -140,6 +151,11 @@ impl Error {
     /// `true` for [`Error::Validation`].
     pub fn is_validation(&self) -> bool {
         matches!(self, Error::Validation(_))
+    }
+
+    /// `true` for [`Error::StaleRow`] (optimistic locking: reload and retry).
+    pub fn is_stale(&self) -> bool {
+        matches!(self, Error::StaleRow { .. })
     }
 
     /// Attaches a column label to conversion errors raised while decoding.

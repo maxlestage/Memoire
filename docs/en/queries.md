@@ -234,6 +234,19 @@ The rule is the same on every backend; only the speed differs:
 
 Each comparison has a `_col` twin that compares with another column instead of a value: `eq_col`, `ne_col`, `lt_col`, `le_col`, `gt_col`, `ge_col`. Both columns must have the same Rust type. They are mostly used in join conditions, such as `Post::USER_ID.eq_col(User::ID)` (see [Joins & relations](relations)).
 
+### Subqueries
+
+`in_query` and `not_in_query` compare a column with the rows of another query, which selects one column of the same type with `columns`:
+
+```rust
+// The users who wrote a post with more than 100 views.
+let popular = Post::query().filter(Post::VIEWS.gt(100)).columns(Post::AUTHOR_ID);
+let authors = User::query().filter(User::ID.in_query(popular)).all(&db).await?;
+// SELECT ... FROM "users" WHERE "users"."id" IN (SELECT "posts"."author_id" FROM "posts" WHERE "posts"."views" > ?)
+```
+
+Subqueries nest, and work in `update_many()` and `delete_many()` filters too. SQL databases run the whole statement at once; the in-memory engine, Redis and MongoDB run the subquery first, then the outer query with its values as an `IN` list (inside the transaction when you pass one). The subquery cannot refer to the outer row (no correlated subqueries). As in SQL, a `NULL` among the values of a `NOT IN` subquery matches nothing: add `.filter(column.is_not_null())` to it. MySQL refuses a `LIMIT` inside an `IN` subquery, and a subquery on the table being updated or deleted. To filter on related rows, [`where_has`](relations-advanced) writes the subquery for you.
+
 ### Building filters dynamically
 
 Because a query is just a value, you can add filters conditionally, for example from optional search parameters:
@@ -375,6 +388,19 @@ if first.has_more() {
 ```
 
 The cursor is a `Value` (the primary key of the last row): send it to the client, and turn it back into a `Value` (`Value::I64(id)`) on the next request. The query's own `ORDER BY` and `OFFSET` are replaced by the key order.
+
+### Keyset pagination on any column
+
+`cursor_paginate_by` pages the same way on any column of the model, ascending or descending, with the primary key to break ties (`WHERE score < ? OR (score = ? AND id < ?) ORDER BY score DESC, id DESC`). Its cursor, a `Cursor { value, key }`, holds both values of the last row:
+
+```rust
+let best = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, None).await?;
+if let Some(cursor) = best.next {
+    let more = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, Some(cursor)).await?;
+}
+```
+
+The column should not hold `NULL` (a page ending on a `NULL` fails with `Error::Unsupported`); for large tables, index it.
 
 ### Reading in chunks
 

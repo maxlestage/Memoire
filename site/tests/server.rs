@@ -128,7 +128,7 @@ async fn the_home_page_is_rendered_on_the_server() {
     assert!(html.contains(r#""@type":"SoftwareSourceCode""#));
     assert!(html.contains(r#"<active-island data-island="typing" data-props="fr">"#));
     assert!(html.contains(r#"<active-island data-island="showcase" data-props="fr">"#));
-    assert!(html.contains(r#"data-count="27""#), "the number of guides");
+    assert!(html.contains(r#"data-count="30""#), "the number of guides");
     assert!(html.contains(r#"class="lang-btn active" href="/fr/""#));
     assert!(html.contains(r#"<canvas class="particles""#));
 }

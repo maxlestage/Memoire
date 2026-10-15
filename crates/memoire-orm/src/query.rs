@@ -487,6 +487,14 @@ impl<O> Select<O> {
         }
     }
 
+    /// Drops `ORDER BY`, `LIMIT` and `OFFSET` (for a grouped or nested use of the query).
+    pub(crate) fn unordered(mut self) -> Self {
+        self.ast.order.clear();
+        self.ast.limit = None;
+        self.ast.offset = None;
+        self
+    }
+
     fn is_grouped(&self) -> bool {
         self.ast.distinct
             || !self.ast.group_by.is_empty()
@@ -512,13 +520,13 @@ impl<O> Select<O> {
 impl<O: FromRow + Send> Select<O> {
     /// Runs the query and returns every row.
     pub async fn all<E: Executor>(self, db: &E) -> Result<Vec<O>> {
-        db.fetch_all(Query::Select(&self.ast)).await
+        crate::subquery::fetch(db, &self.ast).await
     }
 
     /// Returns the first row, if any (adds `LIMIT 1`).
     pub async fn first<E: Executor>(mut self, db: &E) -> Result<Option<O>> {
         self.ast.limit = Some(1);
-        let rows: Vec<O> = db.fetch_all(Query::Select(&self.ast)).await?;
+        let rows: Vec<O> = crate::subquery::fetch(db, &self.ast).await?;
         Ok(rows.into_iter().next())
     }
 
@@ -533,11 +541,11 @@ impl<O: FromRow + Send> Select<O> {
             let mut ast = self.ast;
             ast.limit = None;
             ast.offset = None;
-            let rows: Vec<O> = db.fetch_all(Query::Select(&ast)).await?;
+            let rows: Vec<O> = crate::subquery::fetch(db, &ast).await?;
             return Ok(rows.len() as u64);
         }
         let ast = self.scalar_ast(count_all());
-        let rows: Vec<i64> = db.fetch_all(Query::Select(&ast)).await?;
+        let rows: Vec<i64> = crate::subquery::fetch(db, &ast).await?;
         Ok(rows.first().copied().unwrap_or(0).max(0) as u64)
     }
 
@@ -555,7 +563,7 @@ impl<O: FromRow + Send> Select<O> {
             kind: col.kind,
         }));
         ast.limit = Some(1);
-        let rows: Vec<Value> = db.fetch_all(Query::Select(&ast)).await?;
+        let rows: Vec<Value> = crate::subquery::fetch(db, &ast).await?;
         Ok(!rows.is_empty())
     }
 
@@ -570,7 +578,7 @@ impl<O: FromRow + Send> Select<O> {
 
     async fn aggregate<R: FromRow + Send, E: Executor>(self, expr: Expr, db: &E) -> Result<R> {
         let ast = self.scalar_ast(expr);
-        let mut rows: Vec<R> = db.fetch_all(Query::Select(&ast)).await?;
+        let mut rows: Vec<R> = crate::subquery::fetch(db, &ast).await?;
         rows.pop().ok_or(Error::NotFound)
     }
 
@@ -783,6 +791,117 @@ impl<M: Model> Select<M> {
     }
 }
 
+impl<M: Model> Select<M> {
+    /// Keyset pagination on any column: one page of rows after `after`,
+    /// ordered by `order` (a column of `M`, ascending or descending) then by
+    /// primary key to break ties. Like [`cursor_paginate`](Self::cursor_paginate),
+    /// every page costs the same and rows written meanwhile do not shift the
+    /// pages; pass [`next`](KeysetPage::next) to get the next page.
+    ///
+    /// The column should not hold `NULL` (a page ending on a `NULL` fails with
+    /// [`Error::Unsupported`]); index it with the primary key for large tables.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone)] #[memoire(table = "scores")]
+    /// # struct Score { #[memoire(primary_key, auto_increment)] id: i64, points: i32 }
+    /// # memoire_orm::block_on(async {
+    /// # let db = MemoryDb::new();
+    /// # db.create_table::<Score>().await?;
+    /// # for p in [10, 30, 20, 30, 5] { Score { id: 0, points: p }.insert(&db).await?; }
+    /// let best = Score::query().cursor_paginate_by(&db, Score::POINTS.desc(), 2, None).await?;
+    /// assert_eq!(best.items.iter().map(|s| s.points).collect::<Vec<_>>(), [30, 30]);
+    /// let next = Score::query().cursor_paginate_by(&db, Score::POINTS.desc(), 2, best.next).await?;
+    /// assert_eq!(next.items.iter().map(|s| s.points).collect::<Vec<_>>(), [20, 10]);
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// ```
+    pub async fn cursor_paginate_by<E: Executor>(
+        mut self,
+        db: &E,
+        order: impl Into<Order>,
+        per_page: u64,
+        after: Option<Cursor>,
+    ) -> Result<KeysetPage<M>> {
+        let order = order.into();
+        let index = match &order.expr {
+            Expr::Column(c) if c.table == M::SCHEMA.name => c.index,
+            _ => {
+                return Err(Error::Unsupported(format!(
+                    "`cursor_paginate_by` orders by a column of `{}`",
+                    M::SCHEMA.name
+                )));
+            }
+        };
+        let per_page = per_page.max(1);
+        let column = Expr::Column(column_ref(M::SCHEMA, index));
+        let pk = Expr::Column(column_ref(M::SCHEMA, M::SCHEMA.primary_key));
+        self.ast.order.clear();
+        self.ast.offset = None;
+        if let Some(Cursor { value, key }) = after {
+            let (value, key) = (Expr::Value(value), Expr::Value(key));
+            let condition = if order.desc {
+                column.clone().lt(value.clone()) | (column.clone().eq(value) & pk.clone().lt(key))
+            } else {
+                column.clone().gt(value.clone()) | (column.clone().eq(value) & pk.clone().gt(key))
+            };
+            self = self.filter(condition);
+        }
+        let (by_column, by_key) = if order.desc { (column.desc(), pk.desc()) } else { (column.asc(), pk.asc()) };
+        let mut items = self.order_by(by_column).order_by(by_key).limit(per_page.saturating_add(1)).all(db).await?;
+        let next = if items.len() as u64 > per_page {
+            items.truncate(per_page as usize);
+            match items.last() {
+                Some(last) => {
+                    let value = last.value_at(index);
+                    if value.is_null() {
+                        return Err(Error::Unsupported(format!(
+                            "`cursor_paginate_by`: `{}.{}` holds NULL",
+                            M::SCHEMA.name,
+                            M::SCHEMA.columns[index].name
+                        )));
+                    }
+                    Some(Cursor { value, key: last.key() })
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        Ok(KeysetPage { items, per_page, next })
+    }
+}
+
+/// Where a keyset page ends: the ordering column and the primary key of its
+/// last row. Returned by [`Select::cursor_paginate_by`]; send both values to
+/// the client (e.g. in a query string) and build it back for the next page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cursor {
+    /// The value of the ordering column in the last row.
+    pub value: Value,
+    /// The primary key of the last row.
+    pub key: Value,
+}
+
+/// One page of a keyset pagination on any column, returned by
+/// [`Select::cursor_paginate_by`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeysetPage<T> {
+    /// Rows of this page.
+    pub items: Vec<T>,
+    /// Page size.
+    pub per_page: u64,
+    /// The cursor of the next page, `None` on the last page.
+    pub next: Option<Cursor>,
+}
+
+impl<T> KeysetPage<T> {
+    /// `true` if there is a page after this one.
+    pub fn has_more(&self) -> bool {
+        self.next.is_some()
+    }
+}
+
 /// The rows of a query read in chunks, returned by [`Select::chunks`].
 ///
 /// Call [`next`](Self::next) until it returns `None`.
@@ -906,8 +1025,24 @@ impl<M: Model> Update<M> {
     /// `UPDATE <M>` without any assignment yet; for a model with an
     /// `updated_at` [timestamp](crate::lifecycle), it is set to the current
     /// time (unless you [`set`](Self::set) it yourself).
+    ///
+    /// For a model with a [version column](Model::VERSION_INDEX), the version
+    /// of every updated row is incremented (`version = version + 1`), so that
+    /// copies read before the update are stale.
     pub fn new() -> Self {
-        let sets = M::UPDATED_AT_INDEX.map(|i| (i, Expr::Value(now_for::<M>(i)))).into_iter().collect();
+        let mut sets: Vec<(usize, Expr)> =
+            M::UPDATED_AT_INDEX.map(|i| (i, Expr::Value(now_for::<M>(i)))).into_iter().collect();
+        if let Some(v) = M::VERSION_INDEX {
+            let one = if M::SCHEMA.columns[v].kind == crate::value::ColumnType::BigInt {
+                Value::I64(1)
+            } else {
+                Value::I32(1)
+            };
+            sets.push((
+                v,
+                Expr::binary(crate::expr::BinOp::Add, Expr::Column(column_ref(M::SCHEMA, v)), Expr::Value(one)),
+            ));
+        }
         Update { ast: UpdateAst { table: M::SCHEMA, sets, filter: None }, _m: PhantomData }
     }
 
@@ -975,7 +1110,7 @@ impl<M: Model> Update<M> {
 
     /// Runs the update and returns the number of updated rows.
     pub async fn execute<E: Executor>(self, db: &E) -> Result<u64> {
-        Ok(db.execute(Query::Update(&self.ast)).await?.rows_affected)
+        Ok(crate::subquery::update(db, &self.ast).await?.rows_affected)
     }
 }
 
@@ -1047,6 +1182,6 @@ impl<M: Model> Delete<M> {
         if M::DELETED_AT_INDEX.is_some() && !self.force {
             return crate::model::soft_delete_where::<M, E>(db, self.ast.filter).await;
         }
-        Ok(db.execute(Query::Delete(&self.ast)).await?.rows_affected)
+        Ok(crate::subquery::delete(db, &self.ast).await?.rows_affected)
     }
 }

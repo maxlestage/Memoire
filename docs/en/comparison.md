@@ -31,7 +31,7 @@ Diesel and SeaORM are the two most used ORMs in Rust, and Nitrite a popular embe
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (by primary key) |
 | Pagination | manual `limit`/`offset` | `paginate`, cursor pagination | `paginate` (count and page run concurrently), `cursor_paginate` |
 | Aggregates, `GROUP BY` | yes | yes | yes |
-| Subqueries, self-joins (aliases) | yes | yes | not yet: use raw SQL |
+| Subqueries, self-joins (aliases) | yes | yes | `IN (SELECT ...)` subqueries yes; self-joins not yet: use raw SQL |
 | Composite primary keys | yes | yes | not yet: surrogate key + `unique` |
 | Streaming results | `load_iter` | `stream` | `chunks(n)`: bounded batches by primary key |
 | Timestamps, soft deletes | manual | manual (`ActiveModelBehavior`) | `#[memoire(timestamps, soft_deletes)]` |

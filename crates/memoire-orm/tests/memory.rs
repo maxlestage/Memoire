@@ -9,6 +9,11 @@ fn memory_suite() {
 }
 
 #[test]
+fn memory_advanced_suite() {
+    memoire_orm::block_on(common::advanced::run(&MemoryDb::new())).unwrap();
+}
+
+#[test]
 fn memory_lifecycle_suite() {
     memoire_orm::block_on(common::lifecycle::run(&MemoryDb::new())).unwrap();
 }

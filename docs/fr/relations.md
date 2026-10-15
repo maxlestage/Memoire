@@ -347,6 +347,7 @@ Le modèle de liaison doit référencer les deux tables ; cela marche dans les d
 
 ## Étapes suivantes
 
+- [Filtres de relations, comptages et polymorphisme](relations-advanced) : `where_has`, `load_count`, `all_with`, relations polymorphes et colonnes pivot.
 - [Transactions](transactions) : modifiez des lignes liées ensemble, en mode tout ou rien.
 - [SQL brut](raw-sql) : pour les rares requêtes que le builder ne sait pas exprimer.
 - [Pourquoi c'est rapide](performance) : d'autres façons de garder des requêtes rapides.

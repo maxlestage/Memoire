@@ -23,6 +23,12 @@
 //!   automatic `created_at`/`updated_at`, soft deletes (`with_trashed`, `restore`) and
 //!   [`Hooks`] that can reject a write ([`lifecycle`]); `save`, `first_or_create`,
 //!   `update_or_create`, `chunks`, `cursor_paginate`, and a query log ([`Logged`]).
+//! * **The best of Eloquent, Doctrine and ActiveRecord** — relation filters
+//!   (`where_has`, `doesnt_have`), counts (`load_count`), eager loading
+//!   (`all_with`), polymorphic relations and pivot columns ([`relation`]),
+//!   subqueries (`User::ID.in_query(...)`), enum casts (`#[derive(DbEnum)]`),
+//!   optimistic locking (`#[memoire(version)]`), [`factory`] and seeders, an
+//!   [`identity`] map, and keyset pagination on any column.
 //! * **Browser storage** — `web::Store`, a state store in the spirit of Pinia, and
 //!   `web::LocalStorageDb`, a database in `localStorage` (feature `web`).
 //! * **Embedded and durable** — `MemoryDb::open(path)` stores the in-memory engine
@@ -101,6 +107,8 @@ mod error;
 pub mod events;
 mod executor;
 mod expr;
+pub mod factory;
+pub mod identity;
 pub mod lifecycle;
 pub mod log;
 pub mod migrate;
@@ -110,6 +118,7 @@ pub mod relation;
 mod row;
 mod schema;
 pub mod sql;
+mod subquery;
 mod value;
 #[cfg(feature = "web")]
 #[cfg_attr(docsrs, doc(cfg(feature = "web")))]
@@ -126,8 +135,10 @@ pub use lifecycle::Hooks;
 pub use log::{Logged, LoggedQuery};
 pub use migrate::{Migration, Migrator};
 pub use model::Model;
-pub use query::{Chunks, ColumnList, CursorPage, Delete, Joined, ModelColumns, Page, Select, SumType, Update};
-pub use relation::LoadRelated;
+pub use query::{
+    Chunks, ColumnList, Cursor, CursorPage, Delete, Joined, KeysetPage, ModelColumns, Page, Select, SumType, Update,
+};
+pub use relation::{LoadCounts, LoadMorph, LoadPivot, LoadRelated};
 pub use row::{FromRow, RowSource, ValueRow};
 pub use schema::{ColumnDef, Dialect, ForeignKey, IndexDef, StaticSql, TableSchema};
 #[cfg(feature = "json")]
@@ -135,8 +146,10 @@ pub use value::Json;
 pub use value::{Bind, ColumnType, FromValue, IntoValue, SqlType, ToValue, Value};
 
 /// Derive macros. `#[derive(Model)]` implements [`Model`](trait@Model) and
-/// [`FromRow`](trait@FromRow); `#[derive(FromRow)]` only the latter.
-pub use memoire_orm_derive::{FromRow, Model};
+/// [`FromRow`](trait@FromRow); `#[derive(FromRow)]` only the latter;
+/// `#[derive(DbEnum)]` makes an enum of unit variants a column type (stored as
+/// text, or as an integer with `#[memoire(integer)]`).
+pub use memoire_orm_derive::{DbEnum, FromRow, Model};
 
 #[cfg(feature = "memory")]
 pub use backend::memory::{MemoryDb, MemoryTransaction, StorageOptions};
@@ -168,8 +181,8 @@ pub mod prelude {
     #[cfg(feature = "sqlite")]
     pub use crate::SqliteDb;
     pub use crate::{
-        Database, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadRelated, Migration, Migrator, Model, Observed,
-        Page, Result, Transaction, Value, count_all, params,
+        Database, DbEnum, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadCounts, LoadMorph, LoadPivot,
+        LoadRelated, Migration, Migrator, Model, Observed, Page, Result, Transaction, Value, count_all, params,
     };
 }
 
