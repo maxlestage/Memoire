@@ -266,6 +266,32 @@ let found = User::query().filter(Expr::all(conditions)).all(&db).await?; // Alic
 
 `Expr::all` of an empty list is always true and `Expr::any` of an empty list is always false.
 
+### Conditional queries and reusable scopes
+
+`when`, `when_some` and `apply` keep the chain going instead of reassigning a variable, like Laravel's `when()` and local scopes:
+
+```rust
+fn active(q: Select<User>) -> Select<User> {
+    q.filter(User::ACTIVE.eq(true)) // a reusable "scope"
+}
+
+let users = User::query()
+    .apply(active)
+    .when_some(min_age, |q, min| q.filter(User::AGE.ge(min)))
+    .when_some(search, |q, text| q.filter(User::NAME.icontains(text)))
+    .when(newest_first, |q| q.order_by(User::ID.desc()))
+    .all(&db)
+    .await?;
+```
+
+| Method | Effect |
+|---|---|
+| `apply(scope)` | `scope(query)`: any `fn(Select<T>) -> Select<T>` |
+| `when(condition, \|q\| ...)` | Applies the closure only if `condition` is true |
+| `when_some(option, \|q, value\| ...)` | Applies the closure with the value, only if there is one |
+
+`Select` is `memoire_orm::Select`.
+
 ## Sorting
 
 ```rust
@@ -336,7 +362,37 @@ println!(
 | `total_pages()` | Number of pages |
 | `has_next()` / `has_prev()` | Whether there is a page after / before this one |
 
-> **Tip** Large offsets get slow, because the database still walks over every skipped row. For "infinite scroll" style lists, use *keyset pagination* instead: `filter(User::ID.gt(last_seen_id)).order_by(User::ID).limit(20)`. See [Why it's fast](performance).
+### Cursor pagination
+
+Large offsets get slow, because the database still walks over every skipped row. `cursor_paginate` pages by primary key instead (`WHERE id > <cursor> ORDER BY id LIMIT n`), like Laravel's `cursorPaginate`: every page costs the same, and rows inserted meanwhile do not shift the pages. It suits "infinite scroll" lists and APIs:
+
+```rust
+let first = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, None).await?;
+// first.items: up to 20 users; first.next_cursor: Some(key of the last one), or None at the end
+if first.has_more() {
+    let next = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, first.next_cursor).await?;
+}
+```
+
+The cursor is a `Value` (the primary key of the last row): send it to the client, and turn it back into a `Value` (`Value::I64(id)`) on the next request. The query's own `ORDER BY` and `OFFSET` are replaced by the key order.
+
+### Reading in chunks
+
+To process a large table without loading it at once (an export, a migration of data), read it in chunks, by primary key, like Laravel's `chunkById` or Doctrine's `toIterable()`:
+
+```rust
+let mut chunks = User::query().filter(User::ACTIVE.eq(true)).chunks(500);
+while let Some(users) = chunks.next(&db).await? {
+    for user in users {
+        // at most 500 users in memory at a time
+    }
+}
+
+// Or with a closure; returns the number of rows read.
+let n = User::query().chunks(500).for_each(&db, |users| { /* ... */ Ok(()) }).await?;
+```
+
+Each chunk is one query that starts after the last key of the previous one, so changing or deleting rows while you read does not skip or repeat any.
 
 ## Running the query
 

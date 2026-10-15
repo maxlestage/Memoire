@@ -9,6 +9,11 @@ fn memory_suite() {
 }
 
 #[test]
+fn memory_lifecycle_suite() {
+    memoire_orm::block_on(common::lifecycle::run(&MemoryDb::new())).unwrap();
+}
+
+#[test]
 fn memory_transactions_detect_conflicts() {
     use common::{User, user};
     use memoire_orm::prelude::*;

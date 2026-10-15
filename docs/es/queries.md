@@ -266,6 +266,32 @@ let found = User::query().filter(Expr::all(conditions)).all(&db).await?; // Alic
 
 `Expr::all` de una lista vacía siempre es verdadero y `Expr::any` de una lista vacía siempre es falso.
 
+### Consultas condicionales y ámbitos reutilizables
+
+`when`, `when_some` y `apply` mantienen la cadena de llamadas en lugar de reasignar una variable, como `when()` y los ámbitos locales (local scopes) de Laravel:
+
+```rust
+fn active(q: Select<User>) -> Select<User> {
+    q.filter(User::ACTIVE.eq(true)) // un «ámbito» reutilizable
+}
+
+let users = User::query()
+    .apply(active)
+    .when_some(min_age, |q, min| q.filter(User::AGE.ge(min)))
+    .when_some(search, |q, text| q.filter(User::NAME.icontains(text)))
+    .when(newest_first, |q| q.order_by(User::ID.desc()))
+    .all(&db)
+    .await?;
+```
+
+| Método | Efecto |
+|---|---|
+| `apply(ámbito)` | `ámbito(consulta)`: cualquier `fn(Select<T>) -> Select<T>` |
+| `when(condición, \|q\| ...)` | Aplica la closure solo si `condición` es verdadera |
+| `when_some(opción, \|q, valor\| ...)` | Aplica la closure con el valor, solo si lo hay |
+
+`Select` es `memoire_orm::Select`.
+
 ## Ordenar
 
 ```rust
@@ -336,7 +362,37 @@ println!(
 | `total_pages()` | Número de páginas |
 | `has_next()` / `has_prev()` | Si hay una página después / antes de esta |
 
-> **Consejo** Los offsets grandes se vuelven lentos, porque la base de datos sigue recorriendo cada fila que se salta. Para listas del estilo "scroll infinito", usa en su lugar la *paginación por clave* (keyset pagination): `filter(User::ID.gt(last_seen_id)).order_by(User::ID).limit(20)`. Consulta [Por qué es rápido](performance).
+### Paginación por cursor
+
+Los offsets grandes se vuelven lentos, porque la base sigue recorriendo cada fila que se salta. `cursor_paginate` pagina por clave primaria (`WHERE id > <cursor> ORDER BY id LIMIT n`), como `cursorPaginate` de Laravel: cada página cuesta lo mismo, y las filas insertadas mientras tanto no desplazan las páginas. Es ideal para el «scroll infinito» y las API:
+
+```rust
+let first = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, None).await?;
+// first.items: hasta 20 usuarios; first.next_cursor: Some(clave del último), o None al final
+if first.has_more() {
+    let next = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, first.next_cursor).await?;
+}
+```
+
+El cursor es un `Value` (la clave primaria de la última fila): envíalo al cliente y vuelve a convertirlo en `Value` (`Value::I64(id)`) en la siguiente petición. El `ORDER BY` y el `OFFSET` de la consulta se sustituyen por el orden de las claves.
+
+### Leer por bloques
+
+Para procesar una tabla grande sin cargarla de golpe (una exportación, una migración de datos), léela por bloques, por clave primaria, como `chunkById` de Laravel o `toIterable()` de Doctrine:
+
+```rust
+let mut chunks = User::query().filter(User::ACTIVE.eq(true)).chunks(500);
+while let Some(users) = chunks.next(&db).await? {
+    for user in users {
+        // como mucho 500 usuarios en memoria a la vez
+    }
+}
+
+// O con una closure; devuelve el número de filas leídas.
+let n = User::query().chunks(500).for_each(&db, |users| { /* ... */ Ok(()) }).await?;
+```
+
+Cada bloque es una consulta que empieza después de la última clave del anterior: modificar o borrar filas durante la lectura no salta ni repite ninguna.
 
 ## Ejecutar la consulta
 

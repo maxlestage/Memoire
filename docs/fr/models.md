@@ -179,6 +179,8 @@ Les attributs se placent dans `#[memoire(...)]` au-dessus d'un champ. Vous pouve
 | `on_delete` | `#[memoire(references = "users(id)", on_delete = "cascade")]` | Action à effectuer quand la ligne référencée est supprimée |
 | `on_update` | `#[memoire(references = "users(id)", on_update = "cascade")]` | Action à effectuer quand la clé référencée change |
 | `skip` | `#[memoire(skip)]` | Le champ n'est pas stocké du tout |
+| `created_at`, `updated_at` | `#[memoire(created_at)]` | Rempli avec l'heure courante à l'insertion / à chaque écriture (voir [Horodatage, suppression douce et hooks](lifecycle) ; `#[memoire(timestamps)]` sur la structure utilise les champs de ces noms) |
+| `soft_delete` | `#[memoire(soft_delete)]` | Colonne de suppression douce : `delete` la remplit et les requêtes ignorent les lignes marquées (`#[memoire(soft_deletes)]` sur la structure utilise `deleted_at`) |
 
 Voici un modèle qui en utilise la plupart :
 

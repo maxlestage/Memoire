@@ -29,12 +29,15 @@ use syn::{Data, DeriveInput, Fields, Ident, LitBool, LitStr, Type, parse_macro_i
 /// Struct attributes: `table = "name"` (defaults to the snake_case struct name),
 /// `crate = "path"` (where the generated code finds `memoire_orm`, `::memoire_orm` by
 /// default; for crates that re-export it, e.g. `crate = "my_framework::orm"`),
-/// `unique(a, b)` and `index(a, b)` (indexes over several fields, repeatable).
+/// `unique(a, b)` and `index(a, b)` (indexes over several fields, repeatable),
+/// `timestamps` (the fields `created_at` and `updated_at` are filled automatically),
+/// `soft_deletes` (the field `deleted_at` marks deleted rows) and `hooks` (the model
+/// implements `memoire_orm::lifecycle::Hooks`).
 ///
 /// Field attributes: `primary_key`, `auto_increment`, `unique`, `index`, `fulltext`,
 /// `column = "name"`, `sql_type = "VARCHAR(255)"`, `default = "SQL expression"`,
 /// `references = "table(column)"`, `on_delete = "cascade"`, `on_update = "cascade"`,
-/// `skip`.
+/// `skip`, `created_at`, `updated_at`, `soft_delete`.
 #[proc_macro_derive(Model, attributes(memoire))]
 pub fn derive_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -73,6 +76,9 @@ struct FieldInfo {
     on_delete: Option<String>,
     on_update: Option<String>,
     skip: bool,
+    created_at: bool,
+    updated_at: bool,
+    soft_delete: bool,
 }
 
 /// `#[memoire(unique(a, b))]` / `#[memoire(index(a, b))]` on the struct.
@@ -87,6 +93,8 @@ struct ModelInfo {
     /// Path of the `memoire_orm` crate in the generated code (`crate = "..."`).
     krate: syn::Path,
     fields: Vec<FieldInfo>,
+    /// `hooks`: the model implements `memoire_orm::lifecycle::Hooks`.
+    hooks: bool,
 }
 
 fn unraw(ident: &Ident) -> String {
@@ -140,6 +148,9 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
     let mut table = snake_case(&input.ident.to_string());
     let mut krate: syn::Path = syn::parse_quote!(::memoire_orm);
     let mut indexes: Vec<IndexInfo> = Vec::new();
+    let mut hooks = false;
+    let mut timestamps: Option<proc_macro2::Span> = None;
+    let mut soft_deletes: Option<proc_macro2::Span> = None;
     for attr in &input.attrs {
         if !attr.path().is_ident("memoire") {
             continue;
@@ -168,10 +179,19 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 }
                 indexes.push(IndexInfo { fields, unique });
                 Ok(())
+            } else if meta.path.is_ident("hooks") {
+                hooks = true;
+                Ok(())
+            } else if meta.path.is_ident("timestamps") {
+                timestamps = Some(meta.path.span());
+                Ok(())
+            } else if meta.path.is_ident("soft_deletes") || meta.path.is_ident("soft_delete") {
+                soft_deletes = Some(meta.path.span());
+                Ok(())
             } else {
                 Err(meta.error(
                     "unknown memoire struct attribute (expected `table = \"...\"`, `crate = \"...\"`, \
-                     `unique(a, b)` or `index(a, b)`)",
+                     `unique(a, b)`, `index(a, b)`, `timestamps`, `soft_deletes` or `hooks`)",
                 ))
             }
         })?;
@@ -195,6 +215,9 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             on_delete: None,
             on_update: None,
             skip: false,
+            created_at: false,
+            updated_at: false,
+            soft_delete: false,
         };
         for attr in &field.attrs {
             if !attr.path().is_ident("memoire") {
@@ -219,6 +242,12 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                     info.fulltext = true;
                 } else if p.is_ident("skip") {
                     info.skip = true;
+                } else if p.is_ident("created_at") {
+                    info.created_at = true;
+                } else if p.is_ident("updated_at") {
+                    info.updated_at = true;
+                } else if p.is_ident("soft_delete") || p.is_ident("deleted_at") {
+                    info.soft_delete = true;
                 } else if p.is_ident("column") || p.is_ident("rename") {
                     let lit: LitStr = meta.value()?.parse()?;
                     if lit.value().is_empty() {
@@ -257,13 +286,23 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 } else {
                     return Err(meta.error(
                         "unknown memoire field attribute (expected one of: primary_key, auto_increment, \
-                         unique, index, fulltext, column, sql_type, default, references, on_delete, on_update, skip)",
+                         unique, index, fulltext, column, sql_type, default, references, on_delete, on_update, skip, \
+                         created_at, updated_at, soft_delete)",
                     ));
                 }
                 Ok(())
             })?;
         }
-        if info.skip && (info.primary_key || info.unique || info.index || info.fulltext || info.references.is_some()) {
+        if info.skip
+            && (info.primary_key
+                || info.unique
+                || info.index
+                || info.fulltext
+                || info.references.is_some()
+                || info.created_at
+                || info.updated_at
+                || info.soft_delete)
+        {
             return Err(syn::Error::new(info.ident.span(), "memoire: a `skip` field cannot carry column attributes"));
         }
         if (info.on_delete.is_some() || info.on_update.is_some()) && info.references.is_none() {
@@ -273,6 +312,55 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             ));
         }
         fields.push(info);
+    }
+
+    // `#[memoire(timestamps)]` / `#[memoire(soft_deletes)]` on the struct mark
+    // the fields named `created_at`, `updated_at` and `deleted_at`.
+    fn mark_named(fields: &mut [FieldInfo], span: proc_macro2::Span, name: &str, attr: &str) -> syn::Result<()> {
+        match fields.iter_mut().find(|f| !f.skip && (unraw(&f.ident) == name || f.column == name)) {
+            Some(f) => {
+                match name {
+                    "created_at" => f.created_at = true,
+                    "updated_at" => f.updated_at = true,
+                    _ => f.soft_delete = true,
+                }
+                Ok(())
+            }
+            None => Err(syn::Error::new(
+                span,
+                format!(
+                    "memoire: `{attr}` needs a field named `{name}` (or mark another field with `#[memoire({name})]`)"
+                ),
+            )),
+        }
+    }
+    if let Some(span) = timestamps {
+        if !fields.iter().any(|f| f.created_at) {
+            mark_named(&mut fields, span, "created_at", "timestamps")?;
+        }
+        if !fields.iter().any(|f| f.updated_at) {
+            mark_named(&mut fields, span, "updated_at", "timestamps")?;
+        }
+    }
+    if let Some(span) = soft_deletes
+        && !fields.iter().any(|f| f.soft_delete)
+    {
+        mark_named(&mut fields, span, "deleted_at", "soft_deletes")?;
+    }
+    for (what, flag) in [
+        ("created_at", (|f: &FieldInfo| f.created_at) as fn(&FieldInfo) -> bool),
+        ("updated_at", |f: &FieldInfo| f.updated_at),
+        ("soft_delete", |f: &FieldInfo| f.soft_delete),
+    ] {
+        let marked: Vec<&FieldInfo> = fields.iter().filter(|f| flag(f)).collect();
+        if marked.len() > 1 {
+            return Err(syn::Error::new(marked[1].ident.span(), format!("memoire: only one field can be `{what}`")));
+        }
+        if let Some(f) = marked.first()
+            && f.primary_key
+        {
+            return Err(syn::Error::new(f.ident.span(), format!("memoire: the primary key cannot be `{what}`")));
+        }
     }
 
     let mut seen = std::collections::HashSet::new();
@@ -298,7 +386,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
         }
     }
 
-    Ok(ModelInfo { table, indexes, krate, fields })
+    Ok(ModelInfo { table, indexes, krate, fields, hooks })
 }
 
 fn is_integer_type(ty: &Type) -> bool {
@@ -604,6 +692,51 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
         quote!(#i => #krate::ToValue::to_value(&self.#id))
     });
 
+    let set_value_at = cols.iter().enumerate().map(|(i, f)| {
+        let id = &f.ident;
+        let label = format!("{table}.{}", f.column);
+        quote!(#i => self.#id = #krate::__private::convert(value, #label)?)
+    });
+
+    // Timestamps and soft deletes: the position of the column, and a check, at
+    // compile time, that its Rust type can hold a timestamp.
+    let mut lifecycle = Vec::new();
+    let mut checks = Vec::new();
+    for (konst, attr, flag) in [
+        (quote!(CREATED_AT_INDEX), "created_at", (|f: &FieldInfo| f.created_at) as fn(&FieldInfo) -> bool),
+        (quote!(UPDATED_AT_INDEX), "updated_at", |f: &FieldInfo| f.updated_at),
+        (quote!(DELETED_AT_INDEX), "soft_delete", |f: &FieldInfo| f.soft_delete),
+    ] {
+        if let Some(i) = cols.iter().position(|f| flag(f)) {
+            let ty = &cols[i].ty;
+            let field = unraw(&cols[i].ident);
+            lifecycle.push(quote!(const #konst: ::core::option::Option<usize> = ::core::option::Option::Some(#i);));
+            let msg = format!(
+                "memoire: `{name}.{field}` (`{attr}`) must be an i64 (milliseconds), i32 or f64 (seconds), String \
+                 (RFC 3339) or chrono date/time field"
+            );
+            checks.push(const_check(
+                ty,
+                &msg,
+                quote!(#krate::__private::is_timestamp_kind(<#ty as #krate::SqlType>::KIND)),
+            ));
+            if attr == "soft_delete" {
+                let msg = format!("memoire: the soft delete field `{name}.{field}` must be an `Option<...>`");
+                checks.push(const_check(ty, &msg, quote!(<#ty as #krate::SqlType>::NULLABLE)));
+            }
+        }
+    }
+    let hooks = if info.hooks {
+        quote! {
+            #[inline]
+            fn hooks() -> ::core::option::Option<#krate::lifecycle::HookFns<Self>> {
+                ::core::option::Option::Some(#krate::lifecycle::HookFns::<Self>::of())
+            }
+        }
+    } else {
+        quote!()
+    };
+
     let decode_fields = decode_fields_tokens(&info.fields, table, krate);
 
     let column_consts = cols.iter().enumerate().map(|(i, f)| {
@@ -654,7 +787,25 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     _ => #krate::Value::Null,
                 }
             }
+
+            fn set_value_at(&mut self, index: usize, value: #krate::Value) -> #krate::Result<()> {
+                match index {
+                    #(#set_value_at,)*
+                    _ => {
+                        return ::core::result::Result::Err(#krate::Error::Conversion(::std::format!(
+                            "`{}` has no column at position {}", #table, index
+                        )));
+                    }
+                }
+                ::core::result::Result::Ok(())
+            }
+
+            #(#lifecycle)*
+
+            #hooks
         }
+
+        #(#checks)*
 
         impl #krate::FromRow for #name {
             const WIDTH: usize = #width;
@@ -672,6 +823,13 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
             #(#column_consts)*
         }
     })
+}
+
+/// `const _: () = assert!(<condition>, "<message>");`, pointing at the field type.
+fn const_check(ty: &Type, msg: &str, condition: TokenStream2) -> TokenStream2 {
+    quote::quote_spanned! {ty.span()=>
+        const _: () = ::core::assert!(#condition, #msg);
+    }
 }
 
 fn decode_fields_tokens(fields: &[FieldInfo], context: &str, krate: &syn::Path) -> Vec<TokenStream2> {

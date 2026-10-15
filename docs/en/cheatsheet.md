@@ -42,6 +42,9 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Default | `#[memoire(default = "0")]` |
 | Foreign key | `#[memoire(references = "users(id)", on_delete = "cascade")]` |
 | Not stored | `#[memoire(skip)]` (field type must implement `Default`) |
+| Timestamps | `#[memoire(timestamps)]` on the struct (`created_at`, `updated_at`), or `#[memoire(created_at)]` / `#[memoire(updated_at)]` on fields |
+| Soft deletes | `#[memoire(soft_deletes)]` on the struct (`deleted_at`), or `#[memoire(soft_delete)]` on an `Option` field |
+| Lifecycle hooks | `#[memoire(hooks)]` on the struct + `impl memoire_orm::lifecycle::Hooks for User { ... }` |
 | Nullable column | `age: Option<i32>` |
 | Custom row type | `#[derive(FromRow)] struct Stats { user_id: i64, posts: i64 }` |
 
@@ -110,6 +113,9 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Limit / offset | `.limit(20)`, `.offset(40)` |
 | Page (1-based) | `.page(3, 20)` |
 | Page with total | `.paginate(&db, 3, 20).await?` → `Page { items, page, per_page, total }` |
+| Cursor pagination | `.cursor_paginate(&db, 20, cursor).await?` → `CursorPage { items, per_page, next_cursor }` |
+| Read in chunks | `let mut c = User::query().chunks(500); while let Some(rows) = c.next(&db).await? { ... }` |
+| Conditional parts | `.when(flag, \|q\| ...)`, `.when_some(opt, \|q, v\| ...)`, `.apply(scope_fn)` |
 | Distinct rows | `.distinct()` |
 
 ## Running a query
@@ -169,6 +175,19 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Watch the writes | `let db = Observed::new(db); let _sub = db.subscribe(\|change\| println!("{change:?}"));` |
 | Receive them on a channel | `let (_sub, changes) = db.channel();` |
 | Stop | drop the subscription, or `sub.unsubscribe()` |
+
+## Lifecycle, shortcuts and query log
+
+| Task | Code |
+|---|---|
+| Insert or update | `user.save(&db).await?` |
+| Find or create | `User::query().filter(...).first_or_create(&db, \|\| User::new(...)).await?` |
+| Update or create | `.update_or_create(&db, \|\| User::new(...), \|u\| u.visits += 1).await?` |
+| Refresh `updated_at` | `user.touch(&db).await?` |
+| Soft-deleted rows | `User::with_trashed()`, `User::only_trashed()`, `user.trashed()` |
+| Restore / delete for good | `user.restore(&db).await?`, `user.force_delete(&db).await?` |
+| Reject a write | `Err(Error::Validation("...".into()))` from a `before_*` hook |
+| Log the statements | `let db = Logged::new(db); ...; db.queries()` (`memoire_orm::log::Logged`) |
 
 ## Transactions
 

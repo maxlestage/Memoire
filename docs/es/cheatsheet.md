@@ -42,6 +42,9 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Valor por defecto | `#[memoire(default = "0")]` |
 | Clave foránea | `#[memoire(references = "users(id)", on_delete = "cascade")]` |
 | No almacenado | `#[memoire(skip)]` (el tipo del campo debe implementar `Default`) |
+| Marcas de tiempo | `#[memoire(timestamps)]` en la estructura (`created_at`, `updated_at`), o `#[memoire(created_at)]` / `#[memoire(updated_at)]` en campos |
+| Borrado lógico | `#[memoire(soft_deletes)]` en la estructura (`deleted_at`), o `#[memoire(soft_delete)]` en un campo `Option` |
+| Hooks de ciclo de vida | `#[memoire(hooks)]` en la estructura + `impl memoire_orm::lifecycle::Hooks for User { ... }` |
 | Columna que admite nulos | `age: Option<i32>` |
 | Tipo de fila personalizado | `#[derive(FromRow)] struct Stats { user_id: i64, posts: i64 }` |
 
@@ -110,6 +113,9 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Límite / desplazamiento | `.limit(20)`, `.offset(40)` |
 | Página (empieza en 1) | `.page(3, 20)` |
 | Página con total | `.paginate(&db, 3, 20).await?` → `Page { items, page, per_page, total }` |
+| Paginación por cursor | `.cursor_paginate(&db, 20, cursor).await?` → `CursorPage { items, per_page, next_cursor }` |
+| Leer por bloques | `let mut c = User::query().chunks(500); while let Some(rows) = c.next(&db).await? { ... }` |
+| Partes condicionales | `.when(flag, \|q\| ...)`, `.when_some(opt, \|q, v\| ...)`, `.apply(fn_ambito)` |
 | Filas distintas | `.distinct()` |
 
 ## Ejecutar una consulta
@@ -169,6 +175,19 @@ Páginas de los backends: [Motor en memoria](memory), [SQLite](sqlite), [Postgre
 | Seguir las escrituras | `let db = Observed::new(db); let _sub = db.subscribe(\|change\| println!("{change:?}"));` |
 | Recibirlas en un canal | `let (_sub, changes) = db.channel();` |
 | Parar | descartar la suscripción (drop), o `sub.unsubscribe()` |
+
+## Ciclo de vida, atajos y registro de consultas
+
+| Tarea | Código |
+|---|---|
+| Insertar o actualizar | `user.save(&db).await?` |
+| Buscar o crear | `User::query().filter(...).first_or_create(&db, \|\| User::new(...)).await?` |
+| Actualizar o crear | `.update_or_create(&db, \|\| User::new(...), \|u\| u.visits += 1).await?` |
+| Refrescar `updated_at` | `user.touch(&db).await?` |
+| Filas borradas lógicamente | `User::with_trashed()`, `User::only_trashed()`, `user.trashed()` |
+| Restaurar / borrar definitivamente | `user.restore(&db).await?`, `user.force_delete(&db).await?` |
+| Rechazar una escritura | `Err(Error::Validation("...".into()))` desde un hook `before_*` |
+| Registrar las sentencias | `let db = Logged::new(db); ...; db.queries()` (`memoire_orm::log::Logged`) |
 
 ## Transacciones
 

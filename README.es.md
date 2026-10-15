@@ -26,6 +26,7 @@
 | 🗄️ **SQL y NoSQL, una sola API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria 100 % Rust (¡que funciona incluso en WebAssembly!). |
 | 🔗 **Relaciones sin N+1** | `users.load_children::<Post>(&db)`, `load_parent`, muchos a muchos con `load_via`: una consulta por nivel, deducida de las claves foráneas ya declaradas. |
 | 🔎 **Búsqueda e índices en todas partes** | Búsqueda de texto completo (`Post::BODY.matches("rust orm")`) e índices únicos sobre varias columnas (`#[memoire(unique(user_id, team_id))]`), con el mismo comportamiento en los seis motores. |
+| ⏱️ **Ciclo de vida de los modelos, al estilo Eloquent** | `#[memoire(timestamps, soft_deletes, hooks)]`: `created_at`/`updated_at` rellenados por ti, `delete` que solo oculta la fila (`with_trashed`, `restore`), hooks que pueden rechazar una escritura; `save`, `first_or_create`, `update_or_create`, `chunks`, `cursor_paginate` y un registro de consultas (`Logged`). |
 | 📣 **Notificaciones de cambios** | `Observed::new(db).subscribe(...)`: cada escritura, en cualquier base, anunciada al confirmar. |
 | 🌐 **Almacenamiento del navegador** | `Store::<Cart>::new("cart")`, un store al estilo Pinia guardado en `localStorage`, y `LocalStorageDb::open("app")`, una base entera en `localStorage`, sincronizados entre pestañas (feature `web`). |
 | 💾 **Embebido y duradero** | `MemoryDb::open("app.memoire")`: el motor en memoria guardado en un archivo resistente a caídas, cifrable (AES-256-GCM). |

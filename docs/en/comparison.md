@@ -29,11 +29,15 @@ Diesel and SeaORM are the two most used ORMs in Rust, and Nitrite a popular embe
 | Bulk update / delete with filters | yes | yes | yes, with `increment`, `set_null`... |
 | Multi-row insert | yes, returns rows on PG/SQLite | yes | yes, batched under each database's parameter limit |
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (by primary key) |
-| Pagination | manual `limit`/`offset` | `paginate`, cursor pagination | `paginate` (count and page run concurrently) |
+| Pagination | manual `limit`/`offset` | `paginate`, cursor pagination | `paginate` (count and page run concurrently), `cursor_paginate` |
 | Aggregates, `GROUP BY` | yes | yes | yes |
 | Subqueries, self-joins (aliases) | yes | yes | not yet: use raw SQL |
 | Composite primary keys | yes | yes | not yet: surrogate key + `unique` |
-| Streaming results | `load_iter` | `stream` | not yet |
+| Streaming results | `load_iter` | `stream` | `chunks(n)`: bounded batches by primary key |
+| Timestamps, soft deletes | manual | manual (`ActiveModelBehavior`) | `#[memoire(timestamps, soft_deletes)]` |
+| Lifecycle hooks | no | `ActiveModelBehavior` (`before_save`...) | `#[memoire(hooks)]` + `impl Hooks` (can reject a write) |
+| Find or create | manual | manual | `first_or_create`, `update_or_create`, `save` |
+| Query log | `set_instrumentation` | `sqlx` logging | `Logged`: SQL, parameters, duration, rows, on every backend |
 | Migrations | CLI, SQL `up`/`down` files | Rust migrations with `up`/`down` | Rust or SQL, forward only, in transactions |
 | Normalised errors | `DatabaseErrorKind` (unique, foreign key...) | `SqlErr` (unique, foreign key) | `UniqueViolation`, `NotFound`, `Constraint`, `Conflict`... on every backend, NoSQL included |
 | Code generation from an existing database | yes (`diesel print-schema`) | yes (`sea-orm-cli generate entity`) | no |

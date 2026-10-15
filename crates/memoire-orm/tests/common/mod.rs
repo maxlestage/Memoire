@@ -4,6 +4,8 @@
 use memoire_orm::prelude::*;
 use memoire_orm::{Database, Transaction};
 
+pub mod lifecycle;
+
 #[derive(Model, Debug, Clone, PartialEq)]
 #[memoire(table = "users")]
 pub struct User {

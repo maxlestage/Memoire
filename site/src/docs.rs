@@ -48,9 +48,16 @@ pub static CATEGORIES: &[DocCategory] = &[
                 "Créer, lire, modifier, supprimer",
                 "Crear, leer, actualizar, eliminar"
             ),
+            page!(
+                "lifecycle",
+                "Timestamps, soft deletes & hooks",
+                "Horodatage, suppression douce et hooks",
+                "Marcas de tiempo, borrado lógico y hooks"
+            ),
             page!("relations", "Joins & relations", "Jointures et relations", "Uniones y relaciones"),
             page!("transactions", "Transactions", "Transactions", "Transacciones"),
             page!("events", "Change notifications", "Notifications de changements", "Notificaciones de cambios"),
+            page!("query-log", "Query log", "Journal des requêtes", "Registro de consultas"),
             page!("migrations", "Migrations", "Migrations", "Migraciones"),
             page!("raw-sql", "Raw SQL", "SQL brut", "SQL sin procesar"),
         ],
@@ -150,7 +157,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 25);
+        assert_eq!(page_count(), 27);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());
