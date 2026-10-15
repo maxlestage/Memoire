@@ -4,8 +4,8 @@ version = 4
 
 [[package]]
 name = "active"
-version = "0.1.0"
-source = "git+https://github.com/maxlestage/Active#9d1f8386fc989eadada3dd206930a26ff057ac97"
+version = "0.2.0"
+source = "git+https://github.com/maxlestage/Active#9eb20fb8cd0f635f5a4887f462f61cfe6a9e27e1"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -287,7 +287,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memoire-orm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "foldhash",
  "hashbrown",
@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "memoire-orm-derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -655,8 +655,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vitesse"
-version = "0.1.0"
-source = "git+https://github.com/maxlestage/Vitesse#3488ece44a718d5408f910fe516be806ae06a54b"
+version = "0.2.0"
+source = "git+https://github.com/maxlestage/Vitesse#3b69a7a86613ac57092bfb7ec2cf8e12e3bea3c0"
 dependencies = [
  "brotli",
  "bytes",
