@@ -3,7 +3,7 @@
 use std::future::Future;
 
 use crate::ast::Query;
-use crate::ast::UpdateAst;
+use crate::ast::{DeleteAst, UpdateAst};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::expr::{BinOp, Expr};
@@ -94,6 +94,19 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
     /// [`delete`](Self::delete) stamps it instead of removing the row, and
     /// [`query`](Self::query) leaves stamped rows out. See [`lifecycle`](crate::lifecycle).
     const DELETED_AT_INDEX: Option<usize> = None;
+
+    /// Position of the version column used for optimistic locking
+    /// (`#[memoire(version)]`): [`update`](Self::update), [`save`](Self::save),
+    /// [`update_only`](Self::update_only) and [`delete`](Self::delete) only
+    /// write the row if its version is still the one in hand, and increment it;
+    /// otherwise they fail with [`Error::StaleRow`]. See [`lifecycle`](crate::lifecycle).
+    const VERSION_INDEX: Option<usize> = None;
+
+    /// Positions of the `(type, id)` columns of a polymorphic relation
+    /// (`#[memoire(morph = "name")]`, fields `name_type` and `name_id`): the
+    /// row points to a row of any model, named by its table. See
+    /// [`relation`](crate::relation#polymorphic-relations).
+    const MORPH_INDEX: Option<(usize, usize)> = None;
 
     /// The lifecycle hooks of this model, `Some` with `#[memoire(hooks)]` and
     /// an implementation of [`Hooks`](crate::lifecycle::Hooks).
@@ -197,6 +210,17 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             if let Some(i) = Self::UPDATED_AT_INDEX {
                 self.set_value_at(i, now_for::<Self>(i))?;
             }
+            if let Some(v) = Self::VERSION_INDEX {
+                let next = match update_versioned(&*self, db, full_sets(&*self)).await {
+                    Err(Error::NotFound) if !auto => return insert_row(self, db).await,
+                    other => other?,
+                };
+                self.set_value_at(v, next)?;
+                if let Some(h) = hooks {
+                    (h.after_update)(self);
+                }
+                return Ok(());
+            }
             let values = self.to_values();
             let res = db.execute(Query::UpdateRow { table: Self::SCHEMA, values: &values }).await?;
             if res.rows_affected == 0 {
@@ -268,6 +292,10 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
     /// Fails with [`Error::NotFound`] if the row does not exist. The database
     /// gets the current time in `updated_at` when the model has one (`self`,
     /// borrowed, keeps its value: use [`save`](Self::save) to get it back).
+    /// With a [version column](Self::VERSION_INDEX), fails with
+    /// [`Error::StaleRow`] if another writer changed the row since it was read;
+    /// the version is incremented in the database only (prefer `save`, which
+    /// writes it back into the struct).
     /// Runs the `before_update` and `after_update` [hooks](crate::lifecycle::Hooks).
     fn update<E: Executor>(&self, db: &E) -> impl Future<Output = Result<()>> + Send {
         async move {
@@ -275,13 +303,21 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             if let Some(h) = hooks {
                 (h.before_update)(self)?;
             }
-            let mut values = self.to_values();
-            if let Some(i) = Self::UPDATED_AT_INDEX {
-                values[i] = now_for::<Self>(i);
-            }
-            let res = db.execute(Query::UpdateRow { table: Self::SCHEMA, values: &values }).await?;
-            if res.rows_affected == 0 {
-                return Err(Error::NotFound);
+            if Self::VERSION_INDEX.is_some() {
+                let mut sets = full_sets(self);
+                if let Some(i) = Self::UPDATED_AT_INDEX {
+                    set_column(&mut sets, i, now_for::<Self>(i));
+                }
+                update_versioned(self, db, sets).await?;
+            } else {
+                let mut values = self.to_values();
+                if let Some(i) = Self::UPDATED_AT_INDEX {
+                    values[i] = now_for::<Self>(i);
+                }
+                let res = db.execute(Query::UpdateRow { table: Self::SCHEMA, values: &values }).await?;
+                if res.rows_affected == 0 {
+                    return Err(Error::NotFound);
+                }
             }
             if let Some(h) = hooks {
                 (h.after_update)(self);
@@ -319,6 +355,7 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
         {
             sets.push((i, Expr::Value(now_for::<Self>(i))));
         }
+        let versioned = Self::VERSION_INDEX.is_some() && !sets.is_empty();
         let ast = UpdateAst { table: schema, sets, filter: Some(filter) };
         async move {
             if ast.sets.is_empty() {
@@ -327,6 +364,13 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             let hooks = Self::hooks();
             if let Some(h) = hooks {
                 (h.before_update)(self)?;
+            }
+            if versioned {
+                update_versioned(self, db, ast.sets).await?;
+                if let Some(h) = hooks {
+                    (h.after_update)(self);
+                }
+                return Ok(());
             }
             let res = db.execute(Query::Update(&ast)).await?;
             if res.rows_affected == 0 {
@@ -392,7 +436,9 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
         }
     }
 
-    /// Deletes this row. Returns `false` if it did not exist.
+    /// Deletes this row. Returns `false` if it did not exist. With a
+    /// [version column](Self::VERSION_INDEX), fails with [`Error::StaleRow`]
+    /// if another writer changed the row since it was read.
     ///
     /// With [soft deletes](crate::lifecycle), the row is kept and its
     /// `deleted_at` column set to the current time (in the database: `self`,
@@ -405,12 +451,17 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             if let Some(h) = hooks {
                 (h.before_delete)(self)?;
             }
-            let deleted = match Self::DELETED_AT_INDEX {
-                Some(_) => soft_delete_where::<Self, E>(db, Some(pk_eq::<Self>(self.key()))).await? > 0,
-                None => {
-                    let key = self.key();
-                    db.execute(Query::DeleteByKey { table: Self::SCHEMA, key: &key }).await?.rows_affected > 0
+            let deleted = match (Self::DELETED_AT_INDEX, Self::VERSION_INDEX) {
+                (Some(_), None) => soft_delete_where::<Self, E>(db, Some(pk_eq::<Self>(self.key()))).await? > 0,
+                (Some(_), Some(_)) => {
+                    let n =
+                        soft_delete_where::<Self, E>(db, Some(pk_eq::<Self>(self.key()).and(version_eq(self)))).await?;
+                    if n == 0 && Self::query().filter(pk_eq::<Self>(self.key())).exists(db).await? {
+                        return Err(stale::<Self>(self));
+                    }
+                    n > 0
                 }
+                (None, _) => delete_hard(self, db).await?,
             };
             if deleted && let Some(h) = hooks {
                 (h.after_delete)(self);
@@ -442,8 +493,7 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             if let Some(h) = hooks {
                 (h.before_delete)(self)?;
             }
-            let key = self.key();
-            let deleted = db.execute(Query::DeleteByKey { table: Self::SCHEMA, key: &key }).await?.rows_affected > 0;
+            let deleted = delete_hard(self, db).await?;
             if deleted && let Some(h) = hooks {
                 (h.after_delete)(self);
             }
@@ -495,6 +545,46 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
         Self::query().only_trashed()
     }
 
+    /// `morphMany`: the rows of `Self`, a polymorphic model
+    /// (`#[memoire(morph = "...")]`), that point to `parent`, as a query you
+    /// can refine: `Comment::morphed_by(&post).all(&db)`.
+    ///
+    /// # Panics
+    ///
+    /// If `Self` has no polymorphic relation.
+    fn morphed_by<P: Model>(parent: &P) -> Select<Self> {
+        let (t, k) = crate::relation::morph_columns::<Self>().unwrap_or_else(|e| panic!("{e}"));
+        Self::query().filter(crate::relation::morph_type_is::<Self, P>(t)).filter(Expr::binary(
+            BinOp::Eq,
+            Expr::Column(column_ref(Self::SCHEMA, k)),
+            Expr::Value(parent.key()),
+        ))
+    }
+
+    /// `morphTo`: the row of `P` this polymorphic row points to; `None` when
+    /// it points to another model (its type is not the table of `P`), to
+    /// nothing, or to a missing row. Fails with [`Error::Relation`] if `Self`
+    /// has no polymorphic relation.
+    fn morph_parent<P: Model, E: Executor>(&self, db: &E) -> impl Future<Output = Result<Option<P>>> + Send {
+        let target = crate::relation::morph_columns::<Self>().map(|(t, k)| (self.value_at(t), self.value_at(k)));
+        async move {
+            let (kind, id) = target?;
+            if kind != Value::Text(P::SCHEMA.name.to_owned()) || id.is_null() {
+                return Ok(None);
+            }
+            P::query().filter(pk_eq::<P>(id)).first(db).await
+        }
+    }
+
+    /// Points this polymorphic row to `parent` (sets `<name>_type` to the
+    /// table of `P` and `<name>_id` to its primary key), in `self` only: save
+    /// the row afterwards. `associate()` in Eloquent.
+    fn set_morph_parent<P: Model>(&mut self, parent: &P) -> Result<()> {
+        let (t, k) = crate::relation::morph_columns::<Self>()?;
+        self.set_value_at(t, Value::Text(P::SCHEMA.name.to_owned()))?;
+        self.set_value_at(k, parent.key())
+    }
+
     /// Re-reads this row from the database.
     fn reload<E: Executor>(&mut self, db: &E) -> impl Future<Output = Result<()>> + Send {
         async move {
@@ -504,6 +594,75 @@ pub trait Model: FromRow + Send + Sync + Sized + 'static {
             Ok(())
         }
     }
+}
+
+/// Every column but the primary key, set to the values of `row`.
+fn full_sets<M: Model>(row: &M) -> Vec<(usize, Expr)> {
+    let pk = M::SCHEMA.primary_key;
+    row.to_values().into_iter().enumerate().filter(|(i, _)| *i != pk).map(|(i, v)| (i, Expr::Value(v))).collect()
+}
+
+fn set_column(sets: &mut Vec<(usize, Expr)>, index: usize, value: Value) {
+    match sets.iter_mut().find(|(i, _)| *i == index) {
+        Some(slot) => slot.1 = Expr::Value(value),
+        None => sets.push((index, Expr::Value(value))),
+    }
+}
+
+/// `version = <the version of row>` (`IS NULL` for an unset `Option`).
+fn version_eq<M: Model>(row: &M) -> Expr {
+    let Some(v) = M::VERSION_INDEX else { return Expr::always() };
+    let column = Expr::Column(column_ref(M::SCHEMA, v));
+    match row.value_at(v) {
+        Value::Null => Expr::IsNull { expr: Box::new(column), negated: false },
+        value => Expr::binary(BinOp::Eq, column, Expr::Value(value)),
+    }
+}
+
+/// The version after `current`: `current + 1`, `1` for `NULL`.
+pub(crate) fn next_version(current: &Value) -> Result<Value> {
+    match current {
+        Value::Null => Ok(Value::I32(1)),
+        Value::I32(n) => Ok(Value::I32(n.wrapping_add(1))),
+        Value::I64(n) => Ok(Value::I64(n.wrapping_add(1))),
+        other => Err(Error::Conversion(format!("a version column must be an integer, found {}", other.type_name()))),
+    }
+}
+
+fn stale<M: Model>(row: &M) -> Error {
+    Error::StaleRow { table: M::SCHEMA.name.to_owned(), key: row.key().to_string() }
+}
+
+/// Runs `UPDATE ... SET sets, version = version + 1 WHERE pk = ? AND version = ?`
+/// and returns the new version; [`Error::StaleRow`] if the row exists with
+/// another version, [`Error::NotFound`] if it does not exist.
+async fn update_versioned<M: Model, E: Executor>(row: &M, db: &E, mut sets: Vec<(usize, Expr)>) -> Result<Value> {
+    let Some(v) = M::VERSION_INDEX else { return Err(Error::Unsupported("no version column".into())) };
+    let next = next_version(&row.value_at(v))?;
+    set_column(&mut sets, v, next.clone());
+    let filter = pk_eq::<M>(row.key()).and(version_eq(row));
+    let ast = UpdateAst { table: M::SCHEMA, sets, filter: Some(filter) };
+    if db.execute(Query::Update(&ast)).await?.rows_affected > 0 {
+        return Ok(next);
+    }
+    if M::with_trashed().filter(pk_eq::<M>(row.key())).exists(db).await? {
+        Err(stale(row))
+    } else {
+        Err(Error::NotFound)
+    }
+}
+
+/// Removes `row` for good, checking its version when the model has one.
+async fn delete_hard<M: Model, E: Executor>(row: &M, db: &E) -> Result<bool> {
+    let key = row.key();
+    if M::VERSION_INDEX.is_none() {
+        return Ok(db.execute(Query::DeleteByKey { table: M::SCHEMA, key: &key }).await?.rows_affected > 0);
+    }
+    let ast = DeleteAst { table: M::SCHEMA, filter: Some(pk_eq::<M>(key.clone()).and(version_eq(row))) };
+    if db.execute(Query::Delete(&ast)).await?.rows_affected > 0 {
+        return Ok(true);
+    }
+    if M::with_trashed().filter(pk_eq::<M>(key)).exists(db).await? { Err(stale(row)) } else { Ok(false) }
 }
 
 /// `primary key = key`.
@@ -573,5 +732,5 @@ pub(crate) async fn soft_delete_where<M: Model, E: Executor>(db: &E, filter: Opt
             None => alive,
         }),
     };
-    Ok(db.execute(Query::Update(&ast)).await?.rows_affected)
+    Ok(crate::subquery::update(db, &ast).await?.rows_affected)
 }

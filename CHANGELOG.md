@@ -59,6 +59,41 @@ project adheres to [Semantic Versioning](https://semver.org/).
   emk/rust`, then `git push heroku master`.
 
 ### Added
+- Relation filters, in the spirit of Eloquent (page "Relation filters, counts &
+  polymorphism"): `Select::has`, `doesnt_have`, `where_has`, `where_doesnt_have`,
+  `has_at_least` and, for many-to-many, `where_has_via`, read from the foreign keys in
+  either direction (has many / belongs to), each one `IN (SELECT ...)` subquery.
+- Relation counts and eager loading in one call: `LoadCounts::load_count` /
+  `load_count_with` (one `GROUP BY` query, `withCount`), `Select::all_with_count`,
+  `Select::all_with` (children) and `Select::all_with_parent`.
+- Polymorphic relations (`morphMany` / `morphTo`): `#[memoire(morph = "name")]` with the
+  fields `name_type` (the parent's table name) and `name_id`; `Model::morphed_by`,
+  `Model::morph_parent`, `Model::set_morph_parent`, `LoadMorph::load_morph_many` and
+  `load_morph_parent`; `Model::MORPH_INDEX`.
+- Many-to-many with pivot columns: `LoadPivot::load_via_pivot` returns each partner with
+  its junction row, `load_via_pivot_with` filters or orders on the junction (`wherePivot`).
+- Subqueries: `Column::in_query` / `not_in_query` (`col IN (SELECT ...)`), nested, in
+  `Select`, `Update` and `Delete` filters; new variant `Expr::InSubquery` (the enum is
+  `#[non_exhaustive]`) and `Expr::has_subquery`, `SelectAst::has_subquery`. SQL databases
+  run them natively; the in-memory engine, Redis and MongoDB run the subquery first.
+- Enum attribute casts: `#[derive(DbEnum)]` stores an enum of unit variants as text
+  (snake_case, `rename_all`, `rename`) or as an integer (`#[memoire(integer)]`).
+- Optimistic locking: `#[memoire(version)]` on an integer field; `save`, `update`,
+  `update_only`, `delete` and `force_delete` check and increment it, and fail with the new
+  `Error::StaleRow` (`Error::is_stale`) when another writer changed the row;
+  `update_many()` increments it; `Model::VERSION_INDEX`.
+- Model factories and seeders (module `memoire_orm::factory`, page "Factories &
+  seeders"): `Factory::definition(n)`, `factory()` with `count`, `state`, `sequence`,
+  `for_parent`, `make`, `create`; `Seeder` (tuples run in order) and `seed`, in a
+  transaction.
+- An identity map in the spirit of Doctrine (module `memoire_orm::identity`, page
+  "Optimistic locking & identity map"): `IdentityMap::find`, `find_many`, `merge`, `get`,
+  `remember`, `forget`, `clear`.
+- Keyset pagination on any column: `Select::cursor_paginate_by(db, order, per_page,
+  after)`, ordered by the column then the primary key, with `Cursor` and `KeysetPage`.
+- Website: three documentation pages in English, French and Spanish ("Relation filters,
+  counts & polymorphism", "Optimistic locking & identity map", "Factories & seeders"), and
+  sections on subqueries, keyset pagination and enum columns.
 - Model lifecycle, in the spirit of Laravel's Eloquent and Doctrine's lifecycle callbacks
   (module `memoire_orm::lifecycle`, page "Timestamps, soft deletes & hooks"):
   - Automatic timestamps: `#[memoire(timestamps)]` (fields `created_at`, `updated_at`) or

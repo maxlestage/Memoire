@@ -5,6 +5,8 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::ops::{BitAnd, BitOr, Not};
 
+use crate::ast::SelectAst;
+use crate::query::Select;
 use crate::value::{Bind, ColumnType, IntoValue, SqlType, Value};
 
 /// Untyped reference to a column of a table.
@@ -183,6 +185,48 @@ impl<M, T: SqlType> Column<M, T> {
             list: values.into_iter().map(Bind::into_bind).collect(),
             negated: true,
         }
+    }
+
+    /// `column IN (SELECT ...)`: a subquery returning one column of the same
+    /// type, built with [`Select::columns`].
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model)] #[memoire(table = "users")]
+    /// # struct User { id: i64, name: String }
+    /// # #[derive(Model)] #[memoire(table = "posts")]
+    /// # struct Post { id: i64, #[memoire(references = "users(id)")] author_id: i64, published: bool }
+    /// // The authors of a published post.
+    /// let q = User::query().filter(User::ID.in_query(
+    ///     Post::query().filter(Post::PUBLISHED.eq(true)).columns(Post::AUTHOR_ID),
+    /// ));
+    /// assert_eq!(
+    ///     q.to_sql(Dialect::Sqlite),
+    ///     r#"SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" IN (SELECT "posts"."author_id" FROM "posts" WHERE "posts"."published" = ?)"#
+    /// );
+    /// ```
+    ///
+    /// SQL databases run it as one statement. The in-memory engine, Redis and
+    /// MongoDB run the subquery first, then the outer query with its rows as an
+    /// `IN` list (inside a transaction when you pass one). The subquery is
+    /// uncorrelated: it cannot refer to the outer row. MySQL rejects a
+    /// `LIMIT` inside an `IN` subquery, and a subquery on the table being
+    /// updated or deleted.
+    pub fn in_query<T2>(self, query: Select<T2>) -> Expr
+    where
+        T2: SqlType<Base = T::Base>,
+    {
+        Expr::InSubquery { expr: Box::new(self.expr()), query: Box::new(query.into_ast()), negated: false }
+    }
+
+    /// `column NOT IN (SELECT ...)`; see [`in_query`](Self::in_query). Like in
+    /// SQL, a `NULL` among the subquery's values makes the condition unknown
+    /// for every row: filter it out of the subquery (`.filter(col.is_not_null())`).
+    pub fn not_in_query<T2>(self, query: Select<T2>) -> Expr
+    where
+        T2: SqlType<Base = T::Base>,
+    {
+        Expr::InSubquery { expr: Box::new(self.expr()), query: Box::new(query.into_ast()), negated: true }
     }
 
     /// `column BETWEEN low AND high` (inclusive).
@@ -550,6 +594,16 @@ pub enum Expr {
         /// `DISTINCT` modifier.
         distinct: bool,
     },
+    /// `expr [NOT] IN (SELECT ...)`, an uncorrelated subquery returning one
+    /// column ([`Column::in_query`]).
+    InSubquery {
+        /// Tested expression.
+        expr: Box<Expr>,
+        /// The subquery; its projection is one expression.
+        query: Box<SelectAst>,
+        /// `NOT IN` when true.
+        negated: bool,
+    },
 }
 
 impl Expr {
@@ -650,6 +704,20 @@ impl Expr {
             }
             Expr::Like { expr, pattern, .. } => expr.has_aggregate() || pattern.has_aggregate(),
             Expr::Match(m) => m.expr.has_aggregate(),
+            Expr::InSubquery { expr, .. } => expr.has_aggregate(),
+        }
+    }
+
+    /// `true` if the expression contains a subquery ([`Expr::InSubquery`]).
+    pub fn has_subquery(&self) -> bool {
+        match self {
+            Expr::InSubquery { .. } => true,
+            Expr::Column(_) | Expr::Value(_) | Expr::Match(_) => false,
+            Expr::Aggregate { arg, .. } => arg.as_ref().is_some_and(|a| a.has_subquery()),
+            Expr::Binary { left, right, .. } => left.has_subquery() || right.has_subquery(),
+            Expr::Not(e) | Expr::IsNull { expr: e, .. } | Expr::InList { expr: e, .. } => e.has_subquery(),
+            Expr::Between { expr, low, high, .. } => expr.has_subquery() || low.has_subquery() || high.has_subquery(),
+            Expr::Like { expr, pattern, .. } => expr.has_subquery() || pattern.has_subquery(),
         }
     }
 }

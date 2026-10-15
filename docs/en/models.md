@@ -343,6 +343,35 @@ pub struct Profile {
 
 `Json<T>` dereferences to `T`, so `profile.settings.theme` works directly, and you build one with `Json(Settings { ... })`.
 
+### Enum columns with `#[derive(DbEnum)]`
+
+An enum of unit variants becomes a column type with one derive, an attribute cast in the spirit of Eloquent's enum casts. Each variant is stored as text, in snake_case unless you say otherwise:
+
+```rust
+#[derive(DbEnum, Debug, Clone, Copy, PartialEq)]
+pub enum Status {
+    Draft,                          // "draft"
+    #[memoire(rename = "live")]
+    Published,                      // "live"
+    InReview,                       // "in_review"
+}
+
+#[derive(Model, Debug, Clone)]
+#[memoire(table = "articles")]
+pub struct Article {
+    #[memoire(primary_key, auto_increment)]
+    pub id: i64,
+    pub status: Status,
+    pub previous: Option<Status>,
+}
+
+let live = Article::query().filter(Article::STATUS.eq(Status::Published)).all(&db).await?;
+```
+
+- `#[memoire(rename_all = "...")]` on the enum picks the case: `lowercase`, `UPPERCASE`, `snake_case`, `SCREAMING_SNAKE_CASE`, `kebab-case`, `PascalCase` or `camelCase`.
+- `#[memoire(integer)]` stores the discriminant in an `INTEGER` column instead (`enum Level { Low = 1, High = 10 }`).
+- An unknown text or number fails to decode with an error that lists the expected variants.
+
 ### Custom column types
 
 You can store your own types, such as an enum, by implementing four small conversion traits. Here a `Status` enum is stored as text:

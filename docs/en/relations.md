@@ -347,6 +347,7 @@ The link model must reference both tables; it works in both directions (`tags.lo
 
 ## Next steps
 
+- [Relation filters, counts & polymorphism](relations-advanced): `where_has`, `load_count`, `all_with`, polymorphic relations and pivot columns.
 - [Transactions](transactions): change related rows together, all or nothing.
 - [Raw SQL](raw-sql): for the few queries the builder cannot express.
 - [Why it's fast](performance): more ways to keep queries quick.

@@ -55,10 +55,23 @@ pub static CATEGORIES: &[DocCategory] = &[
                 "Marcas de tiempo, borrado lógico y hooks"
             ),
             page!("relations", "Joins & relations", "Jointures et relations", "Uniones y relaciones"),
+            page!(
+                "relations-advanced",
+                "Relation filters, counts & polymorphism",
+                "Filtres de relations, comptages et polymorphisme",
+                "Filtros de relaciones, conteos y polimorfismo"
+            ),
             page!("transactions", "Transactions", "Transactions", "Transacciones"),
+            page!(
+                "optimistic-locking",
+                "Optimistic locking & identity map",
+                "Verrouillage optimiste et identity map",
+                "Bloqueo optimista e identity map"
+            ),
             page!("events", "Change notifications", "Notifications de changements", "Notificaciones de cambios"),
             page!("query-log", "Query log", "Journal des requêtes", "Registro de consultas"),
             page!("migrations", "Migrations", "Migrations", "Migraciones"),
+            page!("factories", "Factories & seeders", "Factories et seeders", "Factories y seeders"),
             page!("raw-sql", "Raw SQL", "SQL brut", "SQL sin procesar"),
         ],
     },
@@ -157,7 +170,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 27);
+        assert_eq!(page_count(), 30);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

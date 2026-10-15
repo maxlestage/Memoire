@@ -234,6 +234,19 @@ La règle est la même sur toutes les bases ; seule la vitesse change :
 
 Chaque comparaison a une jumelle en `_col` qui compare à une autre colonne au lieu d'une valeur : `eq_col`, `ne_col`, `lt_col`, `le_col`, `gt_col`, `ge_col`. Les deux colonnes doivent avoir le même type Rust. Elles servent surtout dans les conditions de jointure, comme `Post::USER_ID.eq_col(User::ID)` (voir [Jointures et relations](relations)).
 
+### Sous-requêtes
+
+`in_query` et `not_in_query` comparent une colonne aux lignes d'une autre requête, qui sélectionne une seule colonne du même type avec `columns` :
+
+```rust
+// Les utilisateurs qui ont écrit un post vu plus de 100 fois.
+let popular = Post::query().filter(Post::VIEWS.gt(100)).columns(Post::AUTHOR_ID);
+let authors = User::query().filter(User::ID.in_query(popular)).all(&db).await?;
+// SELECT ... FROM "users" WHERE "users"."id" IN (SELECT "posts"."author_id" FROM "posts" WHERE "posts"."views" > ?)
+```
+
+Les sous-requêtes s'imbriquent, et fonctionnent aussi dans les filtres de `update_many()` et `delete_many()`. Les bases SQL exécutent toute l'instruction d'un coup ; le moteur en mémoire, Redis et MongoDB exécutent d'abord la sous-requête, puis la requête principale avec ses valeurs en liste `IN` (dans la transaction si vous en passez une). La sous-requête ne peut pas faire référence à la ligne extérieure (pas de sous-requêtes corrélées). Comme en SQL, un `NULL` parmi les valeurs d'une sous-requête `NOT IN` ne laisse passer aucune ligne : ajoutez-lui `.filter(colonne.is_not_null())`. MySQL refuse un `LIMIT` dans une sous-requête `IN`, et une sous-requête sur la table modifiée ou supprimée. Pour filtrer sur des lignes liées, [`where_has`](relations-advanced) écrit la sous-requête pour vous.
+
 ### Construire des filtres dynamiquement
 
 Comme une requête n'est qu'une valeur, vous pouvez ajouter des filtres sous condition, par exemple à partir de paramètres de recherche facultatifs :
@@ -375,6 +388,19 @@ if first.has_more() {
 ```
 
 Le curseur est une `Value` (la clé primaire de la dernière ligne) : envoyez-la au client, puis reconvertissez-la en `Value` (`Value::I64(id)`) à la requête suivante. Les `ORDER BY` et `OFFSET` de la requête sont remplacés par l'ordre des clés.
+
+### Pagination par clé sur n'importe quelle colonne
+
+`cursor_paginate_by` pagine de la même façon sur n'importe quelle colonne du modèle, croissante ou décroissante, avec la clé primaire pour départager les égalités (`WHERE score < ? OR (score = ? AND id < ?) ORDER BY score DESC, id DESC`). Son curseur, un `Cursor { value, key }`, contient les deux valeurs de la dernière ligne :
+
+```rust
+let best = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, None).await?;
+if let Some(cursor) = best.next {
+    let more = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, Some(cursor)).await?;
+}
+```
+
+La colonne ne devrait pas contenir de `NULL` (une page qui se termine sur un `NULL` échoue avec `Error::Unsupported`) ; pour les grandes tables, indexez-la.
 
 ### Lire par paquets
 

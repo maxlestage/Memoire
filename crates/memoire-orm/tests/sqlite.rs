@@ -10,6 +10,12 @@ fn sqlite_in_memory_suite() {
 }
 
 #[test]
+fn sqlite_advanced_suite() {
+    let db = SqliteDb::open_in_memory().unwrap();
+    memoire_orm::block_on(common::advanced::run(&db)).unwrap();
+}
+
+#[test]
 fn sqlite_lifecycle_suite() {
     let db = SqliteDb::open_in_memory().unwrap();
     memoire_orm::block_on(common::lifecycle::run(&db)).unwrap();

@@ -32,12 +32,13 @@ use syn::{Data, DeriveInput, Fields, Ident, LitBool, LitStr, Type, parse_macro_i
 /// `unique(a, b)` and `index(a, b)` (indexes over several fields, repeatable),
 /// `timestamps` (the fields `created_at` and `updated_at` are filled automatically),
 /// `soft_deletes` (the field `deleted_at` marks deleted rows) and `hooks` (the model
-/// implements `memoire_orm::lifecycle::Hooks`).
+/// implements `memoire_orm::lifecycle::Hooks`), `morph = "name"` (the fields `name_type`
+/// and `name_id` point to a row of any model: a polymorphic relation).
 ///
 /// Field attributes: `primary_key`, `auto_increment`, `unique`, `index`, `fulltext`,
 /// `column = "name"`, `sql_type = "VARCHAR(255)"`, `default = "SQL expression"`,
 /// `references = "table(column)"`, `on_delete = "cascade"`, `on_update = "cascade"`,
-/// `skip`, `created_at`, `updated_at`, `soft_delete`.
+/// `skip`, `created_at`, `updated_at`, `soft_delete`, `version` (optimistic locking).
 #[proc_macro_derive(Model, attributes(memoire))]
 pub fn derive_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -61,6 +62,187 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derives the column traits (`SqlType`, `ToValue`, `IntoValue`, `FromValue`) for
+/// an enum of unit variants, so it can be a model field and be compared in queries:
+/// an attribute cast to an enum.
+///
+/// ```ignore
+/// #[derive(DbEnum, Debug, Clone, Copy, PartialEq)]
+/// enum Status {
+///     Draft,                       // stored as "draft"
+///     #[memoire(rename = "live")]
+///     Published,                   // stored as "live"
+/// }
+/// ```
+///
+/// Variants are stored as text, in snake_case by default; `#[memoire(rename_all = "...")]`
+/// on the enum picks another case (`lowercase`, `UPPERCASE`, `snake_case`,
+/// `SCREAMING_SNAKE_CASE`, `kebab-case`, `PascalCase`, `camelCase`) and
+/// `#[memoire(rename = "...")]` names one variant. With `#[memoire(integer)]` the enum is
+/// stored as an `INTEGER`, its discriminant (`Status::Draft as i32`). `crate = "path"`
+/// works as for `Model`.
+#[proc_macro_derive(DbEnum, attributes(memoire))]
+pub fn derive_db_enum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand_db_enum(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+fn rename_case(name: &str, case: &str) -> Option<String> {
+    let snake = snake_case(name);
+    Some(match case {
+        "snake_case" => snake,
+        "lowercase" => name.to_lowercase(),
+        "UPPERCASE" => name.to_uppercase(),
+        "SCREAMING_SNAKE_CASE" => snake.to_uppercase(),
+        "kebab-case" => snake.replace('_', "-"),
+        "PascalCase" => name.to_owned(),
+        "camelCase" => {
+            let mut c = name.chars();
+            c.next().map(|f| f.to_lowercase().chain(c).collect()).unwrap_or_default()
+        }
+        _ => return None,
+    })
+}
+
+fn expand_db_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new(input.generics.span(), "memoire: generic enums are not supported"));
+    }
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new(input.ident.span(), "memoire: `DbEnum` is derived for enums"));
+    };
+    let mut krate: syn::Path = syn::parse_quote!(::memoire_orm);
+    let mut case = "snake_case".to_owned();
+    let mut integer = false;
+    for attr in &input.attrs {
+        if !attr.path().is_ident("memoire") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("crate") {
+                let lit: LitStr = meta.value()?.parse()?;
+                krate = lit.parse()?;
+            } else if meta.path.is_ident("rename_all") {
+                let lit: LitStr = meta.value()?.parse()?;
+                if rename_case("X", &lit.value()).is_none() {
+                    return Err(syn::Error::new(
+                        lit.span(),
+                        "expected one of: lowercase, UPPERCASE, snake_case, SCREAMING_SNAKE_CASE, kebab-case, \
+                         PascalCase, camelCase",
+                    ));
+                }
+                case = lit.value();
+            } else if meta.path.is_ident("integer") {
+                integer = true;
+            } else {
+                return Err(meta.error(
+                    "unknown memoire enum attribute (expected `rename_all = \"...\"`, `integer` or `crate = \"...\"`)",
+                ));
+            }
+            Ok(())
+        })?;
+    }
+    if data.variants.is_empty() {
+        return Err(syn::Error::new(input.ident.span(), "memoire: a `DbEnum` needs at least one variant"));
+    }
+    let name = &input.ident;
+    let mut idents = Vec::new();
+    let mut labels = Vec::new();
+    for v in &data.variants {
+        if !matches!(v.fields, Fields::Unit) {
+            return Err(syn::Error::new(v.ident.span(), "memoire: `DbEnum` variants cannot hold fields"));
+        }
+        let mut label = rename_case(&v.ident.to_string(), &case).unwrap_or_default();
+        for attr in &v.attrs {
+            if !attr.path().is_ident("memoire") {
+                continue;
+            }
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("rename") {
+                    let lit: LitStr = meta.value()?.parse()?;
+                    if lit.value().is_empty() {
+                        return Err(meta.error("a variant name cannot be empty"));
+                    }
+                    label = lit.value();
+                    Ok(())
+                } else {
+                    Err(meta.error("unknown memoire variant attribute (expected `rename = \"...\"`)"))
+                }
+            })?;
+        }
+        if labels.contains(&label) {
+            return Err(syn::Error::new(v.ident.span(), format!("memoire: two variants are stored as `{label}`")));
+        }
+        idents.push(v.ident.clone());
+        labels.push(label);
+    }
+    let expected = labels.join(", ");
+    let type_name = name.to_string();
+    let (kind, to_value, from_value) = if integer {
+        let to = quote! { match self { #(#name::#idents => #krate::Value::I32(#name::#idents as i32)),* } };
+        let from = quote! {
+            let n: i64 = match value {
+                #krate::Value::I32(n) => n as i64,
+                #krate::Value::I64(n) => n,
+                #krate::Value::Null => return ::core::result::Result::Err(#krate::Error::UnexpectedNull { column: ::std::string::String::new() }),
+                other => return ::core::result::Result::Err(#krate::Error::Conversion(::std::format!(
+                    "expected an integer for `{}`, found {}", #type_name, other.type_name()
+                ))),
+            };
+            #(if n == #name::#idents as i64 { return ::core::result::Result::Ok(#name::#idents); })*
+            ::core::result::Result::Err(#krate::Error::Conversion(::std::format!(
+                "{} is not a discriminant of `{}`", n, #type_name
+            )))
+        };
+        (quote!(#krate::ColumnType::Int), to, from)
+    } else {
+        let to = quote! {
+            #krate::Value::Text(::std::string::String::from(match self { #(#name::#idents => #labels),* }))
+        };
+        let from = quote! {
+            match value {
+                #krate::Value::Text(s) => match s.as_str() {
+                    #(#labels => ::core::result::Result::Ok(#name::#idents),)*
+                    other => ::core::result::Result::Err(#krate::Error::Conversion(::std::format!(
+                        "`{}` is not a variant of `{}` (expected one of: {})", other, #type_name, #expected
+                    ))),
+                },
+                #krate::Value::Null => ::core::result::Result::Err(#krate::Error::UnexpectedNull { column: ::std::string::String::new() }),
+                other => ::core::result::Result::Err(#krate::Error::Conversion(::std::format!(
+                    "expected text for `{}`, found {}", #type_name, other.type_name()
+                ))),
+            }
+        };
+        (quote!(#krate::ColumnType::Text), to, from)
+    };
+    Ok(quote! {
+        impl #krate::SqlType for #name {
+            type Base = #name;
+            const KIND: #krate::ColumnType = #kind;
+        }
+        impl #krate::ToValue for #name {
+            #[inline]
+            fn to_value(&self) -> #krate::Value {
+                #to_value
+            }
+        }
+        impl #krate::IntoValue for #name {
+            #[inline]
+            fn into_value(self) -> #krate::Value {
+                #krate::ToValue::to_value(&self)
+            }
+        }
+        impl #krate::FromValue for #name {
+            fn from_value(value: #krate::Value) -> #krate::Result<Self> {
+                #from_value
+            }
+        }
+    })
+}
+
 struct FieldInfo {
     ident: Ident,
     ty: Type,
@@ -79,6 +261,8 @@ struct FieldInfo {
     created_at: bool,
     updated_at: bool,
     soft_delete: bool,
+    /// `version`: the optimistic locking column.
+    version: bool,
 }
 
 /// `#[memoire(unique(a, b))]` / `#[memoire(index(a, b))]` on the struct.
@@ -95,6 +279,8 @@ struct ModelInfo {
     fields: Vec<FieldInfo>,
     /// `hooks`: the model implements `memoire_orm::lifecycle::Hooks`.
     hooks: bool,
+    /// `morph = "name"`: the fields `<name>_type` and `<name>_id` point to a row of any model.
+    morph: Option<(String, proc_macro2::Span)>,
 }
 
 fn unraw(ident: &Ident) -> String {
@@ -149,6 +335,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
     let mut krate: syn::Path = syn::parse_quote!(::memoire_orm);
     let mut indexes: Vec<IndexInfo> = Vec::new();
     let mut hooks = false;
+    let mut morph: Option<(String, proc_macro2::Span)> = None;
     let mut timestamps: Option<proc_macro2::Span> = None;
     let mut soft_deletes: Option<proc_macro2::Span> = None;
     for attr in &input.attrs {
@@ -182,6 +369,13 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             } else if meta.path.is_ident("hooks") {
                 hooks = true;
                 Ok(())
+            } else if meta.path.is_ident("morph") {
+                let lit: LitStr = meta.value()?.parse()?;
+                if lit.value().is_empty() {
+                    return Err(meta.error("expected `morph = \"name\"` (fields `name_type` and `name_id`)"));
+                }
+                morph = Some((lit.value(), lit.span()));
+                Ok(())
             } else if meta.path.is_ident("timestamps") {
                 timestamps = Some(meta.path.span());
                 Ok(())
@@ -191,7 +385,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             } else {
                 Err(meta.error(
                     "unknown memoire struct attribute (expected `table = \"...\"`, `crate = \"...\"`, \
-                     `unique(a, b)`, `index(a, b)`, `timestamps`, `soft_deletes` or `hooks`)",
+                     `unique(a, b)`, `index(a, b)`, `timestamps`, `soft_deletes`, `hooks` or `morph = \"...\"`)",
                 ))
             }
         })?;
@@ -218,6 +412,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
             created_at: false,
             updated_at: false,
             soft_delete: false,
+            version: false,
         };
         for attr in &field.attrs {
             if !attr.path().is_ident("memoire") {
@@ -248,6 +443,8 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                     info.updated_at = true;
                 } else if p.is_ident("soft_delete") || p.is_ident("deleted_at") {
                     info.soft_delete = true;
+                } else if p.is_ident("version") || p.is_ident("lock_version") {
+                    info.version = true;
                 } else if p.is_ident("column") || p.is_ident("rename") {
                     let lit: LitStr = meta.value()?.parse()?;
                     if lit.value().is_empty() {
@@ -287,7 +484,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                     return Err(meta.error(
                         "unknown memoire field attribute (expected one of: primary_key, auto_increment, \
                          unique, index, fulltext, column, sql_type, default, references, on_delete, on_update, skip, \
-                         created_at, updated_at, soft_delete)",
+                         created_at, updated_at, soft_delete, version)",
                     ));
                 }
                 Ok(())
@@ -301,7 +498,8 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
                 || info.references.is_some()
                 || info.created_at
                 || info.updated_at
-                || info.soft_delete)
+                || info.soft_delete
+                || info.version)
         {
             return Err(syn::Error::new(info.ident.span(), "memoire: a `skip` field cannot carry column attributes"));
         }
@@ -351,6 +549,7 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
         ("created_at", (|f: &FieldInfo| f.created_at) as fn(&FieldInfo) -> bool),
         ("updated_at", |f: &FieldInfo| f.updated_at),
         ("soft_delete", |f: &FieldInfo| f.soft_delete),
+        ("version", |f: &FieldInfo| f.version),
     ] {
         let marked: Vec<&FieldInfo> = fields.iter().filter(|f| flag(f)).collect();
         if marked.len() > 1 {
@@ -386,7 +585,19 @@ fn parse_model(input: &DeriveInput) -> syn::Result<ModelInfo> {
         }
     }
 
-    Ok(ModelInfo { table, indexes, krate, fields, hooks })
+    if let Some((name, span)) = &morph {
+        for suffix in ["type", "id"] {
+            let wanted = format!("{name}_{suffix}");
+            if !fields.iter().any(|f| !f.skip && (unraw(&f.ident) == wanted || f.column == wanted)) {
+                return Err(syn::Error::new(
+                    *span,
+                    format!("memoire: `morph = \"{name}\"` needs a field named `{wanted}`"),
+                ));
+            }
+        }
+    }
+
+    Ok(ModelInfo { table, indexes, krate, fields, hooks, morph })
 }
 
 fn is_integer_type(ty: &Type) -> bool {
@@ -725,6 +936,30 @@ fn expand_model(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 checks.push(const_check(ty, &msg, quote!(<#ty as #krate::SqlType>::NULLABLE)));
             }
         }
+    }
+    if let Some(i) = cols.iter().position(|f| f.version) {
+        let ty = &cols[i].ty;
+        let field = unraw(&cols[i].ident);
+        lifecycle.push(quote!(const VERSION_INDEX: ::core::option::Option<usize> = ::core::option::Option::Some(#i);));
+        let msg = format!("memoire: the version field `{name}.{field}` must be an integer (i16, i32 or i64)");
+        checks.push(const_check(ty, &msg, quote!(<#ty as #krate::SqlType>::KIND.is_integer())));
+    }
+    if let Some((morph, _)) = &info.morph {
+        let find = |suffix: &str| {
+            let wanted = format!("{morph}_{suffix}");
+            cols.iter().position(|f| unraw(&f.ident) == wanted || f.column == wanted).expect("validated morph field")
+        };
+        let (t, k) = (find("type"), find("id"));
+        lifecycle.push(quote!(
+            const MORPH_INDEX: ::core::option::Option<(usize, usize)> = ::core::option::Option::Some((#t, #k));
+        ));
+        let ty = &cols[t].ty;
+        let msg = format!("memoire: the morph type field `{name}.{morph}_type` must be a String");
+        checks.push(const_check(
+            ty,
+            &msg,
+            quote!(::core::matches!(<#ty as #krate::SqlType>::KIND, #krate::ColumnType::Text)),
+        ));
     }
     let hooks = if info.hooks {
         quote! {

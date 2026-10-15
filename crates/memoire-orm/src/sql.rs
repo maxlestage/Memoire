@@ -178,6 +178,12 @@ impl<'a> Writer<'a> {
             }
             Expr::Match(m) => self.text_search(m),
             Expr::Aggregate { func, arg, distinct } => self.aggregate(*func, arg.as_deref(), *distinct),
+            Expr::InSubquery { expr, query, negated } => {
+                self.expr(expr);
+                self.push(if *negated { " NOT IN (" } else { " IN (" });
+                self.select(query);
+                self.sql.push(')');
+            }
         }
     }
 

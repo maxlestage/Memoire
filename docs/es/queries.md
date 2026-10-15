@@ -234,6 +234,19 @@ La regla es la misma en todas las bases; solo cambia la velocidad:
 
 Cada comparación tiene una gemela `_col` que compara con otra columna en lugar de con un valor: `eq_col`, `ne_col`, `lt_col`, `le_col`, `gt_col`, `ge_col`. Ambas columnas deben tener el mismo tipo de Rust. Se usan sobre todo en las condiciones de los joins, como `Post::USER_ID.eq_col(User::ID)` (consulta [Uniones y relaciones](relations)).
 
+### Subconsultas
+
+`in_query` y `not_in_query` comparan una columna con las filas de otra consulta, que selecciona una sola columna del mismo tipo con `columns`:
+
+```rust
+// Los usuarios que escribieron un post con más de 100 visitas.
+let popular = Post::query().filter(Post::VIEWS.gt(100)).columns(Post::AUTHOR_ID);
+let authors = User::query().filter(User::ID.in_query(popular)).all(&db).await?;
+// SELECT ... FROM "users" WHERE "users"."id" IN (SELECT "posts"."author_id" FROM "posts" WHERE "posts"."views" > ?)
+```
+
+Las subconsultas se anidan y funcionan también en los filtros de `update_many()` y `delete_many()`. Las bases de datos SQL ejecutan toda la sentencia de una vez; el motor en memoria, Redis y MongoDB ejecutan primero la subconsulta y después la consulta principal con sus valores como lista `IN` (dentro de la transacción si pasas una). La subconsulta no puede referirse a la fila exterior (sin subconsultas correlacionadas). Como en SQL, un `NULL` entre los valores de una subconsulta `NOT IN` no deja pasar ninguna fila: añádele `.filter(columna.is_not_null())`. MySQL rechaza un `LIMIT` dentro de una subconsulta `IN`, y una subconsulta sobre la tabla que se actualiza o borra. Para filtrar por filas relacionadas, [`where_has`](relations-advanced) escribe la subconsulta por ti.
+
 ### Construir filtros de forma dinámica
 
 Como una consulta no es más que un valor, puedes añadir filtros de forma condicional, por ejemplo a partir de parámetros de búsqueda opcionales:
@@ -375,6 +388,19 @@ if first.has_more() {
 ```
 
 El cursor es un `Value` (la clave primaria de la última fila): envíalo al cliente y vuelve a convertirlo en `Value` (`Value::I64(id)`) en la siguiente petición. El `ORDER BY` y el `OFFSET` de la consulta se sustituyen por el orden de las claves.
+
+### Paginación por clave en cualquier columna
+
+`cursor_paginate_by` pagina de la misma forma sobre cualquier columna del modelo, ascendente o descendente, con la clave primaria para desempatar (`WHERE score < ? OR (score = ? AND id < ?) ORDER BY score DESC, id DESC`). Su cursor, un `Cursor { value, key }`, guarda los dos valores de la última fila:
+
+```rust
+let best = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, None).await?;
+if let Some(cursor) = best.next {
+    let more = Post::query().cursor_paginate_by(&db, Post::VIEWS.desc(), 20, Some(cursor)).await?;
+}
+```
+
+La columna no debería contener `NULL` (una página que termina en un `NULL` falla con `Error::Unsupported`); en tablas grandes, indéxala.
 
 ### Leer por bloques
 

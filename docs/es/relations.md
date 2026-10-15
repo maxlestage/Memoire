@@ -347,6 +347,7 @@ El modelo de enlace debe referenciar ambas tablas; funciona en los dos sentidos 
 
 ## Próximos pasos
 
+- [Filtros de relaciones, conteos y polimorfismo](relations-advanced): `where_has`, `load_count`, `all_with`, relaciones polimórficas y columnas pivote.
 - [Transacciones](transactions): cambia filas relacionadas a la vez, todo o nada.
 - [SQL sin procesar](raw-sql): para las pocas consultas que el constructor no puede expresar.
 - [Por qué es rápido](performance): más formas de mantener rápidas las consultas.

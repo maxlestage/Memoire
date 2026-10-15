@@ -31,7 +31,7 @@ Diesel y SeaORM son los dos ORM más usados en Rust, y Nitrite una base NoSQL em
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (por clave primaria) |
 | Paginación | `limit`/`offset` a mano | `paginate`, paginación por cursor | `paginate` (recuento y página en paralelo), `cursor_paginate` |
 | Agregados, `GROUP BY` | sí | sí | sí |
-| Subconsultas, self-joins (alias) | sí | sí | todavía no: SQL sin procesar |
+| Subconsultas, self-joins (alias) | sí | sí | subconsultas `IN (SELECT ...)` sí; self-joins todavía no: SQL sin procesar |
 | Claves primarias compuestas | sí | sí | todavía no: clave artificial + `unique` |
 | Resultados en streaming | `load_iter` | `stream` | `chunks(n)`: bloques acotados, por clave primaria |
 | Marcas de tiempo, borrado lógico | a mano | a mano (`ActiveModelBehavior`) | `#[memoire(timestamps, soft_deletes)]` |

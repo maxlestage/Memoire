@@ -4,6 +4,7 @@
 use memoire_orm::prelude::*;
 use memoire_orm::{Database, Transaction};
 
+pub mod advanced;
 pub mod lifecycle;
 
 #[derive(Model, Debug, Clone, PartialEq)]

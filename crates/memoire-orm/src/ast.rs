@@ -78,6 +78,19 @@ impl SelectAst {
         }
     }
 
+    /// `true` if a condition or a selected expression holds a subquery
+    /// ([`Expr::InSubquery`]).
+    pub fn has_subquery(&self) -> bool {
+        let projected = match &self.projection {
+            Projection::Exprs(e) => e.iter().any(Expr::has_subquery),
+            Projection::Tables(_) => false,
+        };
+        projected
+            || self.filter.as_ref().is_some_and(Expr::has_subquery)
+            || self.having.as_ref().is_some_and(Expr::has_subquery)
+            || self.joins.iter().any(|j| j.on.has_subquery())
+    }
+
     /// Tables visible to the query, root first then joins in order.
     pub fn tables(&self) -> impl Iterator<Item = &'static TableSchema> + '_ {
         std::iter::once(self.from).chain(self.joins.iter().map(|j| j.table))
