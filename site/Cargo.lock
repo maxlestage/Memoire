@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "active"
 version = "0.1.0"
-source = "git+https://github.com/maxlestage/Active#01d0a6612cbc1a61fdc71a81e781ac40b49e1f75"
+source = "git+https://github.com/maxlestage/Active#9d1f8386fc989eadada3dd206930a26ff057ac97"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -656,7 +656,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vitesse"
 version = "0.1.0"
-source = "git+https://github.com/maxlestage/Vitesse#deadcc68fff30a08104ae076805b10e660e9b026"
+source = "git+https://github.com/maxlestage/Vitesse#3488ece44a718d5408f910fe516be806ae06a54b"
 dependencies = [
  "brotli",
  "bytes",
