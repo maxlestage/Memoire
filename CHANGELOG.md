@@ -10,6 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Links to the websites of Active, Vitesse, Securite, Memoire and Paquets (README, docs,
   crate metadata, `app.json`, the website's footer) point to their Heroku addresses instead
   of GitHub Pages; the license is linked at `/static/LICENSE.txt`, where the site serves it.
+- Website: no longer published on GitHub Pages (the `pages.yml` workflow is removed): it is
+  served by Heroku only, and GitHub only hosts the code. The READMEs, `CONTRIBUTING.md` and
+  the Heroku deployment guide no longer describe a Pages deployment; `memoire-site export`
+  still writes the static site, and the CI still checks it.
 - The ecosystem is five projects: FerroSwift and Solidify are no longer listed by the
   README, the docs, `PUBLISHING.md` or the website's footer.
 - Website: the root address, the one people share, has the share image too, and every

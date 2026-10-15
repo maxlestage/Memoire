@@ -24,8 +24,6 @@ Todos los pasos de Heroku se hacen en el panel de Heroku (`https://dashboard.her
 
 Una combinación habitual: el método 1 para el primerísimo despliegue y luego el método 2 o el 3 para mantener el sitio actualizado. No actives los métodos 2 y 3 a la vez, o cada push se desplegará dos veces.
 
-> **Consejo** ¿No tienes cuenta de Heroku, o no tienes presupuesto? El sitio también se puede publicar **gratis en GitHub Pages**, cambiando un solo ajuste: consulta la sección GitHub Pages más abajo.
-
 ## Método 1: el botón "Deploy to Heroku"
 
 El README del repositorio tiene un botón morado **Deploy to Heroku** ("Desplegar en Heroku"). Apunta a:
@@ -134,33 +132,9 @@ heroku buildpacks:set emk/rust
 git push heroku master
 ```
 
-## GitHub Pages: la opción gratuita
-
-El servidor del sitio también puede escribir cada página, en cada idioma, como archivos estáticos, así que GitHub Pages también puede alojarlo, gratis, en `https://<tu-usuario>.github.io/Memoire/` (para este repositorio: `https://maxlestage.github.io/Memoire/`). Sin cuenta de Heroku y sin secretos: el workflow `.github/workflows/pages.yml` lo compila y lo publica.
-
-Actívalo una sola vez:
-
-1. En el navegador del móvil, abre tu repositorio en `https://github.com` y luego **Settings → Pages**.
-2. En **Build and deployment → Source**, elige **GitHub Actions**.
-3. En la app de GitHub, abre **Actions → Deploy to GitHub Pages → Run workflow**. Dos o tres minutos después el sitio está en línea; su dirección aparece en la página de la ejecución.
-
-A partir de ahí, cada push a `master` que cambie el sitio, la documentación o el ORM publica la nueva versión, igual que cada pull request fusionada automáticamente.
-
-> **Nota** Con un plan gratuito de GitHub, GitHub Pages solo funciona con repositorios públicos.
-
-Qué hace el workflow:
-
-- se omite con el aviso "GitHub Pages deployment skipped" mientras no hayas hecho el paso 2;
-- compila el paquete del navegador y luego ejecuta `memoire-site export`, que escribe cada página en su propio archivo HTML bajo `/Memoire/` (`es/docs/models/`, `en/playground/`...), con el índice de búsqueda, el manifiesto de la aplicación web y el service worker: los enlaces a cualquier página y las recargas funcionan, las direcciones antiguas (`docs/models`...) llevan al idioma del visitante y las direcciones desconocidas muestran la página «no encontrada» del sitio;
-- publica el sitio y luego comprueba que las páginas de inicio, una página de la documentación, el playground, el manifiesto y el service worker responden.
-
-GitHub Pages y Heroku son independientes: puedes usar los dos. La única diferencia es que GitHub Pages no puede enviar las cabeceras de seguridad adicionales (como `Content-Security-Policy`) que añade el servidor de Heroku; el sitio funciona igual.
-
-> **Consejo** Para usar tu propio dominio, configúralo en **Settings → Pages → Custom domain** y vuelve a lanzar el workflow: compilará el sitio para la raíz de ese dominio.
-
 ## Instalar el sitio en tu móvil
 
-El sitio es una aplicación web progresiva (PWA), esté alojado donde esté (Heroku o GitHub Pages):
+El sitio es una aplicación web progresiva (PWA), servida por Heroku:
 
 - **Android** (Chrome): abre el sitio, toca el menú **⋮** y luego **Instalar aplicación** (o **Añadir a pantalla de inicio**).
 - **iPhone y iPad** (Safari): abre el sitio, toca **Compartir** y luego **Añadir a pantalla de inicio**.
@@ -169,7 +143,7 @@ Desde entonces se abre a pantalla completa desde su icono, como una aplicación.
 
 ## Cómo un merge desencadena un despliegue
 
-Las pull requests dirigidas a `master` se **fusionan automáticamente** en cuanto todas las comprobaciones de CI están en verde (salvo que la pull request sea un borrador, venga de un fork o tenga la etiqueta `no-auto-merge`). Tras el merge, el workflow de CI lanza explícitamente los workflows **Deploy to Heroku** y **Deploy to GitHub Pages**, porque los merges realizados por GitHub Actions no desencadenan otros workflows por sí solos.
+Las pull requests dirigidas a `master` se **fusionan automáticamente** en cuanto todas las comprobaciones de CI están en verde (salvo que la pull request sea un borrador, venga de un fork o tenga la etiqueta `no-auto-merge`). Tras el merge, el workflow de CI lanza explícitamente el workflow **Deploy to Heroku**, porque los merges realizados por GitHub Actions no desencadenan otros workflows por sí solos.
 
 El resultado: apruebas o abres una pull request desde el móvil, esperas a las comprobaciones y la nueva versión se publica sola (con el método 2). Con el método 3, Heroku ve el nuevo commit en `master` y lo construye.
 
@@ -181,7 +155,6 @@ El resultado: apruebas o abres una pull request desde el móvil, esperas a las c
 | La compilación falla (método 2) | App de GitHub → **Actions** → la ejecución fallida → el paso en rojo |
 | El sitio no se abre, o aparece "Application error" | Panel de Heroku → tu aplicación → **More** (arriba a la derecha) → **View logs** |
 | El workflow dice "Heroku deployment skipped" | Falta `HEROKU_API_KEY` o `HEROKU_APP_NAME` (revisa cómo están escritos) |
-| El workflow dice "GitHub Pages deployment skipped" | **Settings → Pages → Source** no está configurado en **GitHub Actions** |
 | `401` o "Invalid credentials" en el workflow | La clave de API es incorrecta, ha caducado o se ha revocado: crea una nueva y actualiza el secreto |
 | "Name is already taken" | Los nombres de las aplicaciones son globales en Heroku: elige otro `HEROKU_APP_NAME` |
 | Heroku pide verificar la cuenta | Añade un método de pago en **Account settings → Billing** |
