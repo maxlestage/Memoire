@@ -42,6 +42,9 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Valeur par défaut | `#[memoire(default = "0")]` |
 | Clé étrangère | `#[memoire(references = "users(id)", on_delete = "cascade")]` |
 | Non stocké | `#[memoire(skip)]` (le type du champ doit implémenter `Default`) |
+| Horodatage | `#[memoire(timestamps)]` sur la structure (`created_at`, `updated_at`), ou `#[memoire(created_at)]` / `#[memoire(updated_at)]` sur des champs |
+| Suppression douce | `#[memoire(soft_deletes)]` sur la structure (`deleted_at`), ou `#[memoire(soft_delete)]` sur un champ `Option` |
+| Hooks de cycle de vie | `#[memoire(hooks)]` sur la structure + `impl memoire_orm::lifecycle::Hooks for User { ... }` |
 | Colonne nullable | `age: Option<i32>` |
 | Type de ligne personnalisé | `#[derive(FromRow)] struct Stats { user_id: i64, posts: i64 }` |
 
@@ -110,6 +113,9 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Limite / offset | `.limit(20)`, `.offset(40)` |
 | Page (à partir de 1) | `.page(3, 20)` |
 | Page avec total | `.paginate(&db, 3, 20).await?` → `Page { items, page, per_page, total }` |
+| Pagination par curseur | `.cursor_paginate(&db, 20, curseur).await?` → `CursorPage { items, per_page, next_cursor }` |
+| Lire par paquets | `let mut c = User::query().chunks(500); while let Some(rows) = c.next(&db).await? { ... }` |
+| Parties conditionnelles | `.when(drapeau, \|q\| ...)`, `.when_some(opt, \|q, v\| ...)`, `.apply(fn_portee)` |
 | Lignes distinctes | `.distinct()` |
 
 ## Exécuter une requête
@@ -169,6 +175,19 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Suivre les écritures | `let db = Observed::new(db); let _sub = db.subscribe(\|change\| println!("{change:?}"));` |
 | Les recevoir sur un canal | `let (_sub, changes) = db.channel();` |
 | Arrêter | abandonner la subscription (drop), ou `sub.unsubscribe()` |
+
+## Cycle de vie, raccourcis et journal des requêtes
+
+| Tâche | Code |
+|---|---|
+| Insérer ou mettre à jour | `user.save(&db).await?` |
+| Trouver ou créer | `User::query().filter(...).first_or_create(&db, \|\| User::new(...)).await?` |
+| Modifier ou créer | `.update_or_create(&db, \|\| User::new(...), \|u\| u.visits += 1).await?` |
+| Rafraîchir `updated_at` | `user.touch(&db).await?` |
+| Lignes supprimées en douceur | `User::with_trashed()`, `User::only_trashed()`, `user.trashed()` |
+| Restaurer / supprimer pour de bon | `user.restore(&db).await?`, `user.force_delete(&db).await?` |
+| Refuser une écriture | `Err(Error::Validation("...".into()))` depuis un hook `before_*` |
+| Journaliser les instructions | `let db = Logged::new(db); ...; db.queries()` (`memoire_orm::log::Logged`) |
 
 ## Transactions
 

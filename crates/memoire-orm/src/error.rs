@@ -78,6 +78,11 @@ pub enum Error {
     #[error("transaction conflict on table `{0}`: it was modified concurrently, retry the transaction")]
     Conflict(String),
 
+    /// The row was rejected before being written, by a lifecycle hook
+    /// ([`Hooks`](crate::lifecycle::Hooks)) or your own validation.
+    #[error("validation failed: {0}")]
+    Validation(String),
+
     /// The transaction was already committed or rolled back.
     #[error("transaction already finished")]
     TransactionFinished,
@@ -130,6 +135,11 @@ impl Error {
     /// `true` for [`Error::Conflict`] (the transaction may simply be retried).
     pub fn is_conflict(&self) -> bool {
         matches!(self, Error::Conflict(_))
+    }
+
+    /// `true` for [`Error::Validation`].
+    pub fn is_validation(&self) -> bool {
+        matches!(self, Error::Validation(_))
     }
 
     /// Attaches a column label to conversion errors raised while decoding.

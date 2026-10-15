@@ -220,6 +220,32 @@ It matches on the primary key only, and is safe even when two programs upsert th
 
 > **Warning** `upsert` always stores the key that is in your struct, even for an `auto_increment` key. Upserting `User { id: 0, ... }` creates a row whose id is `0`. Use `insert` for new rows of auto-increment models, and `upsert` for natural keys (slugs, codes, UUIDs) or rows you know the id of. On PostgreSQL, also note that upserting new rows with explicit ids does not advance the id sequence, so a later `insert` can collide with them.
 
+## Find or create, update or create, save
+
+The everyday shortcuts of Eloquent, on any query of a model:
+
+```rust
+// The first match, or this new row, inserted (Eloquent's firstOrCreate).
+let alice = User::query()
+    .filter(User::EMAIL.eq("alice@example.com"))
+    .first_or_create(&db, || User::new("alice@example.com", "Alice"))
+    .await?;
+
+// Changes the first match, or inserts a new row with the change (updateOrCreate).
+let bob = User::query()
+    .filter(User::EMAIL.eq("bob@example.com"))
+    .update_or_create(&db, || User::new("bob@example.com", "Bob"), |u| u.visits += 1)
+    .await?;
+
+// Inserts a new row (auto-increment key still 0), updates a stored one.
+let mut carol = User::new("carol@example.com", "Carol");
+carol.save(&db).await?; // INSERT
+carol.age = Some(28);
+carol.save(&db).await?; // UPDATE
+```
+
+`first_or_create` copes with a race: if another writer inserts the same row between the lookup and the insert, the insert fails on the `unique` column and the row now stored is returned. `save` and `update_or_create` run the [hooks and timestamps](lifecycle) of the model.
+
 ## Delete
 
 ```rust
@@ -240,6 +266,8 @@ println!("removed {removed} inactive user(s)");
 
 > **Warning** `User::delete_many().execute(&db)` without a filter deletes **every row** of the table.
 
+On a model with [soft deletes](lifecycle), `delete`, `delete_by_key` and `delete_many` only stamp `deleted_at`; `force_delete()` and `delete_many().force()` remove the rows.
+
 If other tables reference the deleted rows with `on_delete = "cascade"`, the database deletes those too (on SQLite, PostgreSQL and MySQL; the in-memory engine, Redis and MongoDB do not enforce foreign keys).
 
 ## Handling errors
@@ -258,12 +286,13 @@ Every operation returns `memoire_orm::Result<T>`, an alias for `Result<T, memoir
 | `Error::TableExists(name)` | `create_table` on a table that already exists |
 | `Error::Unsupported(message)` | The backend cannot do this (for example raw SQL on Redis, or a transaction on a standalone MongoDB server) |
 | `Error::Conflict(table)` | A transaction collided with a concurrent one; retrying is safe |
+| `Error::Validation(message)` | A [hook](lifecycle) (or your own code) rejected the row before it was written |
 | `Error::TransactionFinished` | The transaction was already committed or rolled back |
 | `Error::Migration { version, name, source }` | A migration failed; `source` holds the cause |
 | `Error::Pool(message)` | The PostgreSQL pool could not provide a connection |
 | `Error::Database(error)` | Any other error from the database driver |
 
-Three helpers cover the most common checks: `is_not_found()`, `is_unique_violation()` and `is_conflict()`.
+Four helpers cover the most common checks: `is_not_found()`, `is_unique_violation()`, `is_conflict()` and `is_validation()`.
 
 ```rust
 let mut duplicate = User::new("alice@example.com", "Another Alice");
@@ -282,6 +311,7 @@ this email is already taken
 
 ## Next steps
 
+- [Timestamps, soft deletes & hooks](lifecycle): `created_at`, `updated_at`, `deleted_at` and code that runs around each write.
 - [Query builder](queries): find exactly the rows you need.
 - [Transactions](transactions): group several writes into one all-or-nothing change.
 - [Joins & relations](relations): work with related tables.

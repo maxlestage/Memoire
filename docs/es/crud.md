@@ -220,6 +220,32 @@ Solo busca coincidencias por la clave primaria, y es seguro incluso cuando dos p
 
 > **Atención** `upsert` siempre guarda la clave que hay en tu struct, incluso con una clave `auto_increment`. Hacer upsert de `User { id: 0, ... }` crea una fila cuyo id es `0`. Usa `insert` para las filas nuevas de modelos con autoincremento, y `upsert` para claves naturales (slugs, códigos, UUID) o filas cuyo id ya conoces. En PostgreSQL, ten en cuenta también que hacer upsert de filas nuevas con ids explícitos no hace avanzar la secuencia de ids, así que un `insert` posterior puede chocar con ellas.
 
+## Buscar o crear, actualizar o crear, guardar
+
+Los atajos de todos los días de Eloquent, en cualquier consulta de un modelo:
+
+```rust
+// La primera coincidencia, o esta fila nueva, insertada (firstOrCreate de Eloquent).
+let alice = User::query()
+    .filter(User::EMAIL.eq("alice@example.com"))
+    .first_or_create(&db, || User::new("alice@example.com", "Alice"))
+    .await?;
+
+// Cambia la primera coincidencia, o inserta una fila nueva con el cambio (updateOrCreate).
+let bob = User::query()
+    .filter(User::EMAIL.eq("bob@example.com"))
+    .update_or_create(&db, || User::new("bob@example.com", "Bob"), |u| u.visits += 1)
+    .await?;
+
+// Inserta una fila nueva (clave autoincremental aún a 0), actualiza una existente.
+let mut carol = User::new("carol@example.com", "Carol");
+carol.save(&db).await?; // INSERT
+carol.age = Some(28);
+carol.save(&db).await?; // UPDATE
+```
+
+`first_or_create` resiste a la concurrencia: si otro programa inserta la misma fila entre la búsqueda y la inserción, la inserción falla en la columna `unique` y se devuelve la fila ya guardada. `save` y `update_or_create` ejecutan los [hooks y las marcas de tiempo](lifecycle) del modelo.
+
 ## Eliminar
 
 ```rust
@@ -240,6 +266,8 @@ println!("removed {removed} inactive user(s)");
 
 > **Atención** `User::delete_many().execute(&db)` sin filtro elimina **todas las filas** de la tabla.
 
+En un modelo con [borrado lógico](lifecycle), `delete`, `delete_by_key` y `delete_many` solo rellenan `deleted_at`; `force_delete()` y `delete_many().force()` eliminan de verdad las filas.
+
 Si otras tablas hacen referencia a las filas eliminadas con `on_delete = "cascade"`, la base de datos también las elimina (en SQLite, PostgreSQL y MySQL; el motor en memoria, Redis y MongoDB no aplican las claves foráneas).
 
 ## Gestionar los errores
@@ -258,12 +286,13 @@ Todas las operaciones devuelven `memoire_orm::Result<T>`, un alias de `Result<T,
 | `Error::TableExists(name)` | `create_table` sobre una tabla que ya existe |
 | `Error::Unsupported(message)` | El backend no puede hacer esto (por ejemplo, SQL sin procesar en Redis, o una transacción en un servidor MongoDB independiente) |
 | `Error::Conflict(table)` | Una transacción ha chocado con otra concurrente; se puede reintentar con seguridad |
+| `Error::Validation(message)` | Un [hook](lifecycle) (o tu propio código) rechazó la fila antes de escribirla |
 | `Error::TransactionFinished` | La transacción ya se había confirmado o revertido |
 | `Error::Migration { version, name, source }` | Ha fallado una migración; `source` contiene la causa |
 | `Error::Pool(message)` | El pool de PostgreSQL no ha podido proporcionar una conexión |
 | `Error::Database(error)` | Cualquier otro error del driver de la base de datos |
 
-Tres ayudantes cubren las comprobaciones más habituales: `is_not_found()`, `is_unique_violation()` e `is_conflict()`.
+Cuatro ayudantes cubren las comprobaciones más habituales: `is_not_found()`, `is_unique_violation()`, `is_conflict()` e `is_validation()`.
 
 ```rust
 let mut duplicate = User::new("alice@example.com", "Another Alice");
@@ -282,6 +311,7 @@ this email is already taken
 
 ## Próximos pasos
 
+- [Marcas de tiempo, borrado lógico y hooks](lifecycle): `created_at`, `updated_at`, `deleted_at` y código que se ejecuta alrededor de cada escritura.
 - [Constructor de consultas](queries): encuentra exactamente las filas que necesitas.
 - [Transacciones](transactions): agrupa varias escrituras en un único cambio de todo o nada.
 - [Uniones y relaciones](relations): trabaja con tablas relacionadas.

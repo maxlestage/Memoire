@@ -19,6 +19,10 @@
 //! * **Full-text search and multi-column indexes on every backend** —
 //!   `Post::BODY.matches("rust orm")`, `#[memoire(unique(user_id, team_id))]`.
 //! * **Change notifications** — [`Observed`] announces every write, on any backend.
+//! * **Model lifecycle, Eloquent-style** — `#[memoire(timestamps, soft_deletes, hooks)]`:
+//!   automatic `created_at`/`updated_at`, soft deletes (`with_trashed`, `restore`) and
+//!   [`Hooks`] that can reject a write ([`lifecycle`]); `save`, `first_or_create`,
+//!   `update_or_create`, `chunks`, `cursor_paginate`, and a query log ([`Logged`]).
 //! * **Browser storage** — `web::Store`, a state store in the spirit of Pinia, and
 //!   `web::LocalStorageDb`, a database in `localStorage` (feature `web`).
 //! * **Embedded and durable** — `MemoryDb::open(path)` stores the in-memory engine
@@ -97,6 +101,8 @@ mod error;
 pub mod events;
 mod executor;
 mod expr;
+pub mod lifecycle;
+pub mod log;
 pub mod migrate;
 mod model;
 mod query;
@@ -116,9 +122,11 @@ pub use executor::{Database, ExecResult, Executor, Transaction};
 pub use expr::{
     AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, TextSearch, count_all, escape_like, text_words,
 };
+pub use lifecycle::Hooks;
+pub use log::{Logged, LoggedQuery};
 pub use migrate::{Migration, Migrator};
 pub use model::Model;
-pub use query::{ColumnList, Delete, Joined, ModelColumns, Page, Select, SumType, Update};
+pub use query::{Chunks, ColumnList, CursorPage, Delete, Joined, ModelColumns, Page, Select, SumType, Update};
 pub use relation::LoadRelated;
 pub use row::{FromRow, RowSource, ValueRow};
 pub use schema::{ColumnDef, Dialect, ForeignKey, IndexDef, StaticSql, TableSchema};
@@ -214,6 +222,8 @@ pub mod __private {
     pub fn column<T: FromValue, R: RowSource + ?Sized>(row: &mut R, index: usize, label: &str) -> Result<T> {
         T::from_value(row.take(index)?).map_err(|e: Error| e.in_column(label))
     }
+
+    pub use crate::lifecycle::is_timestamp_kind;
 
     /// Converts a value (used by the derive macros).
     #[inline]

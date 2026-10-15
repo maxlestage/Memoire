@@ -9,6 +9,12 @@ fn sqlite_in_memory_suite() {
     memoire_orm::block_on(common::run_suite(&db)).unwrap();
 }
 
+#[test]
+fn sqlite_lifecycle_suite() {
+    let db = SqliteDb::open_in_memory().unwrap();
+    memoire_orm::block_on(common::lifecycle::run(&db)).unwrap();
+}
+
 #[tokio::test]
 async fn sqlite_file_suite_on_tokio() {
     let dir = std::env::temp_dir().join(format!("memoire-test-{}", std::process::id()));

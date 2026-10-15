@@ -266,6 +266,32 @@ let found = User::query().filter(Expr::all(conditions)).all(&db).await?; // Alic
 
 `Expr::all` d'une liste vide est toujours vrai, et `Expr::any` d'une liste vide est toujours faux.
 
+### Requêtes conditionnelles et portées réutilisables
+
+`when`, `when_some` et `apply` gardent la chaîne d'appels au lieu de réaffecter une variable, comme `when()` et les portées locales (local scopes) de Laravel :
+
+```rust
+fn active(q: Select<User>) -> Select<User> {
+    q.filter(User::ACTIVE.eq(true)) // une « portée » réutilisable
+}
+
+let users = User::query()
+    .apply(active)
+    .when_some(min_age, |q, min| q.filter(User::AGE.ge(min)))
+    .when_some(search, |q, text| q.filter(User::NAME.icontains(text)))
+    .when(newest_first, |q| q.order_by(User::ID.desc()))
+    .all(&db)
+    .await?;
+```
+
+| Méthode | Effet |
+|---|---|
+| `apply(portée)` | `portée(requête)` : n'importe quelle `fn(Select<T>) -> Select<T>` |
+| `when(condition, \|q\| ...)` | Applique la closure seulement si `condition` est vraie |
+| `when_some(option, \|q, valeur\| ...)` | Applique la closure avec la valeur, seulement s'il y en a une |
+
+`Select` est `memoire_orm::Select`.
+
 ## Trier
 
 ```rust
@@ -336,7 +362,37 @@ println!(
 | `total_pages()` | Nombre de pages |
 | `has_next()` / `has_prev()` | Indique s'il existe une page après / avant celle-ci |
 
-> **Astuce** Les grands offsets deviennent lents, car la base de données parcourt quand même chaque ligne sautée. Pour les listes de type « défilement infini », utilisez plutôt la *pagination par clé* (keyset pagination) : `filter(User::ID.gt(last_seen_id)).order_by(User::ID).limit(20)`. Voir [Pourquoi c'est rapide](performance).
+### Pagination par curseur
+
+Les grands offsets deviennent lents, car la base parcourt quand même chaque ligne sautée. `cursor_paginate` pagine plutôt par clé primaire (`WHERE id > <curseur> ORDER BY id LIMIT n`), comme `cursorPaginate` de Laravel : chaque page coûte autant que la première, et les lignes insérées entre-temps ne décalent pas les pages. Idéal pour le « défilement infini » et les API :
+
+```rust
+let first = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, None).await?;
+// first.items : jusqu'à 20 utilisateurs ; first.next_cursor : Some(clé du dernier), ou None à la fin
+if first.has_more() {
+    let next = User::query().filter(User::ACTIVE.eq(true)).cursor_paginate(&db, 20, first.next_cursor).await?;
+}
+```
+
+Le curseur est une `Value` (la clé primaire de la dernière ligne) : envoyez-la au client, puis reconvertissez-la en `Value` (`Value::I64(id)`) à la requête suivante. Les `ORDER BY` et `OFFSET` de la requête sont remplacés par l'ordre des clés.
+
+### Lire par paquets
+
+Pour traiter une grande table sans la charger d'un coup (un export, une migration de données), lisez-la par paquets, par clé primaire, comme `chunkById` de Laravel ou `toIterable()` de Doctrine :
+
+```rust
+let mut chunks = User::query().filter(User::ACTIVE.eq(true)).chunks(500);
+while let Some(users) = chunks.next(&db).await? {
+    for user in users {
+        // au plus 500 utilisateurs en mémoire à la fois
+    }
+}
+
+// Ou avec une closure ; renvoie le nombre de lignes lues.
+let n = User::query().chunks(500).for_each(&db, |users| { /* ... */ Ok(()) }).await?;
+```
+
+Chaque paquet est une requête qui commence après la dernière clé du précédent : modifier ou supprimer des lignes pendant la lecture n'en saute ni n'en répète aucune.
 
 ## Exécuter la requête
 

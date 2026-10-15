@@ -220,6 +220,32 @@ La correspondance se fait uniquement sur la clé primaire, et l'opération est s
 
 > **Attention** `upsert` stocke toujours la clé présente dans votre struct, même pour une clé `auto_increment`. Un upsert de `User { id: 0, ... }` crée une ligne dont l'id vaut `0`. Utilisez `insert` pour les nouvelles lignes des modèles auto-incrémentés, et `upsert` pour les clés naturelles (slugs, codes, UUID) ou les lignes dont vous connaissez l'id. Sur PostgreSQL, notez aussi que faire un upsert de nouvelles lignes avec des ids explicites ne fait pas avancer la séquence des ids : un `insert` ultérieur peut donc entrer en collision avec elles.
 
+## Trouver ou créer, modifier ou créer, enregistrer
+
+Les raccourcis du quotidien d'Eloquent, sur n'importe quelle requête d'un modèle :
+
+```rust
+// La première ligne trouvée, ou cette nouvelle ligne, insérée (firstOrCreate d'Eloquent).
+let alice = User::query()
+    .filter(User::EMAIL.eq("alice@example.com"))
+    .first_or_create(&db, || User::new("alice@example.com", "Alice"))
+    .await?;
+
+// Modifie la première ligne trouvée, ou insère une nouvelle ligne modifiée (updateOrCreate).
+let bob = User::query()
+    .filter(User::EMAIL.eq("bob@example.com"))
+    .update_or_create(&db, || User::new("bob@example.com", "Bob"), |u| u.visits += 1)
+    .await?;
+
+// Insère une nouvelle ligne (clé auto-incrémentée encore à 0), met à jour une ligne existante.
+let mut carol = User::new("carol@example.com", "Carol");
+carol.save(&db).await?; // INSERT
+carol.age = Some(28);
+carol.save(&db).await?; // UPDATE
+```
+
+`first_or_create` gère les accès concurrents : si un autre programme insère la même ligne entre la recherche et l'insertion, l'insertion échoue sur la colonne `unique` et la ligne désormais stockée est renvoyée. `save` et `update_or_create` exécutent les [hooks et l'horodatage](lifecycle) du modèle.
+
 ## Supprimer
 
 ```rust
@@ -240,6 +266,8 @@ println!("removed {removed} inactive user(s)");
 
 > **Attention** `User::delete_many().execute(&db)` sans filtre supprime **toutes les lignes** de la table.
 
+Sur un modèle avec [suppression douce](lifecycle), `delete`, `delete_by_key` et `delete_many` ne font que remplir `deleted_at` ; `force_delete()` et `delete_many().force()` suppriment vraiment les lignes.
+
 Si d'autres tables référencent les lignes supprimées avec `on_delete = "cascade"`, la base de données supprime aussi ces lignes-là (sur SQLite, PostgreSQL et MySQL ; le moteur en mémoire, Redis et MongoDB n'appliquent pas les clés étrangères).
 
 ## Gérer les erreurs
@@ -258,12 +286,13 @@ Chaque opération renvoie un `memoire_orm::Result<T>`, alias de `Result<T, memoi
 | `Error::TableExists(name)` | `create_table` sur une table qui existe déjà |
 | `Error::Unsupported(message)` | Le backend ne sait pas faire cela (par exemple du SQL brut sur Redis, ou une transaction sur un serveur MongoDB autonome) |
 | `Error::Conflict(table)` | Une transaction est entrée en collision avec une transaction concurrente ; on peut réessayer sans risque |
+| `Error::Validation(message)` | Un [hook](lifecycle) (ou votre propre code) a refusé la ligne avant son écriture |
 | `Error::TransactionFinished` | La transaction a déjà été validée (commit) ou annulée (rollback) |
 | `Error::Migration { version, name, source }` | Une migration a échoué ; `source` contient la cause |
 | `Error::Pool(message)` | Le pool PostgreSQL n'a pas pu fournir de connexion |
 | `Error::Database(error)` | Toute autre erreur provenant du driver de la base de données |
 
-Trois helpers couvrent les vérifications les plus courantes : `is_not_found()`, `is_unique_violation()` et `is_conflict()`.
+Quatre helpers couvrent les vérifications les plus courantes : `is_not_found()`, `is_unique_violation()`, `is_conflict()` et `is_validation()`.
 
 ```rust
 let mut duplicate = User::new("alice@example.com", "Another Alice");
@@ -282,6 +311,7 @@ this email is already taken
 
 ## Étapes suivantes
 
+- [Horodatage, suppression douce et hooks](lifecycle) : `created_at`, `updated_at`, `deleted_at` et du code exécuté autour de chaque écriture.
 - [Constructeur de requêtes](queries) : trouvez exactement les lignes dont vous avez besoin.
 - [Transactions](transactions) : regroupez plusieurs écritures en une seule modification tout ou rien.
 - [Jointures et relations](relations) : travaillez avec des tables liées.

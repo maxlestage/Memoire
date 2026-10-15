@@ -179,6 +179,8 @@ Los atributos van en `#[memoire(...)]` encima de un campo. Puedes combinar vario
 | `on_delete` | `#[memoire(references = "users(id)", on_delete = "cascade")]` | Acción cuando se elimina la fila referenciada |
 | `on_update` | `#[memoire(references = "users(id)", on_update = "cascade")]` | Acción cuando cambia la clave referenciada |
 | `skip` | `#[memoire(skip)]` | El campo no se almacena en absoluto |
+| `created_at`, `updated_at` | `#[memoire(created_at)]` | Se rellena con la hora actual al insertar / en cada escritura (ver [Marcas de tiempo, borrado lógico y hooks](lifecycle); `#[memoire(timestamps)]` en la estructura usa los campos con esos nombres) |
+| `soft_delete` | `#[memoire(soft_delete)]` | Columna de borrado lógico: `delete` la rellena y las consultas ignoran las filas marcadas (`#[memoire(soft_deletes)]` en la estructura usa `deleted_at`) |
 
 Este es un modelo que usa la mayoría de ellos:
 

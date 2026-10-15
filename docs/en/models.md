@@ -179,6 +179,8 @@ Attributes go in `#[memoire(...)]` above a field. You can combine several, separ
 | `on_delete` | `#[memoire(references = "users(id)", on_delete = "cascade")]` | Action when the referenced row is deleted |
 | `on_update` | `#[memoire(references = "users(id)", on_update = "cascade")]` | Action when the referenced key changes |
 | `skip` | `#[memoire(skip)]` | The field is not stored at all |
+| `created_at`, `updated_at` | `#[memoire(created_at)]` | Filled with the current time on insert / on every write (see [Timestamps, soft deletes & hooks](lifecycle); `#[memoire(timestamps)]` on the struct uses the fields of those names) |
+| `soft_delete` | `#[memoire(soft_delete)]` | Soft delete column: `delete` stamps it and queries skip stamped rows (`#[memoire(soft_deletes)]` on the struct uses `deleted_at`) |
 
 Here is a model that uses most of them:
 

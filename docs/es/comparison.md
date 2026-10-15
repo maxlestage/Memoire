@@ -29,11 +29,15 @@ Diesel y SeaORM son los dos ORM más usados en Rust, y Nitrite una base NoSQL em
 | Actualización / borrado masivo con filtros | sí | sí | sí, con `increment`, `set_null`... |
 | Inserción múltiple | sí, devuelve las filas en PG/SQLite | sí | sí, por lotes bajo el límite de parámetros de cada base |
 | Upsert | `on_conflict` | `on_conflict` | `upsert` (por clave primaria) |
-| Paginación | `limit`/`offset` a mano | `paginate`, paginación por cursor | `paginate` (recuento y página en paralelo) |
+| Paginación | `limit`/`offset` a mano | `paginate`, paginación por cursor | `paginate` (recuento y página en paralelo), `cursor_paginate` |
 | Agregados, `GROUP BY` | sí | sí | sí |
 | Subconsultas, self-joins (alias) | sí | sí | todavía no: SQL sin procesar |
 | Claves primarias compuestas | sí | sí | todavía no: clave artificial + `unique` |
-| Resultados en streaming | `load_iter` | `stream` | todavía no |
+| Resultados en streaming | `load_iter` | `stream` | `chunks(n)`: bloques acotados, por clave primaria |
+| Marcas de tiempo, borrado lógico | a mano | a mano (`ActiveModelBehavior`) | `#[memoire(timestamps, soft_deletes)]` |
+| Hooks de ciclo de vida | no | `ActiveModelBehavior` (`before_save`...) | `#[memoire(hooks)]` + `impl Hooks` (puede rechazar una escritura) |
+| Buscar o crear | a mano | a mano | `first_or_create`, `update_or_create`, `save` |
+| Registro de consultas | `set_instrumentation` | logs de `sqlx` | `Logged`: SQL, parámetros, duración, filas, en todas las bases |
 | Migraciones | CLI, archivos SQL `up`/`down` | migraciones en Rust con `up`/`down` | Rust o SQL, solo hacia delante, en transacción |
 | Errores normalizados | `DatabaseErrorKind` (unicidad, clave foránea...) | `SqlErr` (unicidad, clave foránea) | `UniqueViolation`, `NotFound`, `Constraint`, `Conflict`... en todas las bases, NoSQL incluido |
 | Generación de código desde una base existente | sí (`diesel print-schema`) | sí (`sea-orm-cli generate entity`) | no |

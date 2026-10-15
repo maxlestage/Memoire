@@ -55,6 +55,33 @@ project adheres to [Semantic Versioning](https://semver.org/).
   emk/rust`, then `git push heroku master`.
 
 ### Added
+- Model lifecycle, in the spirit of Laravel's Eloquent and Doctrine's lifecycle callbacks
+  (module `memoire_orm::lifecycle`, page "Timestamps, soft deletes & hooks"):
+  - Automatic timestamps: `#[memoire(timestamps)]` (fields `created_at`, `updated_at`) or
+    `#[memoire(created_at)]` / `#[memoire(updated_at)]` on any field; filled by `insert`,
+    `save`, `insert_many`, `upsert`, refreshed by `update`, `update_only`, `update_many`
+    and the new `touch`. `i64` (milliseconds), `i32`/`f64` (seconds), `String` (RFC 3339)
+    and `chrono` types; any other type is rejected at compile time.
+  - Soft deletes: `#[memoire(soft_deletes)]` (field `deleted_at`) or
+    `#[memoire(soft_delete)]`; `delete`, `delete_by_key` and `delete_many` stamp the
+    column, every query of the model leaves those rows out (`find`, `count`, `paginate`,
+    relations), `with_trashed`, `only_trashed`, `without_trashed`, `restore`, `trashed`,
+    `force_delete`, `delete_many().force()`.
+  - Lifecycle hooks: `#[memoire(hooks)]` and `impl Hooks` (`before_save`,
+    `before_insert`/`after_insert`, `before_update`/`after_update`,
+    `before_delete`/`after_delete`); a `before_*` hook returning an error cancels the
+    write. New error variant `Error::Validation` and `Error::is_validation`.
+  - `Model::save` (insert a new row, update a stored one), `Model::touch`.
+- `Select::first_or_create` and `Select::update_or_create` (Eloquent's `firstOrCreate` and
+  `updateOrCreate`; `first_or_create` returns the row another writer inserted meanwhile).
+- `Select::chunks(n)` (`Chunks::next`, `Chunks::for_each`): read a large result in bounded
+  batches by primary key, and `Select::cursor_paginate` (`CursorPage`): keyset pagination.
+- `Select::when`, `Select::when_some` and `Select::apply` (conditional parts and reusable
+  scopes of a query).
+- Query log (module `memoire_orm::log`, page "Query log"): `Logged::new(db)` records every
+  statement run through a handle and its transactions, with its SQL, parameters, duration,
+  row count and error (`queries`, `take_queries`, `clear`, `listen`, `with_limit`), on
+  every backend.
 - Releases are automatic: once CI is green on `master`, a version of the root `Cargo.toml`
   that has no tag yet is tagged (`v0.1.0` for `0.1.0`), gets its GitHub release with its
   section of `CHANGELOG.md` as notes, and both crates are published on crates.io. Publishing

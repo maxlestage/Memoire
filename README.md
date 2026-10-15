@@ -26,6 +26,7 @@
 | 🗄️ **SQL and NoSQL, one API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
 | 🔗 **Relations without N+1** | `users.load_children::<Post>(&db)`, `load_parent`, many-to-many `load_via`: one query per level, read from the foreign keys you already declare. |
 | 🔎 **Search and indexes everywhere** | Full-text search (`Post::BODY.matches("rust orm")`) and unique indexes over several columns (`#[memoire(unique(user_id, team_id))]`), with the same behaviour on all six backends. |
+| ⏱️ **Model lifecycle, Eloquent-style** | `#[memoire(timestamps, soft_deletes, hooks)]`: `created_at`/`updated_at` filled for you, `delete` that only hides the row (`with_trashed`, `restore`), hooks that can reject a write; `save`, `first_or_create`, `update_or_create`, `chunks`, `cursor_paginate` and a query log (`Logged`). |
 | 📣 **Change notifications** | `Observed::new(db).subscribe(...)`: every write, on any backend, announced when it commits. |
 | 🌐 **Browser storage** | `Store::<Cart>::new("cart")`, a Pinia-style store saved in `localStorage`, and `LocalStorageDb::open("app")`, a whole database in `localStorage`, in step across tabs (feature `web`). |
 | 💾 **Embedded and durable** | `MemoryDb::open("app.memoire")`: the in-memory engine stored in a crash-safe file, optionally encrypted (AES-256-GCM). |

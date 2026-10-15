@@ -5,8 +5,10 @@ use std::marker::PhantomData;
 use crate::ast::{DeleteAst, Join, JoinKind, Projection, Query, SelectAst, UpdateAst};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
-use crate::expr::{Column, Expr, Numeric, Order, count_all};
+use crate::expr::{Column, ColumnRef, Expr, Numeric, Order, count_all};
+use crate::lifecycle::now_for;
 use crate::model::Model;
+use crate::relation::column_ref;
 use crate::row::FromRow;
 use crate::schema::Dialect;
 use crate::sql;
@@ -161,12 +163,51 @@ impl<T> Page<T> {
 #[must_use = "a query does nothing until it is executed with `.all(&db)`, `.first(&db)`, ..."]
 pub struct Select<O> {
     ast: SelectAst,
+    /// The soft delete scope, for a model with soft deletes.
+    soft: Option<Box<SoftScope>>,
     _out: PhantomData<fn() -> O>,
+}
+
+/// Which rows of a model with soft deletes a query sees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Trashed {
+    /// Only the rows that are not deleted (the default).
+    Without,
+    /// Every row.
+    With,
+    /// Only the deleted rows.
+    Only,
+}
+
+/// The soft delete scope of a query: kept apart from the caller's filters so
+/// that it always applies to all of them (`scope AND (a OR b)`), whatever
+/// `or_filter` does, and can be lifted with `with_trashed`.
+#[derive(Clone, Debug)]
+struct SoftScope {
+    column: ColumnRef,
+    mode: Trashed,
+    /// The caller's own `WHERE` condition.
+    user: Option<Expr>,
+}
+
+impl SoftScope {
+    fn filter(&self) -> Option<Expr> {
+        let column = || Box::new(Expr::Column(self.column));
+        let clause = match self.mode {
+            Trashed::Without => Some(Expr::IsNull { expr: column(), negated: false }),
+            Trashed::Only => Some(Expr::IsNull { expr: column(), negated: true }),
+            Trashed::With => None,
+        };
+        match (clause, self.user.clone()) {
+            (Some(c), Some(u)) => Some(c.and(u)),
+            (c, u) => c.or(u),
+        }
+    }
 }
 
 impl<O> Clone for Select<O> {
     fn clone(&self) -> Self {
-        Select { ast: self.ast.clone(), _out: PhantomData }
+        Select { ast: self.ast.clone(), soft: self.soft.clone(), _out: PhantomData }
     }
 }
 
@@ -177,9 +218,16 @@ impl<O> std::fmt::Debug for Select<O> {
 }
 
 impl<M: Model> Select<M> {
-    /// `SELECT * FROM <M>`.
+    /// `SELECT * FROM <M>`; for a model with [soft deletes](crate::lifecycle),
+    /// `WHERE deleted_at IS NULL` (see [`with_trashed`](Self::with_trashed)).
     pub fn new() -> Self {
-        Select { ast: SelectAst::new(M::SCHEMA), _out: PhantomData }
+        let mut select = Select { ast: SelectAst::new(M::SCHEMA), soft: None, _out: PhantomData };
+        if let Some(i) = M::DELETED_AT_INDEX {
+            select.soft =
+                Some(Box::new(SoftScope { column: column_ref(M::SCHEMA, i), mode: Trashed::Without, user: None }));
+            select.sync_filter();
+        }
+        select
     }
 }
 
@@ -193,7 +241,7 @@ impl<O> Select<O> {
     /// Wraps a hand-built AST. The caller guarantees that the projection
     /// decodes into `O`.
     pub fn from_ast(ast: SelectAst) -> Self {
-        Select { ast, _out: PhantomData }
+        Select { ast, soft: None, _out: PhantomData }
     }
 
     /// The underlying statement.
@@ -207,25 +255,121 @@ impl<O> Select<O> {
     }
 
     fn cast<P>(self) -> Select<P> {
-        Select { ast: self.ast, _out: PhantomData }
+        Select { ast: self.ast, soft: self.soft, _out: PhantomData }
     }
 
-    /// Adds a `WHERE` condition (combined with `AND` with previous ones).
-    pub fn filter(mut self, condition: Expr) -> Self {
-        self.ast.filter = Some(match self.ast.filter.take() {
+    /// Writes the soft delete scope and the caller's filters into the statement.
+    fn sync_filter(&mut self) {
+        if let Some(soft) = &self.soft {
+            self.ast.filter = soft.filter();
+        }
+    }
+
+    /// Combines `condition` with the caller's filters.
+    fn combine(mut self, condition: Expr, or: bool) -> Self {
+        let slot = match &mut self.soft {
+            Some(soft) => &mut soft.user,
+            None => &mut self.ast.filter,
+        };
+        *slot = Some(match slot.take() {
+            Some(prev) if or => prev.or(condition),
             Some(prev) => prev.and(condition),
             None => condition,
         });
+        self.sync_filter();
         self
     }
 
+    /// Adds a `WHERE` condition (combined with `AND` with previous ones).
+    pub fn filter(self, condition: Expr) -> Self {
+        self.combine(condition, false)
+    }
+
     /// Adds a condition combined with `OR` with the previous ones.
-    pub fn or_filter(mut self, condition: Expr) -> Self {
-        self.ast.filter = Some(match self.ast.filter.take() {
-            Some(prev) => prev.or(condition),
-            None => condition,
-        });
+    ///
+    /// On a model with [soft deletes](crate::lifecycle), the scope still
+    /// applies to the whole condition: `deleted_at IS NULL AND (a OR b)`.
+    pub fn or_filter(self, condition: Expr) -> Self {
+        self.combine(condition, true)
+    }
+
+    /// Includes the soft-deleted rows (`withTrashed()` in Eloquent). No effect
+    /// on a model without [soft deletes](crate::lifecycle).
+    pub fn with_trashed(mut self) -> Self {
+        if let Some(soft) = &mut self.soft {
+            soft.mode = Trashed::With;
+        }
+        self.sync_filter();
         self
+    }
+
+    /// Only the soft-deleted rows (`onlyTrashed()` in Eloquent). On a model
+    /// without [soft deletes](crate::lifecycle), no row matches.
+    pub fn only_trashed(mut self) -> Self {
+        match &mut self.soft {
+            Some(soft) => {
+                soft.mode = Trashed::Only;
+                self.sync_filter();
+                self
+            }
+            None => self.filter(Expr::Value(Value::Bool(false))),
+        }
+    }
+
+    /// Leaves the soft-deleted rows out again after
+    /// [`with_trashed`](Self::with_trashed) (the default of [`Model::query`]).
+    pub fn without_trashed(mut self) -> Self {
+        if let Some(soft) = &mut self.soft {
+            soft.mode = Trashed::Without;
+        }
+        self.sync_filter();
+        self
+    }
+
+    /// Applies `scope` to the query: a reusable piece of query, like a local
+    /// scope in Eloquent or a criteria in Doctrine.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model)] #[memoire(table = "users")]
+    /// # struct User { id: i64, name: String, active: bool, age: Option<i32> }
+    /// use memoire_orm::Select;
+    ///
+    /// fn active(q: Select<User>) -> Select<User> {
+    ///     q.filter(User::ACTIVE.eq(true))
+    /// }
+    /// let q = User::query().apply(active).order_by(User::NAME);
+    /// # let _ = q;
+    /// ```
+    pub fn apply(self, scope: impl FnOnce(Self) -> Self) -> Self {
+        scope(self)
+    }
+
+    /// Applies `then` only when `condition` holds (`when()` in Laravel), to
+    /// build a query without breaking the chain.
+    pub fn when(self, condition: bool, then: impl FnOnce(Self) -> Self) -> Self {
+        if condition { then(self) } else { self }
+    }
+
+    /// Applies `then` with the value when there is one: optional filters,
+    /// such as the parameters of an HTTP request.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model)] #[memoire(table = "users")]
+    /// # struct User { id: i64, name: String, age: Option<i32> }
+    /// let min_age: Option<i32> = Some(18);
+    /// let name: Option<&str> = None;
+    /// let q = User::query()
+    ///     .when_some(min_age, |q, age| q.filter(User::AGE.ge(age)))
+    ///     .when_some(name, |q, name| q.filter(User::NAME.eq(name)));
+    /// assert_eq!(q.to_sql(Dialect::Sqlite), r#"SELECT "users"."id", "users"."name", "users"."age" FROM "users" WHERE "users"."age" >= ?"#);
+    /// ```
+    pub fn when_some<T>(self, value: Option<T>, then: impl FnOnce(Self, T) -> Self) -> Self {
+        match value {
+            Some(v) => then(self, v),
+            None => self,
+        }
     }
 
     /// Adds an `ORDER BY` term (`User::NAME.asc()`, `User::AGE.desc()`, or a
@@ -475,6 +619,250 @@ impl<O: FromRow + Send> Select<O> {
     }
 }
 
+impl<M: Model> Select<M> {
+    /// The first matching row, or the row made by `make`, inserted
+    /// (`firstOrCreate` in Eloquent). Returns the row, found or created.
+    ///
+    /// If the insert fails on a unique constraint because another writer
+    /// created the row in the meantime, that row is returned instead.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone, PartialEq)] #[memoire(table = "tags")]
+    /// # struct Tag { #[memoire(primary_key, auto_increment)] id: i64, #[memoire(unique)] name: String }
+    /// # memoire_orm::block_on(async {
+    /// # let db = MemoryDb::new();
+    /// # db.create_table::<Tag>().await?;
+    /// let rust = Tag::query()
+    ///     .filter(Tag::NAME.eq("rust"))
+    ///     .first_or_create(&db, || Tag { id: 0, name: "rust".into() })
+    ///     .await?;
+    /// let again = Tag::query()
+    ///     .filter(Tag::NAME.eq("rust"))
+    ///     .first_or_create(&db, || Tag { id: 0, name: "rust".into() })
+    ///     .await?;
+    /// assert_eq!(rust, again);
+    /// assert_eq!(Tag::count(&db).await?, 1);
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// ```
+    pub async fn first_or_create<E: Executor>(self, db: &E, make: impl FnOnce() -> M) -> Result<M> {
+        if let Some(found) = self.clone().first(db).await? {
+            return Ok(found);
+        }
+        let mut row = make();
+        match row.insert(db).await {
+            Ok(()) => Ok(row),
+            Err(e) if e.is_unique_violation() => match self.first(db).await? {
+                Some(found) => Ok(found),
+                None => Err(e),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Updates the first matching row with `change`, or inserts the row made
+    /// by `make` with `change` applied to it (`updateOrCreate` in Eloquent).
+    /// Returns the row as stored; the update goes through [`Model::save`], so
+    /// its hooks and `updated_at` apply.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone, PartialEq)] #[memoire(table = "settings")]
+    /// # struct Setting { #[memoire(primary_key, auto_increment)] id: i64, #[memoire(unique)] key: String, value: String }
+    /// # memoire_orm::block_on(async {
+    /// # let db = MemoryDb::new();
+    /// # db.create_table::<Setting>().await?;
+    /// for value in ["dark", "light"] {
+    ///     Setting::query()
+    ///         .filter(Setting::KEY.eq("theme"))
+    ///         .update_or_create(&db, || Setting { id: 0, key: "theme".into(), value: String::new() }, |s| {
+    ///             s.value = value.into()
+    ///         })
+    ///         .await?;
+    /// }
+    /// let all = Setting::all(&db).await?;
+    /// assert_eq!((all.len(), all[0].value.as_str()), (1, "light"));
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// ```
+    pub async fn update_or_create<E: Executor>(
+        self,
+        db: &E,
+        make: impl FnOnce() -> M,
+        change: impl FnOnce(&mut M),
+    ) -> Result<M> {
+        let mut row = match self.first(db).await? {
+            Some(found) => found,
+            None => {
+                let mut row = make();
+                change(&mut row);
+                row.insert(db).await?;
+                return Ok(row);
+            }
+        };
+        change(&mut row);
+        row.save(db).await?;
+        Ok(row)
+    }
+
+    /// Reads the matching rows in chunks of `size`, by primary key
+    /// (`chunkById` / `lazyById` in Laravel, `toIterable()` in Doctrine): each
+    /// chunk is one query, `WHERE pk > <last key of the previous chunk>
+    /// ORDER BY pk LIMIT size`, so memory stays bounded and rows written
+    /// meanwhile are neither skipped nor read twice. The query's own
+    /// `ORDER BY`, `LIMIT` and `OFFSET` are replaced.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone)] #[memoire(table = "events")]
+    /// # struct Event { #[memoire(primary_key, auto_increment)] id: i64, kind: String }
+    /// # memoire_orm::block_on(async {
+    /// # let db = MemoryDb::new();
+    /// # db.create_table::<Event>().await?;
+    /// # for _ in 0..5 { Event { id: 0, kind: "click".into() }.insert(&db).await?; }
+    /// let mut chunks = Event::query().filter(Event::KIND.eq("click")).chunks(2);
+    /// let mut sizes = Vec::new();
+    /// while let Some(events) = chunks.next(&db).await? {
+    ///     sizes.push(events.len()); // process up to 2 rows at a time
+    /// }
+    /// assert_eq!(sizes, [2, 2, 1]);
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// ```
+    pub fn chunks(mut self, size: u64) -> Chunks<M> {
+        self.ast.order.clear();
+        self.ast.limit = None;
+        self.ast.offset = None;
+        Chunks { query: self, size: size.max(1), after: None, done: false }
+    }
+
+    /// One page of rows after the cursor `after` (a primary key value, `None`
+    /// for the first page), by ascending primary key: keyset pagination,
+    /// `cursorPaginate` in Laravel. Unlike [`paginate`](Self::paginate), no
+    /// row is counted or skipped, so every page costs the same, and rows
+    /// inserted meanwhile do not shift the pages. Pass
+    /// [`next_cursor`](CursorPage::next_cursor) to get the next page.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone)] #[memoire(table = "items")]
+    /// # struct Item { #[memoire(primary_key, auto_increment)] id: i64, name: String }
+    /// # memoire_orm::block_on(async {
+    /// # let db = MemoryDb::new();
+    /// # db.create_table::<Item>().await?;
+    /// # for n in 0..5 { Item { id: 0, name: format!("item {n}") }.insert(&db).await?; }
+    /// let first = Item::query().cursor_paginate(&db, 2, None).await?;
+    /// assert_eq!(first.items.len(), 2);
+    /// let second = Item::query().cursor_paginate(&db, 2, first.next_cursor).await?;
+    /// assert_eq!(second.items[0].id, 3);
+    /// # Ok::<(), memoire_orm::Error>(())
+    /// # }).unwrap();
+    /// ```
+    pub async fn cursor_paginate<E: Executor>(
+        mut self,
+        db: &E,
+        per_page: u64,
+        after: Option<Value>,
+    ) -> Result<CursorPage<M>> {
+        let per_page = per_page.max(1);
+        let pk = Expr::Column(column_ref(M::SCHEMA, M::SCHEMA.primary_key));
+        self.ast.order.clear();
+        self.ast.offset = None;
+        if let Some(after) = after {
+            self = self.filter(pk.clone().gt(Expr::Value(after)));
+        }
+        let mut items = self.order_by(pk.asc()).limit(per_page.saturating_add(1)).all(db).await?;
+        let next_cursor = if items.len() as u64 > per_page {
+            items.truncate(per_page as usize);
+            items.last().map(Model::key)
+        } else {
+            None
+        };
+        Ok(CursorPage { items, per_page, next_cursor })
+    }
+}
+
+/// The rows of a query read in chunks, returned by [`Select::chunks`].
+///
+/// Call [`next`](Self::next) until it returns `None`.
+#[must_use = "chunks are read with `.next(&db)`"]
+pub struct Chunks<M> {
+    query: Select<M>,
+    size: u64,
+    after: Option<Value>,
+    done: bool,
+}
+
+impl<M> std::fmt::Debug for Chunks<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chunks")
+            .field("size", &self.size)
+            .field("after", &self.after)
+            .field("done", &self.done)
+            .finish()
+    }
+}
+
+impl<M: Model> Chunks<M> {
+    /// The next chunk (at most `size` rows, never empty), or `None` when every
+    /// row was read.
+    pub async fn next<E: Executor>(&mut self, db: &E) -> Result<Option<Vec<M>>> {
+        if self.done {
+            return Ok(None);
+        }
+        let pk = Expr::Column(column_ref(M::SCHEMA, M::SCHEMA.primary_key));
+        let mut query = self.query.clone();
+        if let Some(after) = self.after.take() {
+            query = query.filter(pk.clone().gt(Expr::Value(after)));
+        }
+        let rows = query.order_by(pk.asc()).limit(self.size).all(db).await?;
+        if (rows.len() as u64) < self.size {
+            self.done = true;
+        }
+        match rows.last() {
+            Some(last) => {
+                self.after = Some(last.key());
+                Ok(Some(rows))
+            }
+            None => {
+                self.done = true;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Calls `each` on every chunk, in order, stopping at the first error.
+    /// Returns the number of rows read.
+    pub async fn for_each<E: Executor>(mut self, db: &E, mut each: impl FnMut(Vec<M>) -> Result<()>) -> Result<u64> {
+        let mut total = 0;
+        while let Some(rows) = self.next(db).await? {
+            total += rows.len() as u64;
+            each(rows)?;
+        }
+        Ok(total)
+    }
+}
+
+/// One page of a keyset pagination, returned by [`Select::cursor_paginate`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct CursorPage<T> {
+    /// Rows of this page.
+    pub items: Vec<T>,
+    /// Page size.
+    pub per_page: u64,
+    /// The cursor of the next page (the primary key of the last row), `None`
+    /// on the last page.
+    pub next_cursor: Option<Value>,
+}
+
+impl<T> CursorPage<T> {
+    /// `true` if there is a page after this one.
+    pub fn has_more(&self) -> bool {
+        self.next_cursor.is_some()
+    }
+}
+
 /// An `UPDATE` statement on model `M`, built with `Model::update_many()`.
 ///
 /// ```
@@ -515,9 +903,12 @@ impl<M: Model> Default for Update<M> {
 }
 
 impl<M: Model> Update<M> {
-    /// `UPDATE <M>` without any assignment yet.
+    /// `UPDATE <M>` without any assignment yet; for a model with an
+    /// `updated_at` [timestamp](crate::lifecycle), it is set to the current
+    /// time (unless you [`set`](Self::set) it yourself).
     pub fn new() -> Self {
-        Update { ast: UpdateAst { table: M::SCHEMA, sets: Vec::new(), filter: None }, _m: PhantomData }
+        let sets = M::UPDATED_AT_INDEX.map(|i| (i, Expr::Value(now_for::<M>(i)))).into_iter().collect();
+        Update { ast: UpdateAst { table: M::SCHEMA, sets, filter: None }, _m: PhantomData }
     }
 
     /// Adds an assignment; assigning the same column again replaces it.
@@ -592,12 +983,13 @@ impl<M: Model> Update<M> {
 #[must_use = "a delete does nothing until `.execute(&db)` is called"]
 pub struct Delete<M> {
     ast: DeleteAst,
+    force: bool,
     _m: PhantomData<fn() -> M>,
 }
 
 impl<M> Clone for Delete<M> {
     fn clone(&self) -> Self {
-        Delete { ast: self.ast.clone(), _m: PhantomData }
+        Delete { ast: self.ast.clone(), force: self.force, _m: PhantomData }
     }
 }
 
@@ -616,7 +1008,14 @@ impl<M: Model> Default for Delete<M> {
 impl<M: Model> Delete<M> {
     /// `DELETE FROM <M>` (every row until a filter is added).
     pub fn new() -> Self {
-        Delete { ast: DeleteAst { table: M::SCHEMA, filter: None }, _m: PhantomData }
+        Delete { ast: DeleteAst { table: M::SCHEMA, filter: None }, force: false, _m: PhantomData }
+    }
+
+    /// Removes the rows for good, even on a model with
+    /// [soft deletes](crate::lifecycle) (`forceDelete()` in Eloquent).
+    pub fn force(mut self) -> Self {
+        self.force = true;
+        self
     }
 
     /// Adds a `WHERE` condition (combined with `AND`).
@@ -639,7 +1038,15 @@ impl<M: Model> Delete<M> {
     }
 
     /// Runs the delete and returns the number of deleted rows.
+    ///
+    /// On a model with [soft deletes](crate::lifecycle), the matching rows
+    /// that are not deleted yet get `deleted_at` instead (an `UPDATE`, which
+    /// [`to_sql`](Self::to_sql) does not show), unless [`force`](Self::force)
+    /// was called.
     pub async fn execute<E: Executor>(self, db: &E) -> Result<u64> {
+        if M::DELETED_AT_INDEX.is_some() && !self.force {
+            return crate::model::soft_delete_where::<M, E>(db, self.ast.filter).await;
+        }
         Ok(db.execute(Query::Delete(&self.ast)).await?.rows_affected)
     }
 }
