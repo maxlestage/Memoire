@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
 ### Changed
 - Links to the websites of Active, Vitesse, Securite, Memoire and Paquets (README, docs,
   crate metadata, `app.json`, the website's footer) point to their Heroku addresses instead
