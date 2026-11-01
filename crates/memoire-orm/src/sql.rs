@@ -618,6 +618,132 @@ pub fn ddl(query: &Query<'_>, d: Dialect) -> Result<Vec<String>> {
     }
 }
 
+/// Every secondary index a table should have: `(name, unique, columns)`.
+pub(crate) fn secondary_indexes(t: &TableSchema) -> Vec<(String, bool, Vec<&'static str>)> {
+    let mut indexes: Vec<(String, bool, Vec<&'static str>)> = t
+        .columns
+        .iter()
+        .filter(|c| c.indexed && !c.primary_key && !c.unique)
+        .map(|c| (format!("idx_{}_{}", t.name, c.name), false, vec![c.name]))
+        .collect();
+    indexes.extend(
+        t.indexes
+            .iter()
+            .map(|ix| (ix.name.to_owned(), ix.unique, ix.columns.iter().map(|&i| t.columns[i].name).collect())),
+    );
+    indexes
+}
+
+fn index_columns(d: Dialect, columns: &[&str], out: &mut String) {
+    for (n, c) in columns.iter().enumerate() {
+        if n > 0 {
+            out.push_str(", ");
+        }
+        quote_ident(d, c, out);
+    }
+}
+
+/// `CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (columns)`.
+pub(crate) fn create_index(
+    d: Dialect,
+    table: &str,
+    name: &str,
+    unique: bool,
+    columns: &[&str],
+    if_not_exists: bool,
+) -> String {
+    // MySQL has no `CREATE INDEX IF NOT EXISTS`.
+    let if_not_exists = if_not_exists && d != Dialect::MySql;
+    let mut stmt = String::from(match (unique, if_not_exists) {
+        (false, false) => "CREATE INDEX ",
+        (false, true) => "CREATE INDEX IF NOT EXISTS ",
+        (true, false) => "CREATE UNIQUE INDEX ",
+        (true, true) => "CREATE UNIQUE INDEX IF NOT EXISTS ",
+    });
+    quote_ident(d, name, &mut stmt);
+    stmt.push_str(" ON ");
+    quote_ident(d, table, &mut stmt);
+    stmt.push_str(" (");
+    index_columns(d, columns, &mut stmt);
+    stmt.push(')');
+    stmt
+}
+
+/// MySQL `CREATE [UNIQUE] INDEX` on columns that may already exist as `TEXT`
+/// or `BLOB`, which MySQL only indexes with a prefix length: those columns are
+/// indexed on their first 255 characters, what a new table stores in them
+/// (`VARCHAR(255)`, see [`column_sql_type`]).
+pub(crate) fn mysql_index_with_prefixes(t: &TableSchema, name: &str, unique: bool, columns: &[&str]) -> String {
+    let d = Dialect::MySql;
+    let mut stmt = String::from(if unique { "CREATE UNIQUE INDEX " } else { "CREATE INDEX " });
+    quote_ident(d, name, &mut stmt);
+    stmt.push_str(" ON ");
+    quote_ident(d, t.name, &mut stmt);
+    stmt.push_str(" (");
+    for (n, col) in columns.iter().enumerate() {
+        if n > 0 {
+            stmt.push_str(", ");
+        }
+        quote_ident(d, col, &mut stmt);
+        let def = t.columns.iter().find(|c| c.name == *col);
+        if def.is_some_and(|c| c.sql_type.is_none() && matches!(c.kind, ColumnType::Text | ColumnType::Bytes)) {
+            stmt.push_str("(255)");
+        }
+    }
+    stmt.push(')');
+    stmt
+}
+
+/// The PostgreSQL full-text index of a column: `(name, statement)`.
+pub(crate) fn fulltext_index(t: &TableSchema, c: &ColumnDef, if_not_exists: bool) -> (String, String) {
+    let d = Dialect::Postgres;
+    let name = format!("fts_{}_{}", t.name, c.name);
+    let mut stmt = String::from(if if_not_exists { "CREATE INDEX IF NOT EXISTS " } else { "CREATE INDEX " });
+    quote_ident(d, &name, &mut stmt);
+    stmt.push_str(" ON ");
+    quote_ident(d, t.name, &mut stmt);
+    stmt.push_str(" USING GIN (to_tsvector('simple', regexp_replace(");
+    quote_ident(d, c.name, &mut stmt);
+    stmt.push_str(", '[^[:alnum:]]+', ' ', 'g')))");
+    (name, stmt)
+}
+
+/// `ALTER TABLE table ADD COLUMN ...` for a column added to a model after its
+/// table was created. Its `UNIQUE` constraint, if any, is left to a separate
+/// unique index (SQLite cannot add one with the column).
+pub(crate) fn add_column(t: &TableSchema, c: &ColumnDef, d: Dialect) -> String {
+    let mut s = String::from("ALTER TABLE ");
+    quote_ident(d, t.name, &mut s);
+    s.push_str(" ADD COLUMN ");
+    quote_ident(d, c.name, &mut s);
+    s.push(' ');
+    let in_index = t.indexes.iter().any(|ix| ix.columns.iter().any(|&i| t.columns[i].name == c.name));
+    s.push_str(column_sql_type(c, d, in_index));
+    if !c.nullable {
+        s.push_str(" NOT NULL");
+    }
+    if let Some(def) = c.default {
+        s.push_str(" DEFAULT ");
+        s.push_str(def);
+    }
+    if let Some(fk) = c.references {
+        s.push_str(" REFERENCES ");
+        quote_ident(d, fk.table, &mut s);
+        s.push_str(" (");
+        quote_ident(d, fk.column, &mut s);
+        s.push(')');
+        if let Some(a) = fk.on_delete {
+            s.push_str(" ON DELETE ");
+            s.push_str(a);
+        }
+        if let Some(a) = fk.on_update {
+            s.push_str(" ON UPDATE ");
+            s.push_str(a);
+        }
+    }
+    s
+}
+
 /// `CREATE TABLE` statement(s) for a table.
 pub fn create_table(t: &TableSchema, d: Dialect, if_not_exists: bool) -> Vec<String> {
     let mut s = String::with_capacity(256);
@@ -651,60 +777,22 @@ pub fn create_table(t: &TableSchema, d: Dialect, if_not_exists: bool) -> Vec<Str
             }
         }
     }
-    // (name, unique, columns) of every secondary index.
-    let mut indexes: Vec<(String, bool, Vec<&str>)> = t
-        .columns
-        .iter()
-        .filter(|c| c.indexed && !c.primary_key && !c.unique)
-        .map(|c| (format!("idx_{}_{}", t.name, c.name), false, vec![c.name]))
-        .collect();
-    indexes.extend(
-        t.indexes
-            .iter()
-            .map(|ix| (ix.name.to_owned(), ix.unique, ix.columns.iter().map(|&i| t.columns[i].name).collect())),
-    );
     let mut extra = Vec::new();
-    for (idx_name, unique, columns) in &indexes {
-        let mut cols = String::new();
-        for (n, c) in columns.iter().enumerate() {
-            if n > 0 {
-                cols.push_str(", ");
-            }
-            quote_ident(d, c, &mut cols);
-        }
+    for (idx_name, unique, columns) in &secondary_indexes(t) {
         if d == Dialect::MySql {
             s.push_str(if *unique { ",\n    UNIQUE INDEX " } else { ",\n    INDEX " });
             quote_ident(d, idx_name, &mut s);
             s.push_str(" (");
-            s.push_str(&cols);
+            index_columns(d, columns, &mut s);
             s.push(')');
         } else {
-            let mut stmt = String::from(match (*unique, if_not_exists) {
-                (false, false) => "CREATE INDEX ",
-                (false, true) => "CREATE INDEX IF NOT EXISTS ",
-                (true, false) => "CREATE UNIQUE INDEX ",
-                (true, true) => "CREATE UNIQUE INDEX IF NOT EXISTS ",
-            });
-            quote_ident(d, idx_name, &mut stmt);
-            stmt.push_str(" ON ");
-            quote_ident(d, t.name, &mut stmt);
-            stmt.push_str(" (");
-            stmt.push_str(&cols);
-            stmt.push(')');
-            extra.push(stmt);
+            extra.push(create_index(d, t.name, idx_name, *unique, columns, if_not_exists));
         }
     }
     // Full-text: a GIN index over the same expression `Column::matches` searches.
     if d == Dialect::Postgres {
         for c in t.columns.iter().filter(|c| c.fulltext) {
-            let mut stmt = String::from(if if_not_exists { "CREATE INDEX IF NOT EXISTS " } else { "CREATE INDEX " });
-            quote_ident(d, &format!("fts_{}_{}", t.name, c.name), &mut stmt);
-            stmt.push_str(" ON ");
-            quote_ident(d, t.name, &mut stmt);
-            stmt.push_str(" USING GIN (to_tsvector('simple', regexp_replace(");
-            quote_ident(d, c.name, &mut stmt);
-            stmt.push_str(", '[^[:alnum:]]+', ' ', 'g')))");
-            extra.push(stmt);
+            extra.push(fulltext_index(t, c, if_not_exists).1);
         }
     }
     s.push_str("\n)");

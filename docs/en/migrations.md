@@ -2,6 +2,10 @@
 
 Migrations are numbered, ordered changes to your database schema: "1: create the users table", "2: add a bio column", and so on. Memoire records which ones already ran, so every database (your laptop, your tests, production) reaches the same schema by applying only what is missing.
 
+## Without migration files: `push`
+
+While a schema is still moving (prototypes, tests, small apps), `db.push::<User>().await?` brings the table up to date with the model, like `drizzle-kit push` or `prisma db push`: it creates the table if it is missing, otherwise adds the new columns and indexes. Nothing is ever dropped, renamed or retyped, and a column that existing rows could not fill (not an `Option<T>`, no `#[memoire(default = "...")]`) is refused before anything changes. Running it again changes nothing; the returned `PushReport` says what was added. For anything else, write a migration as below.
+
 ## Your first migration
 
 ```rust

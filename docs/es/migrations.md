@@ -2,6 +2,10 @@
 
 Las migraciones son cambios numerados y ordenados en el esquema de tu base de datos: "1: crear la tabla users", "2: añadir una columna bio", etc. Memoire registra cuáles se han ejecutado ya, de modo que todas las bases de datos (tu portátil, tus pruebas, producción) llegan al mismo esquema aplicando solo lo que falta.
 
+## Sin ficheros de migración: `push`
+
+Mientras un esquema todavía cambia (prototipos, tests, aplicaciones pequeñas), `db.push::<User>().await?` pone la tabla al día con el modelo, como `drizzle-kit push` o `prisma db push`: crea la tabla si falta y, si no, añade las columnas y los índices nuevos. Nunca se borra, renombra ni cambia de tipo nada, y una columna que las filas existentes no podrían rellenar (no es `Option<T>`, sin `#[memoire(default = "...")]`) se rechaza antes de cambiar nada. Volver a ejecutarlo no cambia nada; el `PushReport` devuelto indica lo añadido. Para todo lo demás, escriba una migración como abajo.
+
 ## Tu primera migración
 
 ```rust

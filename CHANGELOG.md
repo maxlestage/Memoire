@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `Database::transaction(|tx| Box::pin(async move { ... }))`, like Prisma's `$transaction`:
+  commits on `Ok`, rolls back on `Err`, and runs the closure again when the database reports a
+  conflict (concurrent writer, deadlock, serialization failure, busy SQLite file), up to
+  `TRANSACTION_ATTEMPTS` (5) times. Works on every backend.
+- `Executor::push::<M>()`, like `drizzle-kit push` / `prisma db push`: creates the table if it is
+  missing, otherwise adds the model's new columns and indexes (SQLite, PostgreSQL, MySQL), and
+  returns a `PushReport`. Never drops, renames or retypes anything; refuses, before changing
+  anything, a column that existing rows could not fill. Idempotent.
+
+### Changed
+- SQLite: a database still busy after `busy_timeout` now reports `Error::Conflict` (safe to
+  retry) instead of a generic `Error::Database`.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed

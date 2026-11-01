@@ -30,7 +30,7 @@
 | 📣 **Change notifications** | `Observed::new(db).subscribe(...)`: every write, on any backend, announced when it commits. |
 | 🌐 **Browser storage** | `Store::<Cart>::new("cart")`, a Pinia-style store saved in `localStorage`, and `LocalStorageDb::open("app")`, a whole database in `localStorage`, in step across tabs (feature `web`). |
 | 💾 **Embedded and durable** | `MemoryDb::open("app.memoire")`: the in-memory engine stored in a crash-safe file, optionally encrypted (AES-256-GCM). |
-| 🔋 **Batteries included** | Transactions, migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
+| 🔋 **Batteries included** | `db.transaction(...)` that retries itself on conflicts (like Prisma's `$transaction`), `db.push::<User>()` that adds new columns and indexes without migration files (like `drizzle-kit push`), migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
 | 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
 
 ## Quick look

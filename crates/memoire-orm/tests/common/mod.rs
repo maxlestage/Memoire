@@ -142,6 +142,10 @@ pub async fn run_suite<D: Database>(db: &D) -> Result<()> {
     reset(db).await?;
     transactions(db).await?;
     reset(db).await?;
+    transaction_helper(db).await?;
+    reset(db).await?;
+    push_schema(db).await?;
+    reset(db).await?;
     bulk(db).await?;
     reset(db).await?;
     errors(db).await?;
@@ -653,6 +657,148 @@ async fn transactions<D: Database>(db: &D) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     assert_eq!(User::count(db).await?, 1);
+    Ok(())
+}
+
+async fn transaction_helper<D: Database>(db: &D) -> Result<()> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    // Ok: committed, and the value comes back.
+    let id = db
+        .transaction(|tx| {
+            Box::pin(async move {
+                let mut a = user("helper1@example.com", "Helper One", None, 0.0);
+                a.insert(tx).await?;
+                Ok(a.id)
+            })
+        })
+        .await?;
+    assert!(User::find(db, id).await?.is_some());
+
+    // Err: rolled back, the error comes back, no retry.
+    let calls = Arc::new(AtomicU32::new(0));
+    let err = db
+        .transaction(|tx| {
+            let calls = calls.clone();
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                user("helper2@example.com", "Helper Two", None, 0.0).insert(tx).await?;
+                Err::<(), _>(Error::Validation("no".into()))
+            })
+        })
+        .await
+        .unwrap_err();
+    assert!(err.is_validation());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(User::query().filter(User::EMAIL.eq("helper2@example.com")).count(db).await?, 0);
+
+    // Conflict: run again from the start, the failed attempts leave nothing.
+    let calls = Arc::new(AtomicU32::new(0));
+    db.transaction(|tx| {
+        let calls = calls.clone();
+        Box::pin(async move {
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            user(&format!("helper3-{n}@example.com"), "Helper Three", None, 0.0).insert(tx).await?;
+            if n < 2 { Err(Error::Conflict("users".into())) } else { Ok(()) }
+        })
+    })
+    .await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(User::query().filter(User::NAME.eq("Helper Three")).count(db).await?, 1);
+    assert!(User::query().filter(User::EMAIL.eq("helper3-2@example.com")).exists(db).await?);
+
+    // Conflicts forever: gives up after TRANSACTION_ATTEMPTS.
+    let calls = Arc::new(AtomicU32::new(0));
+    let err = db
+        .transaction(|_tx| {
+            let calls = calls.clone();
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(Error::Conflict("users".into()))
+            })
+        })
+        .await
+        .unwrap_err();
+    assert!(err.is_conflict());
+    assert_eq!(calls.load(Ordering::SeqCst), memoire_orm::TRANSACTION_ATTEMPTS);
+    Ok(())
+}
+
+mod push_models {
+    use memoire_orm::prelude::*;
+
+    /// The first version of a model.
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "push_items")]
+    pub struct V1 {
+        #[memoire(primary_key, auto_increment)]
+        pub id: i64,
+        pub name: String,
+    }
+
+    /// The same table, after columns and indexes were added to the model.
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "push_items", index(name, score))]
+    pub struct V2 {
+        #[memoire(primary_key, auto_increment)]
+        pub id: i64,
+        pub name: String,
+        #[memoire(unique)]
+        pub code: Option<String>,
+        #[memoire(index, default = "7")]
+        pub score: i32,
+    }
+
+    /// A column existing rows could not fill.
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "push_items")]
+    pub struct V3 {
+        #[memoire(primary_key, auto_increment)]
+        pub id: i64,
+        pub name: String,
+        pub required: String,
+    }
+}
+
+async fn push_schema<E: Executor>(db: &E) -> Result<()> {
+    use push_models::{V1, V2, V3};
+    db.drop_table_if_exists::<V1>().await?;
+
+    let report = db.push::<V1>().await?;
+    assert!(report.created);
+    assert!(db.push::<V1>().await?.is_unchanged());
+    let mut old = V1 { id: 0, name: "old".into() };
+    old.insert(db).await?;
+
+    if db.dialect().is_none() {
+        // In-memory, Redis, MongoDB: the table exists, nothing to alter.
+        db.drop_table::<V1>().await?;
+        return Ok(());
+    }
+
+    // A column that existing rows could not fill: refused, nothing changes.
+    let err = db.push::<V3>().await.unwrap_err();
+    assert!(err.to_string().contains("push_items.required"), "{err}");
+
+    let report = db.push::<V2>().await?;
+    assert!(!report.created);
+    assert_eq!(report.added_columns, vec!["code", "score"]);
+    let mut indexes = report.added_indexes.clone();
+    indexes.sort();
+    assert_eq!(indexes.len(), 3, "{indexes:?}");
+    assert!(db.push::<V2>().await?.is_unchanged());
+
+    // The old row reads with the new model: NULL and the default.
+    let row = V2::find(db, old.id).await?.unwrap();
+    assert_eq!(row, V2 { id: old.id, name: "old".into(), code: None, score: 7 });
+    // The unique index added with the column works.
+    let mut a = V2 { id: 0, name: "a".into(), code: Some("X".into()), score: 1 };
+    a.insert(db).await?;
+    let mut b = V2 { id: 0, name: "b".into(), code: Some("X".into()), score: 2 };
+    assert!(b.insert(db).await.unwrap_err().is_unique_violation());
+
+    db.drop_table::<V2>().await?;
     Ok(())
 }
 

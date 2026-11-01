@@ -48,6 +48,11 @@ fn map_err(err: rusqlite::Error) -> Error {
             }
             return Error::Constraint(msg);
         }
+        if matches!(e.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) {
+            // Another connection held the file longer than `busy_timeout`:
+            // nothing was written, retrying is safe.
+            return Error::Conflict(String::new());
+        }
         if let Some(t) = msg.strip_prefix("no such table: ") {
             return Error::NoSuchTable(t.trim().to_owned());
         }
