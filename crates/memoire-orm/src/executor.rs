@@ -2,6 +2,7 @@
 //! backend.
 
 use std::future::Future;
+use std::pin::Pin;
 
 use crate::ast::{InsertAst, Query};
 use crate::error::Result;
@@ -52,6 +53,28 @@ pub trait Executor: Send + Sync {
         }
     }
 
+    /// Brings the model's table up to date, like `drizzle-kit push` or
+    /// `prisma db push`, without migration files: creates the table if it is
+    /// missing, otherwise adds the columns and indexes added to the model
+    /// since. Nothing is ever dropped, renamed or retyped, and a column that
+    /// existing rows could not fill (not an `Option`, no `default`) is refused
+    /// before anything changes. Running it again changes nothing.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone)]
+    /// # struct User { #[memoire(primary_key, auto_increment)] id: i64, name: String }
+    /// # async fn demo() -> memoire_orm::Result<()> {
+    /// let db = MemoryDb::new();
+    /// let report = db.push::<User>().await?;
+    /// assert!(report.created);
+    /// assert!(db.push::<User>().await?.is_unchanged());
+    /// # Ok(()) }
+    /// ```
+    fn push<M: Model>(&self) -> impl Future<Output = Result<crate::push::PushReport>> + Send {
+        crate::push::push::<Self, M>(self)
+    }
+
     /// `DROP TABLE` for a model.
     fn drop_table<M: Model>(&self) -> impl Future<Output = Result<()>> + Send {
         async move {
@@ -100,6 +123,13 @@ pub trait Executor: Send + Sync {
     }
 }
 
+/// A boxed future borrowing a transaction, returned by the closure given to
+/// [`Database::transaction`]: write `Box::pin(async move { ... })`.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// How many times [`Database::transaction`] runs its closure at most.
+pub const TRANSACTION_ATTEMPTS: u32 = 5;
+
 /// A database handle that can open transactions.
 pub trait Database: Executor {
     /// Transaction type.
@@ -112,6 +142,65 @@ pub trait Database: Executor {
     /// The transaction is rolled back if it is dropped without calling
     /// [`Transaction::commit`].
     fn begin(&self) -> impl Future<Output = Result<Self::Tx<'_>>> + Send;
+
+    /// Runs `f` in a transaction, like Prisma's `$transaction`: commits when
+    /// it returns `Ok`, rolls back when it returns `Err` (or panics), and runs
+    /// it again from the start when the database reports a conflict
+    /// ([`Error::is_conflict`](crate::Error::is_conflict): a concurrent
+    /// writer, a deadlock, a serialization failure, a busy SQLite file), up to
+    /// [`TRANSACTION_ATTEMPTS`] times in all.
+    ///
+    /// Since `f` may run more than once, it reads what it needs inside the
+    /// transaction. The future it returns may only borrow the transaction:
+    /// it captures values (`move`, cloning a `String` or an `Arc` if needed),
+    /// not references to local variables.
+    ///
+    /// ```
+    /// # use memoire_orm::prelude::*;
+    /// # #[derive(Model, Debug, Clone)]
+    /// # struct Account { #[memoire(primary_key)] id: i64, balance: i64 }
+    /// # async fn demo() -> memoire_orm::Result<()> {
+    /// let db = MemoryDb::new();
+    /// # db.create_table::<Account>().await?;
+    /// # Account { id: 1, balance: 100 }.insert(&db).await?;
+    /// # Account { id: 2, balance: 0 }.insert(&db).await?;
+    /// let amount = 30;
+    /// db.transaction(|tx| Box::pin(async move {
+    ///     let mut from = Account::find(tx, 1).await?.ok_or(Error::NotFound)?;
+    ///     let mut to = Account::find(tx, 2).await?.ok_or(Error::NotFound)?;
+    ///     from.balance -= amount;
+    ///     to.balance += amount;
+    ///     from.update(tx).await?;
+    ///     to.update(tx).await?;
+    ///     Ok(())
+    /// }))
+    /// .await?;
+    /// # Ok(()) }
+    /// ```
+    fn transaction<'c, T, F>(&'c self, mut f: F) -> impl Future<Output = Result<T>> + Send
+    where
+        Self: 'c,
+        T: Send,
+        F: for<'t> FnMut(&'t Self::Tx<'c>) -> BoxFuture<'t, Result<T>> + Send,
+    {
+        async move {
+            let mut attempt = 1;
+            loop {
+                let tx = self.begin().await?;
+                let outcome = match f(&tx).await {
+                    Ok(value) => tx.commit().await.map(|()| value),
+                    Err(e) => {
+                        let _ = tx.rollback().await;
+                        Err(e)
+                    }
+                };
+                match outcome {
+                    Err(e) if e.is_conflict() && attempt < TRANSACTION_ATTEMPTS => attempt += 1,
+                    outcome => return outcome,
+                }
+            }
+        }
+    }
 }
 
 /// An open transaction. It is itself an [`Executor`].

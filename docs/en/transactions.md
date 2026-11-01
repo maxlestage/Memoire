@@ -2,6 +2,23 @@
 
 A transaction groups several changes so that they happen all together or not at all. This page shows how to open, commit and roll back transactions, how to retry when two transactions collide, and how each backend behaves.
 
+## The simplest way: `db.transaction`
+
+```rust
+db.transaction(|tx| Box::pin(async move {
+    let mut from = Account::get(tx, 1).await?;
+    let mut to = Account::get(tx, 2).await?;
+    from.balance -= 30;
+    to.balance += 30;
+    from.update(tx).await?;
+    to.update(tx).await?;
+    Ok(())
+}))
+.await?;
+```
+
+Commits when the closure returns `Ok`, rolls back when it returns `Err`, and runs it again from the start when the database reports a conflict (a concurrent writer, a deadlock, a serialization failure, a busy SQLite file), up to 5 times (`TRANSACTION_ATTEMPTS`), like Prisma's `$transaction`. The closure can therefore run more than once: read inside it what you change, and capture values (`move`, clone a `String` or an `Arc`), not references to local variables. Works on every backend.
+
 ## Why transactions?
 
 Moving money from one account to another takes two updates: subtract from the first account, add to the second. If the program crashes, or the second update fails, between the two, money disappears. Inside a transaction, either both updates are saved or neither is.

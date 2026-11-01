@@ -2,6 +2,23 @@
 
 Una transacción agrupa varios cambios para que se apliquen todos juntos o ninguno. Esta página muestra cómo abrir, confirmar (commit) y revertir (rollback) transacciones, cómo reintentar cuando dos transacciones chocan y cómo se comporta cada backend.
 
+## Lo más sencillo: `db.transaction`
+
+```rust
+db.transaction(|tx| Box::pin(async move {
+    let mut from = Account::get(tx, 1).await?;
+    let mut to = Account::get(tx, 2).await?;
+    from.balance -= 30;
+    to.balance += 30;
+    from.update(tx).await?;
+    to.update(tx).await?;
+    Ok(())
+}))
+.await?;
+```
+
+Confirma si la closure devuelve `Ok`, revierte si devuelve `Err`, y la vuelve a ejecutar desde el principio cuando la base informa de un conflicto (escritura concurrente, interbloqueo, fallo de serialización, fichero SQLite ocupado), hasta 5 veces (`TRANSACTION_ATTEMPTS`), como `$transaction` de Prisma. La closure puede ejecutarse varias veces: lea dentro lo que modifica y capture valores (`move`, clone un `String` o un `Arc`), no referencias a variables locales. Funciona en todos los backends.
+
 ## ¿Por qué usar transacciones?
 
 Mover dinero de una cuenta a otra requiere dos actualizaciones: restar de la primera cuenta y sumar a la segunda. Si el programa se cuelga, o la segunda actualización falla, entre ambas, el dinero desaparece. Dentro de una transacción, o se guardan las dos actualizaciones o no se guarda ninguna.

@@ -113,6 +113,7 @@ pub mod lifecycle;
 pub mod log;
 pub mod migrate;
 mod model;
+mod push;
 mod query;
 pub mod relation;
 mod row;
@@ -127,7 +128,7 @@ pub mod web;
 pub use ast::{JoinKind, Query};
 pub use error::{Error, Result};
 pub use events::{Change, ChangeKind, Observed};
-pub use executor::{Database, ExecResult, Executor, Transaction};
+pub use executor::{BoxFuture, Database, ExecResult, Executor, TRANSACTION_ATTEMPTS, Transaction};
 pub use expr::{
     AggFunc, BinOp, Column, ColumnRef, Expr, Nulls, Numeric, Order, TextSearch, count_all, escape_like, text_words,
 };
@@ -135,6 +136,7 @@ pub use lifecycle::Hooks;
 pub use log::{Logged, LoggedQuery};
 pub use migrate::{Migration, Migrator};
 pub use model::Model;
+pub use push::PushReport;
 pub use query::{
     Chunks, ColumnList, Cursor, CursorPage, Delete, Joined, KeysetPage, ModelColumns, Page, Select, SumType, Update,
 };
@@ -182,7 +184,8 @@ pub mod prelude {
     pub use crate::SqliteDb;
     pub use crate::{
         Database, DbEnum, Dialect, Error, Executor, Expr, FromRow, JoinKind, LoadCounts, LoadMorph, LoadPivot,
-        LoadRelated, Migration, Migrator, Model, Observed, Page, Result, Transaction, Value, count_all, params,
+        LoadRelated, Migration, Migrator, Model, Observed, Page, PushReport, Result, Transaction, Value, count_all,
+        params,
     };
 }
 

@@ -2,6 +2,10 @@
 
 Les migrations sont des modifications numérotées et ordonnées de votre schéma de base de données : « 1 : créer la table users », « 2 : ajouter une colonne bio », et ainsi de suite. Memoire enregistre celles qui ont déjà été exécutées, de sorte que chaque base de données (votre portable, vos tests, la production) atteint le même schéma en n'appliquant que ce qui lui manque.
 
+## Sans fichiers de migration : `push`
+
+Tant qu'un schéma bouge encore (prototypes, tests, petites applications), `db.push::<User>().await?` met la table à jour avec le modèle, comme `drizzle-kit push` ou `prisma db push` : il crée la table si elle manque, sinon ajoute les nouvelles colonnes et les nouveaux index. Rien n'est jamais supprimé, renommé ni retypé, et une colonne que les lignes existantes ne pourraient pas remplir (pas une `Option<T>`, pas de `#[memoire(default = "...")]`) est refusée avant tout changement. Le relancer ne change rien ; le `PushReport` renvoyé dit ce qui a été ajouté. Pour le reste, écrivez une migration comme ci-dessous.
+
 ## Votre première migration
 
 ```rust

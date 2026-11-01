@@ -30,7 +30,7 @@
 | 📣 **Notificaciones de cambios** | `Observed::new(db).subscribe(...)`: cada escritura, en cualquier base, anunciada al confirmar. |
 | 🌐 **Almacenamiento del navegador** | `Store::<Cart>::new("cart")`, un store al estilo Pinia guardado en `localStorage`, y `LocalStorageDb::open("app")`, una base entera en `localStorage`, sincronizados entre pestañas (feature `web`). |
 | 💾 **Embebido y duradero** | `MemoryDb::open("app.memoire")`: el motor en memoria guardado en un archivo resistente a caídas, cifrable (AES-256-GCM). |
-| 🔋 **Todo incluido** | Transacciones, migraciones, joins, agregados, `GROUP BY`, paginación, upserts, actualizaciones parciales (`update_only`), `find_many`, errores unificados. |
+| 🔋 **Todo incluido** | `db.transaction(...)` que se reintenta solo ante conflictos (como `$transaction` de Prisma), `db.push::<User>()` que añade columnas e índices nuevos sin ficheros de migración (como `drizzle-kit push`), migraciones, joins, agregados, `GROUP BY`, paginación, upserts, actualizaciones parciales (`update_only`), `find_many`, errores unificados. |
 | 🦀 **Seguro** | `#![forbid(unsafe_code)]`, la misma batería de pruebas pasa en los seis motores. |
 
 ## Vistazo rápido

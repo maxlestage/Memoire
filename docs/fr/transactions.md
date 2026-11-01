@@ -2,6 +2,23 @@
 
 Une transaction regroupe plusieurs modifications pour qu'elles s'appliquent toutes ensemble ou pas du tout. Cette page montre comment ouvrir, valider (commit) et annuler (rollback) des transactions, comment réessayer quand deux transactions entrent en collision, et comment se comporte chaque backend.
 
+## Le plus simple : `db.transaction`
+
+```rust
+db.transaction(|tx| Box::pin(async move {
+    let mut from = Account::get(tx, 1).await?;
+    let mut to = Account::get(tx, 2).await?;
+    from.balance -= 30;
+    to.balance += 30;
+    from.update(tx).await?;
+    to.update(tx).await?;
+    Ok(())
+}))
+.await?;
+```
+
+Valide si la closure renvoie `Ok`, annule si elle renvoie `Err`, et la relance depuis le début quand la base signale un conflit (écriture concurrente, interblocage, échec de sérialisation, fichier SQLite occupé), jusqu'à 5 fois (`TRANSACTION_ATTEMPTS`), comme `$transaction` de Prisma. La closure peut donc tourner plusieurs fois : lisez dedans ce que vous modifiez, et capturez des valeurs (`move`, clonez une `String` ou un `Arc`), pas des références à des variables locales. Fonctionne sur toutes les bases.
+
 ## Pourquoi des transactions ?
 
 Virer de l'argent d'un compte à un autre demande deux modifications : retirer du premier compte, ajouter au second. Si le programme plante, ou si la seconde modification échoue, entre les deux, de l'argent disparaît. Dans une transaction, soit les deux modifications sont enregistrées, soit aucune ne l'est.
