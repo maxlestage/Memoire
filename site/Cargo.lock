@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "active"
 version = "0.2.0"
-source = "git+https://github.com/maxlestage/Active#0323605026745580cfe179eb48ffaef4a5fecae6"
+source = "git+https://github.com/maxlestage/Active#65f584959ebf85e9a98988f762fe6945a31ec296"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
