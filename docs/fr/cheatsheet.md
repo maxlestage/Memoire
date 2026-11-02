@@ -193,11 +193,12 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 
 | Tâche | Code |
 |---|---|
+| Tout en un | `db.transaction(\|tx\| Box::pin(async move { ... })).await?` : valide sur `Ok`, annule sur `Err`, relance en cas de conflit |
 | Démarrer | `let tx = db.begin().await?;` |
 | L'utiliser | passez `&tx` au lieu de `&db` |
 | Valider / annuler | `tx.commit().await?` / `tx.rollback().await?` |
 | Annulation automatique | droppez `tx` (par exemple en sortant prématurément avec `?`) |
-| Réessayer en cas de conflit | `Err(e) if e.is_conflict() => continue` dans une boucle autour de toute la transaction |
+| Réessayer en cas de conflit | automatique avec `db.transaction` (jusqu'à `TRANSACTION_ATTEMPTS`) ; à la main : `Err(e) if e.is_conflict() => continue` dans une boucle autour de toute la transaction |
 | Code générique | `async fn f<E: Executor>(db: &E)` (handle ou transaction), `async fn g<D: Database>(db: &D)` (peut appeler `begin`) |
 
 ## Migrations
@@ -208,6 +209,7 @@ Pages des backends : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL
 | Autres étapes | `.drop_table("old")`, `.sql("...")`, `.sql_for(Dialect::Postgres, "...")` |
 | Exécuter celles en attente | `Migrator::new().add(m1).add(m2).run(&db).await?` → versions appliquées |
 | Inspecter | `migrator.applied(&db).await?`, `migrator.pending(&db).await?` |
+| Sans fichier de migration | `db.push::<User>().await?` → `PushReport` (crée la table ou ajoute les nouvelles colonnes et index, ne supprime jamais rien) |
 
 ## SQL brut et accès aux drivers
 

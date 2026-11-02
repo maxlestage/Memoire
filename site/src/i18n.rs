@@ -234,12 +234,12 @@ static EN_FEATURES: [Feature; 8] = [
     Feature {
         title: "Async-first",
         desc: "Every operation is async and fits right into your runtime.",
-        detail: "insert, update, query, transactions and migrations are all async, so Memoire slots into modern async Rust applications without blocking threads.",
+        detail: "insert, update, query, transactions and migrations are all async, so Memoire slots into modern async Rust applications without blocking threads. db.transaction(|tx| ...) commits on Ok, rolls back on Err and runs the closure again when the database reports a conflict, like Prisma's $transaction.",
     },
     Feature {
         title: "Migrations",
-        desc: "Versioned, ordered and generated from your models.",
-        detail: "Describe your schema history with Migration::new(version, name) and let the Migrator apply what is missing, in order, at startup.",
+        desc: "Versioned, ordered and generated from your models, or a single db.push while prototyping.",
+        detail: "Describe your schema history with Migration::new(version, name) and let the Migrator apply what is missing, in order, at startup. While the schema is still moving, db.push::<User>() creates the table or adds the new columns and indexes, like drizzle-kit push or prisma db push: it never drops anything and is safe to run again.",
     },
 ];
 
@@ -330,6 +330,7 @@ static EN: Texts = Texts {
         "WebAssembly",
         "async / await",
         "Migrations",
+        "Schema push",
         "Transactions",
         "Derive macros",
         "Type-safe filters",
@@ -497,12 +498,12 @@ static FR_FEATURES: [Feature; 8] = [
     Feature {
         title: "Async avant tout",
         desc: "Chaque opération est asynchrone et s'intègre à votre runtime.",
-        detail: "insert, update, les requêtes, les transactions et les migrations sont toutes async : Memoire s'intègre aux applications Rust modernes sans bloquer de threads.",
+        detail: "insert, update, les requêtes, les transactions et les migrations sont toutes async : Memoire s'intègre aux applications Rust modernes sans bloquer de threads. db.transaction(|tx| ...) valide sur Ok, annule sur Err et relance la closure quand la base signale un conflit, comme le $transaction de Prisma.",
     },
     Feature {
         title: "Migrations",
-        desc: "Versionnées, ordonnées et générées depuis vos modèles.",
-        detail: "Décrivez l'historique de votre schéma avec Migration::new(version, nom) et laissez le Migrator appliquer ce qui manque, dans l'ordre, au démarrage.",
+        desc: "Versionnées, ordonnées et générées depuis vos modèles, ou un simple db.push pendant le prototypage.",
+        detail: "Décrivez l'historique de votre schéma avec Migration::new(version, nom) et laissez le Migrator appliquer ce qui manque, dans l'ordre, au démarrage. Tant que le schéma bouge encore, db.push::<User>() crée la table ou ajoute les nouvelles colonnes et index, comme drizzle-kit push ou prisma db push : il ne supprime jamais rien et peut être relancé sans risque.",
     },
 ];
 
@@ -601,6 +602,7 @@ static FR: Texts = Texts {
         "WebAssembly",
         "async / await",
         "Migrations",
+        "Push du schéma",
         "Transactions",
         "Macros derive",
         "Filtres typés",
@@ -768,12 +770,12 @@ static ES_FEATURES: [Feature; 8] = [
     Feature {
         title: "Async por defecto",
         desc: "Cada operación es asíncrona y encaja en tu runtime.",
-        detail: "insert, update, las consultas, las transacciones y las migraciones son async, así que Memoire se integra en aplicaciones Rust modernas sin bloquear hilos.",
+        detail: "insert, update, las consultas, las transacciones y las migraciones son async, así que Memoire se integra en aplicaciones Rust modernas sin bloquear hilos. db.transaction(|tx| ...) confirma con Ok, revierte con Err y vuelve a ejecutar el closure cuando la base de datos señala un conflicto, como el $transaction de Prisma.",
     },
     Feature {
         title: "Migraciones",
-        desc: "Versionadas, ordenadas y generadas a partir de tus modelos.",
-        detail: "Describe el historial de tu esquema con Migration::new(versión, nombre) y deja que el Migrator aplique lo que falte, en orden, al arrancar.",
+        desc: "Versionadas, ordenadas y generadas a partir de tus modelos, o un simple db.push mientras prototipas.",
+        detail: "Describe el historial de tu esquema con Migration::new(versión, nombre) y deja que el Migrator aplique lo que falte, en orden, al arrancar. Mientras el esquema aún cambia, db.push::<User>() crea la tabla o añade las nuevas columnas e índices, como drizzle-kit push o prisma db push: nunca elimina nada y se puede volver a ejecutar sin riesgo.",
     },
 ];
 
@@ -864,6 +866,7 @@ static ES: Texts = Texts {
         "WebAssembly",
         "async / await",
         "Migraciones",
+        "Push del esquema",
         "Transacciones",
         "Macros derive",
         "Filtros tipados",
