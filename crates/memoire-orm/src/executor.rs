@@ -177,28 +177,39 @@ pub trait Database: Executor {
     /// .await?;
     /// # Ok(()) }
     /// ```
-    fn transaction<'c, T, F>(&'c self, mut f: F) -> impl Future<Output = Result<T>> + Send
+    fn transaction<'c, T, F, X>(&'c self, f: F) -> impl Future<Output = Result<T>> + Send + 'c
     where
-        Self: 'c,
-        T: Send,
-        F: for<'t> FnMut(&'t Self::Tx<'c>) -> BoxFuture<'t, Result<T>> + Send,
+        Self: Database<Tx<'c> = X> + 'c,
+        X: Transaction + 'c,
+        T: Send + 'c,
+        F: for<'t> FnMut(&'t X) -> BoxFuture<'t, Result<T>> + Send + 'c,
     {
-        async move {
-            let mut attempt = 1;
-            loop {
-                let tx = self.begin().await?;
-                let outcome = match f(&tx).await {
-                    Ok(value) => tx.commit().await.map(|()| value),
-                    Err(e) => {
-                        let _ = tx.rollback().await;
-                        Err(e)
-                    }
-                };
-                match outcome {
-                    Err(e) if e.is_conflict() && attempt < TRANSACTION_ATTEMPTS => attempt += 1,
-                    outcome => return outcome,
-                }
+        run_transaction::<Self, X, T, F>(self, f)
+    }
+}
+
+/// The body of [`Database::transaction`], outside the trait, with the transaction type named
+/// `X`: Rust 1.88 cannot prove the lifetimes of `Self::Tx<'c>` inside the `for<'t>` bound.
+async fn run_transaction<'c, D, X, T, F>(db: &'c D, mut f: F) -> Result<T>
+where
+    D: Database<Tx<'c> = X> + ?Sized + 'c,
+    X: Transaction + 'c,
+    T: Send + 'c,
+    F: for<'t> FnMut(&'t X) -> BoxFuture<'t, Result<T>> + Send + 'c,
+{
+    let mut attempt = 1;
+    loop {
+        let tx = db.begin().await?;
+        let outcome = match f(&tx).await {
+            Ok(value) => tx.commit().await.map(|()| value),
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
             }
+        };
+        match outcome {
+            Err(e) if e.is_conflict() && attempt < TRANSACTION_ATTEMPTS => attempt += 1,
+            outcome => return outcome,
         }
     }
 }
