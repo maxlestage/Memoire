@@ -549,6 +549,18 @@ kbd {
   color: #fff;
 }
 
+/* In the footer, `.footer-col a` (link columns) must not restyle the language buttons. */
+.lang-switch .lang-btn {
+  display: inline-grid;
+  place-items: center;
+  gap: 0;
+  font-size: 0.75rem;
+}
+
+.lang-switch .lang-btn:hover {
+  transform: none;
+}
+
 .lang-indicator {
   position: absolute;
   top: 3px;
@@ -4071,9 +4083,17 @@ html:not(.motion) .bar-fill {
     padding-block: 40px;
   }
 
+  /* The whole command, on two lines if needed, instead of a line cut on both sides. */
   .footer-install {
     width: 100%;
-    justify-content: center;
+    justify-content: flex-start;
+    align-items: flex-start;
+    padding: 14px 18px;
+    border-radius: 18px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    font-size: 0.8rem;
   }
 
   .reveal.slide-left { transform: translateX(20px); }
