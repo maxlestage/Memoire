@@ -59,7 +59,7 @@ Memoire transforme `User::query().filter(User::AGE.ge(18))` en SQL adapté à vo
 | Écritures | `insert`, `insert_many` (regroupement multi-lignes), `update`, `upsert`, `delete`, `update_many` avec `increment`/`decrement`, `delete_many` |
 | Relations | `inner_join` et `left_join`, qui renvoient des tuples comme `(User, Post)` et `(User, Option<Post>)` |
 | Rapports | `group_by`, `having`, `count_all()`, agrégats décodés en tuples ou en structs `#[derive(FromRow)]` |
-| Filets de sécurité | Transactions (annulées automatiquement lorsqu'elles sont droppées), migrations versionnées, erreurs normalisées |
+| Filets de sécurité | Transactions (annulées automatiquement lorsqu'elles sont droppées), relancées en cas de conflit avec `db.transaction`, migrations versionnées ou `db.push` pendant le prototypage, erreurs normalisées |
 | Portes de sortie | SQL brut avec `params![...]` sur les bases de données SQL, accès direct à chaque driver (connexion SQLite, pools PostgreSQL et MySQL, connexion Redis, base MongoDB) |
 
 ## Backends

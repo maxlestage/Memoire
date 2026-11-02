@@ -59,7 +59,7 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 | Writes | `insert`, `insert_many` (multi-row batching), `update`, `upsert`, `delete`, `update_many` with `increment`/`decrement`, `delete_many` |
 | Relations | `inner_join` and `left_join` returning tuples like `(User, Post)` and `(User, Option<Post>)` |
 | Reports | `group_by`, `having`, `count_all()`, aggregates decoded into tuples or `#[derive(FromRow)]` structs |
-| Safety nets | Transactions (rolled back automatically when dropped), versioned migrations, normalised errors |
+| Safety nets | Transactions (rolled back automatically when dropped), retried on conflicts with `db.transaction`, versioned migrations or `db.push` while prototyping, normalised errors |
 | Escape hatches | Raw SQL with `params![...]` on SQL databases, direct access to every driver (SQLite connection, PostgreSQL and MySQL pools, Redis connection, MongoDB database) |
 
 ## Backends

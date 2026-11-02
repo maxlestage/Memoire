@@ -193,11 +193,12 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 
 | Task | Code |
 |---|---|
+| All in one | `db.transaction(\|tx\| Box::pin(async move { ... })).await?`: commits on `Ok`, rolls back on `Err`, retries on conflicts |
 | Begin | `let tx = db.begin().await?;` |
 | Use it | pass `&tx` instead of `&db` |
 | Commit / roll back | `tx.commit().await?` / `tx.rollback().await?` |
 | Automatic rollback | drop `tx` (for example by returning early with `?`) |
-| Retry on conflict | `Err(e) if e.is_conflict() => continue` in a loop around the whole transaction |
+| Retry on conflict | automatic with `db.transaction` (up to `TRANSACTION_ATTEMPTS`); by hand: `Err(e) if e.is_conflict() => continue` in a loop around the whole transaction |
 | Generic code | `async fn f<E: Executor>(db: &E)` (handle or transaction), `async fn g<D: Database>(db: &D)` (can `begin`) |
 
 ## Migrations
@@ -208,6 +209,7 @@ Backend pages: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgr
 | Other steps | `.drop_table("old")`, `.sql("...")`, `.sql_for(Dialect::Postgres, "...")` |
 | Run pending | `Migrator::new().add(m1).add(m2).run(&db).await?` → applied versions |
 | Inspect | `migrator.applied(&db).await?`, `migrator.pending(&db).await?` |
+| Without migration files | `db.push::<User>().await?` → `PushReport` (creates the table or adds new columns and indexes, never drops) |
 
 ## Raw SQL and driver access
 

@@ -38,7 +38,7 @@ Diesel et SeaORM sont les deux ORM les plus utilisés en Rust, et Nitrite une ba
 | Hooks de cycle de vie | non | `ActiveModelBehavior` (`before_save`...) | `#[memoire(hooks)]` + `impl Hooks` (peut refuser une écriture) |
 | Trouver ou créer | à la main | à la main | `first_or_create`, `update_or_create`, `save` |
 | Journal des requêtes | `set_instrumentation` | logs de `sqlx` | `Logged` : SQL, paramètres, durée, lignes, sur toutes les bases |
-| Migrations | CLI, fichiers SQL `up`/`down` | migrations Rust avec `up`/`down` | Rust ou SQL, vers l'avant uniquement, en transaction |
+| Migrations | CLI, fichiers SQL `up`/`down` | migrations Rust avec `up`/`down` | Rust ou SQL, vers l'avant uniquement, en transaction ; `db.push::<M>()` pour ajouter tables, colonnes et index sans fichier de migration |
 | Erreurs normalisées | `DatabaseErrorKind` (unicité, clé étrangère...) | `SqlErr` (unicité, clé étrangère) | `UniqueViolation`, `NotFound`, `Constraint`, `Conflict`... sur toutes les bases, NoSQL compris |
 | Génération de code depuis une base existante | oui (`diesel print-schema`) | oui (`sea-orm-cli generate entity`) | non |
 
@@ -51,7 +51,7 @@ Diesel et SeaORM sont les deux ORM les plus utilisés en Rust, et Nitrite une ba
 | `diesel::insert_into(users::table).values(&new_user).execute(&mut conn)` | `user.insert(&db).await?` (l'id est réécrit dans la struct) |
 | `diesel::update(&user).set(&changes).execute(&mut conn)` | `user.update_only(&db, (User::NAME, User::AGE)).await?` |
 | `Post::belonging_to(&users).load::<Post>(&mut conn)?.grouped_by(&users)` | `users.load_children::<Post>(&db).await?` |
-| `conn.transaction(\|conn\| ...)` | `let tx = db.begin().await?; ...; tx.commit().await?` |
+| `conn.transaction(\|conn\| ...)` | `db.transaction(\|tx\| Box::pin(async move { ... })).await?` |
 
 ## Passer de SeaORM à Memoire
 
@@ -64,6 +64,7 @@ Diesel et SeaORM sont les deux ORM les plus utilisés en Rust, et Nitrite une ba
 | `user.find_related(post::Entity).all(&db)` | `Post::belonging_to(&user).all(&db).await?` |
 | `users.load_many(post::Entity, &db)` | `users.load_children::<Post>(&db).await?` |
 | `posts.load_many_to_many(tag::Entity, post_tag::Entity, &db)` | `posts.load_via::<PostTag, Tag>(&db).await?` |
+| `db.transaction::<_, _, DbErr>(\|txn\| Box::pin(async move { ... }))` | `db.transaction(\|tx\| Box::pin(async move { ... })).await?` |
 | `user::Entity::find().paginate(&db, 20).fetch_page(1)` | `User::query().paginate(&db, 2, 20).await?` (les pages commencent à 1) |
 
 ## Memoire et Nitrite (NoSQL)

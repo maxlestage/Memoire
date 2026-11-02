@@ -26,11 +26,14 @@ let adults = User::query()
     .all(&db)
     .await?;"#;
 
-pub const TRANSACTION: &str = r#"let tx = db.begin().await?;
-alice.name = "Alice Cooper".into();
-alice.update(&tx).await?;
-Post::delete_many().filter(Post::USER_ID.eq(alice.id)).execute(&tx).await?;
-tx.commit().await?;"#;
+pub const TRANSACTION: &str = r#"db.transaction(|tx| Box::pin(async move {
+    let mut alice = User::get(tx, 1).await?;
+    alice.name = "Alice Cooper".into();
+    alice.update(tx).await?;
+    Post::delete_many().filter(Post::USER_ID.eq(alice.id)).execute(tx).await?;
+    Ok(())
+}))
+.await?;"#;
 
 pub const MIGRATION: &str = r#"let migrator = Migrator::new()
     .add(Migration::new(1, "create_users").create_table::<User>())
@@ -68,6 +71,7 @@ pub const TERMINAL: [&[TermLine]; 4] = [
     &[
         TermLine::Cmd("cargo run --example transaction"),
         TermLine::Out("BEGIN"),
+        TermLine::Out("SELECT … FROM \"users\" WHERE \"users\".\"id\" = $1"),
         TermLine::Out("UPDATE \"users\" SET … WHERE \"users\".\"id\" = $1"),
         TermLine::Out("DELETE FROM \"posts\" WHERE \"posts\".\"user_id\" = $1"),
         TermLine::Ok("COMMIT ✓"),
@@ -94,9 +98,12 @@ pub const FEATURE_SNIPPETS: [(&str, &str); 8] = [
     ("rust", "let adults: Vec<User> = User::query()\n    .limit(20)\n    .all(&db)\n    .await?;"),
     ("rust", "let db = MemoryDb::new();\n// or SqliteDb::open(\"app.db\")?\n// or PgPool::connect(url).await?"),
     ("rust", "let db = MemoryDb::new();\ndb.create_table::<User>().await?;"),
-    ("rust", "let tx = db.begin().await?;\nalice.update(&tx).await?;\ntx.commit().await?;"),
     (
         "rust",
-        "let migrator = Migrator::new()\n    .add(Migration::new(1, \"create_users\").create_table::<User>());\nmigrator.run(&db).await?;",
+        "db.transaction(|tx| Box::pin(async move {\n    let mut alice = User::get(tx, 1).await?;\n    alice.name = \"Alice Cooper\".into();\n    alice.update(tx).await?;\n    Ok(())\n}))\n.await?;",
+    ),
+    (
+        "rust",
+        "let migrator = Migrator::new()\n    .add(Migration::new(1, \"create_users\").create_table::<User>());\nmigrator.run(&db).await?;\n\n// or, while prototyping:\ndb.push::<User>().await?;",
     ),
 ];

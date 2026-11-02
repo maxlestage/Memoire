@@ -59,7 +59,7 @@ Memoire convierte `User::query().filter(User::AGE.ge(18))` en el SQL adecuado pa
 | Escrituras | `insert`, `insert_many` (inserción por lotes de varias filas), `update`, `upsert`, `delete`, `update_many` con `increment`/`decrement`, `delete_many` |
 | Relaciones | `inner_join` y `left_join`, que devuelven tuplas como `(User, Post)` y `(User, Option<Post>)` |
 | Informes | `group_by`, `having`, `count_all()`, agregados decodificados en tuplas o en structs con `#[derive(FromRow)]` |
-| Redes de seguridad | Transacciones (revertidas automáticamente al destruirse), migraciones versionadas, errores normalizados |
+| Redes de seguridad | Transacciones (revertidas automáticamente al destruirse), reintentadas en caso de conflicto con `db.transaction`, migraciones versionadas o `db.push` mientras prototipas, errores normalizados |
 | Vías de escape | SQL sin procesar con `params![...]` en las bases de datos SQL, acceso directo a cada driver (conexión SQLite, pools de PostgreSQL y MySQL, conexión Redis, base de datos MongoDB) |
 
 ## Backends
