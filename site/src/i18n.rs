@@ -395,7 +395,7 @@ static EN: Texts = Texts {
     footer_ecosystem_text: "Five Rust projects by one author, made to work together: from the front end to the database.",
     footer_here: "You are here",
     footer_projects: [
-        "Front-end: components, SSR, WebAssembly islands",
+        "Front-end: components, SSR, WebAssembly islands, 3D",
         "Express-style web server, HTTP/3",
         "Security middlewares for Vitesse & tower",
         "Async, type-safe ORM, SQL & NoSQL",
@@ -667,7 +667,7 @@ static FR: Texts = Texts {
     footer_ecosystem_text: "Cinq projets Rust d'un même auteur, faits pour travailler ensemble : du front-end à la base de données.",
     footer_here: "Vous êtes ici",
     footer_projects: [
-        "Front-end : composants, SSR, îlots WebAssembly",
+        "Front-end : composants, SSR, îlots WebAssembly, 3D",
         "Serveur web façon Express, HTTP/3",
         "Middlewares de sécurité pour Vitesse et tower",
         "ORM asynchrone typé, SQL et NoSQL",
@@ -931,7 +931,7 @@ static ES: Texts = Texts {
     footer_ecosystem_text: "Cinco proyectos Rust de un mismo autor, hechos para trabajar juntos: del front-end a la base de datos.",
     footer_here: "Estás aquí",
     footer_projects: [
-        "Front-end: componentes, SSR, islas WebAssembly",
+        "Front-end: componentes, SSR, islas WebAssembly, 3D",
         "Servidor web estilo Express, HTTP/3",
         "Middlewares de seguridad para Vitesse y tower",
         "ORM asíncrono tipado, SQL y NoSQL",
