@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "active"
 version = "0.3.0"
-source = "git+https://github.com/maxlestage/Active#75e1ba00ce390d27d66da8330f23be9935486265"
+source = "git+https://github.com/maxlestage/Active#502d7f41942f853b45abf8a138303a540f93ad44"
 dependencies = [
  "approx",
  "arrayvec",
@@ -148,9 +148,9 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "const-oid"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
 name = "cpufeatures"
@@ -1039,7 +1039,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "vitesse"
 version = "0.2.0"
-source = "git+https://github.com/maxlestage/Vitesse#dd47975ff7d9e2f7e5c5cd0468a6969568a772ca"
+source = "git+https://github.com/maxlestage/Vitesse#35157f7d8cfa1146d288ef5baecf50b6aff3b4a7"
 dependencies = [
  "brotli",
  "bytes",
