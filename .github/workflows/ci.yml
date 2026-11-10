@@ -150,11 +150,11 @@ jobs:
           done
 
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.95)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.88
+      - uses: dtolnay/rust-toolchain@1.95
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p memoire-orm --all-features
 
@@ -211,7 +211,7 @@ jobs:
       - name: Build the browser bundle (WebAssembly islands, the ORM included)
         run: |
           cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
-          wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+          wasm-bindgen --target web --no-typescript --remove-name-section --remove-producers-section --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
       - name: Tests (pages, SEO, PWA, static export, every documentation page in every language)
         run: cargo test
       - name: Static export (kept working, served by no host)

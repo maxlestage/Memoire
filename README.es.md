@@ -167,10 +167,10 @@ lo sirve únicamente Heroku, en <https://memoire-7f4525f1fdaf.herokuapp.com/>.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129   # la versión de site/Cargo.lock
+cargo install wasm-bindgen-cli --version 0.2.130   # la versión de site/Cargo.lock
 cd site
 cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
-wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+wasm-bindgen --target web --no-typescript --remove-name-section --remove-producers-section --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
 cargo run                                          # http://localhost:8080
 BASE_PATH=/Memoire cargo run -- export dist-static  # todo el sitio en archivos estáticos
 ```

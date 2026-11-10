@@ -19,6 +19,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - SQLite: a database still busy after `busy_timeout` now reports `Error::Conflict` (safe to
   retry) instead of a generic `Error::Database`.
+- Minimum Rust version (MSRV): 1.95 (was 1.88), required by `parking_lot` 0.13.
+- Dependencies at their latest version: `syn` 3 (the derive macros generate the same code and
+  the same error messages), `aes-gcm` 0.11 and `argon2` 0.6 (the encrypted storage format does
+  not change: files written by earlier versions still open, checked by a test on a file
+  encrypted by 0.2.0), `hashbrown` 0.17, `parking_lot` 0.13, `rusqlite` 0.41, `mongodb` 3.10,
+  `redis` 1.8. Website: `sha2` 0.11, `base64` 0.23, `pulldown-cmark` 0.13.6 and
+  `wasm-bindgen` 0.2.130 (the CI, the `Dockerfile` and the docs install the same
+  `wasm-bindgen-cli`).
+- Website: the browser bundle is no longer stripped by Cargo, as `wasm-bindgen` 0.2.130 reads
+  its `target_features` section; `wasm-bindgen --remove-name-section --remove-producers-section`
+  drops the names instead (the bundle stays the same size).
 
 ## [0.2.0] - 2026-10-15
 

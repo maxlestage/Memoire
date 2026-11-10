@@ -62,11 +62,11 @@ full = ["memory", "encryption", "web", "sqlite", "postgres", "postgres-tls", "my
 memoire-orm-derive.workspace = true
 thiserror = "2"
 
-parking_lot = { version = "0.12", optional = true }
+parking_lot = { version = "0.13", optional = true }
 foldhash = { version = "0.2", optional = true }
-hashbrown = { version = "0.16", optional = true, default-features = false }
+hashbrown = { version = "0.17", optional = true, default-features = false }
 
-rusqlite = { version = "0.40", optional = true, features = ["bundled", "functions"] }
+rusqlite = { version = "0.41", optional = true, features = ["bundled", "functions"] }
 async-lock = { version = "3", optional = true }
 
 tokio-postgres = { version = "0.7", optional = true }
@@ -74,14 +74,14 @@ deadpool-postgres = { version = "0.14", optional = true }
 tokio = { version = "1", optional = true, features = ["rt"] }
 bytes = { version = "1", optional = true }
 tokio-postgres-rustls = { version = "0.14", optional = true }
-mongodb = { version = "3.9", optional = true }
-redis = { version = "1.7", optional = true, default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
+mongodb = { version = "3.10", optional = true }
+redis = { version = "1.8", optional = true, default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 mysql_async = { version = "0.37", optional = true, default-features = false, features = ["minimal-rust"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = { version = "1", optional = true }
 
-aes-gcm = { version = "0.10", optional = true }
-argon2 = { version = "0.5", optional = true }
+aes-gcm = { version = "0.11", optional = true }
+argon2 = { version = "0.6", optional = true }
 
 chrono = { version = "0.4", optional = true, default-features = false, features = ["std", "clock"] }
 uuid = { version = "1", optional = true }
@@ -96,7 +96,7 @@ web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4"] }
 

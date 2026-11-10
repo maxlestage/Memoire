@@ -13,7 +13,7 @@ Un programa de línea de comandos que:
 5. calcula algunas estadísticas,
 6. y, por último, lo guarda todo en un archivo `tasks.db`.
 
-Solo necesitas Rust 1.88 o posterior. No hace falta ningún servidor de base de datos.
+Solo necesitas Rust 1.95 o posterior. No hace falta ningún servidor de base de datos.
 
 ## Paso 1: crear el proyecto
 

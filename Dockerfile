@@ -14,7 +14,7 @@
 # Pinned toolchain = reproducible deploys. Bump deliberately (and test) when needed.
 ARG RUST_VERSION=1.99
 # Must match the wasm-bindgen version in site/Cargo.lock.
-ARG WASM_BINDGEN_VERSION=0.2.129
+ARG WASM_BINDGEN_VERSION=0.2.130
 
 # ---------------------------------------------------------------------------
 # 1. Build
@@ -55,7 +55,7 @@ COPY site site
 RUN cd site \
  && touch src/lib.rs src/main.rs \
  && cargo build --lib --locked --target wasm32-unknown-unknown --profile wasm-release \
- && wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm \
+ && wasm-bindgen --target web --no-typescript --remove-name-section --remove-producers-section --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm \
  && cargo build --release --locked
 
 # ---------------------------------------------------------------------------
