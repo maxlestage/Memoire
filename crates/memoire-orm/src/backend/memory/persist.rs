@@ -376,8 +376,8 @@ fn crc32(data: &[u8]) -> u32 {
 
 #[cfg(feature = "encryption")]
 mod crypto {
-    use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, rand_core::RngCore};
-    use aes_gcm::{Aes256Gcm, Nonce};
+    use aes_gcm::Aes256Gcm;
+    use aes_gcm::aead::{Aead, Generate, KeyInit, Nonce};
 
     use super::corrupt;
     use crate::error::Result;
@@ -400,14 +400,12 @@ mod crypto {
         }
 
         pub(super) fn salt() -> [u8; SALT] {
-            let mut s = [0u8; SALT];
-            OsRng.fill_bytes(&mut s);
-            s
+            <[u8; SALT]>::generate()
         }
 
         /// `nonce || ciphertext`.
         pub(super) fn seal(&self, plain: &[u8]) -> Result<Vec<u8>> {
-            let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+            let nonce = Nonce::<Aes256Gcm>::generate();
             let mut out = nonce.to_vec();
             out.extend(self.0.encrypt(&nonce, plain).map_err(|_| corrupt("encryption failed"))?);
             Ok(out)
@@ -418,7 +416,7 @@ mod crypto {
                 return None;
             }
             let (nonce, data) = sealed.split_at(NONCE);
-            self.0.decrypt(Nonce::from_slice(nonce), data).ok()
+            self.0.decrypt(&Nonce::<Aes256Gcm>::try_from(nonce).ok()?, data).ok()
         }
 
         pub(super) fn check_block(&self) -> Result<Vec<u8>> {

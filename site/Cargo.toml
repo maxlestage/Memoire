@@ -30,17 +30,17 @@ memoire-orm = { path = "../crates/memoire-orm", default-features = false, featur
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The web server: Vitesse, with Brotli and gzip for the pages and the search indexes.
 vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = false, features = ["compress"] }
-pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
 # Static files are compressed once (brotli, gzip), not on every request.
 brotli = "9"
 flate2 = "1"
 # Content-Security-Policy: hashes of the inline scripts of each page.
-sha2 = "0.10"
-base64 = "0.22"
+sha2 = "0.11"
+base64 = "0.23"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 active = { git = "https://github.com/maxlestage/Active", features = ["client"] }
-wasm-bindgen = "=0.2.129"
+wasm-bindgen = "=0.2.130"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
@@ -92,7 +92,10 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+# Not stripped: wasm-bindgen reads the `target_features` section (which Wasm features
+# are enabled), and drops the names itself (`--remove-name-section
+# --remove-producers-section`).
+strip = false
 
 # Server.
 [profile.release]

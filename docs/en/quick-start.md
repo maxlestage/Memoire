@@ -13,7 +13,7 @@ A command-line program that:
 5. computes a few statistics,
 6. and finally keeps everything in a `tasks.db` file.
 
-You only need Rust 1.88 or newer. No database server is required.
+You only need Rust 1.95 or newer. No database server is required.
 
 ## Step 1: create the project
 

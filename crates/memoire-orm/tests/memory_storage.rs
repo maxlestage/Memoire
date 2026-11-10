@@ -254,6 +254,65 @@ fn encrypted_files_need_the_password() {
     .unwrap();
 }
 
+/// A file encrypted by Memoire 0.2.0 (aes-gcm 0.10, argon2 0.5), password
+/// "correct horse battery staple": table `vault`, two rows inserted, then the
+/// second one updated. Newer versions must keep reading (and appending to) it.
+#[cfg(feature = "encryption")]
+const ENCRYPTED_0_2_0: &str = concat!(
+    "4d454d4f4952450101e674b911e7c8800229808de328a0c9fa2b00000006b61b0356627ad169df0ffa1ff797c23a5655",
+    "2f16d6a208962a612051f788539e4bdbcb75191a0044383647000000945236386ec7cc0e79d00eceb92665bd27cbcd7e",
+    "5c6c1c4590656468f99b12d33a919296747320302e70af5970df36dd866d7a2cb61a7a4bd7eab3faa7a4ada9bb5d50c9",
+    "7701a745000000e8db7144013187c9c1de62c06ac6da0196ac115dcb41f0b7cbe24bc77283b0a657c89e0925a6accd8a",
+    "4e6c229b802c76c82da90bc47ded56f395deecd4e3e47cc35c45437248000000c9923016e1056ca88fed1ca4fbcd0ba4",
+    "9ba261bacd4c4764fb55bc5c54f20ab92592ad8885b0a82fac89f5bfe16997b570685e56c5537e1d843460599cc92a64",
+    "5ccad3617110aa1448000000182f96af5135641e975cbde41b1b72e725d56922d1f63abcdfb1966a2933afb51ac186d9",
+    "6941bdc82e3cd156c4264ee86f3c9b2b37c42a943e34026c69d1cac8ea148faca120cc86",
+);
+
+#[cfg(feature = "encryption")]
+#[test]
+fn files_encrypted_by_earlier_versions_still_open() {
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "vault")]
+    struct Vault {
+        #[memoire(primary_key, auto_increment)]
+        id: i64,
+        label: String,
+        secret: String,
+    }
+    let vault = |id: i64, label: &str, secret: &str| Vault { id, label: label.into(), secret: secret.into() };
+
+    let bytes: Vec<u8> = (0..ENCRYPTED_0_2_0.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&ENCRYPTED_0_2_0[i..i + 2], 16).unwrap())
+        .collect();
+    let file = TempFile::new("encrypted-0.2.0");
+    std::fs::write(&file.0, &bytes).unwrap();
+    let secret = StorageOptions::new().password("correct horse battery staple");
+    block_on(async {
+        let wrong = MemoryDb::open_with(&file.0, StorageOptions::new().password("nope")).unwrap_err();
+        assert!(wrong.to_string().contains("wrong password"), "{wrong}");
+
+        let db = MemoryDb::open_with(&file.0, secret.clone())?;
+        let expected = vec![vault(1, "bank", "1234"), vault(2, "mail", "hunter3")];
+        assert_eq!(Vault::query().order_by(Vault::ID).all(&db).await?, expected);
+        // New records are appended to the old file, and both come back.
+        let mut more = vault(0, "wifi", "swordfish");
+        more.insert(&db).await?;
+        assert_eq!(more.id, 3);
+        drop(db);
+        let db = MemoryDb::open_with(&file.0, secret.clone())?;
+        assert_eq!(Vault::count(&db).await?, 3);
+        db.compact()?;
+        drop(db);
+        let db = MemoryDb::open_with(&file.0, secret)?;
+        assert_eq!(Vault::get(&db, 2).await?, vault(2, "mail", "hunter3"));
+        assert_eq!(Vault::get(&db, 3).await?, more);
+        Ok::<(), Error>(())
+    })
+    .unwrap();
+}
+
 #[test]
 fn sync_option_writes_through() {
     let file = TempFile::new("sync");

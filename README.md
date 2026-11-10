@@ -166,10 +166,10 @@ export the whole site as static files, which the CI checks.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129   # the version in site/Cargo.lock
+cargo install wasm-bindgen-cli --version 0.2.130   # the version in site/Cargo.lock
 cd site
 cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
-wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
+wasm-bindgen --target web --no-typescript --remove-name-section --remove-producers-section --out-dir pkg target/wasm32-unknown-unknown/wasm-release/memoire_site.wasm
 cargo run                                          # http://localhost:8080
 BASE_PATH=/Memoire cargo run -- export dist-static  # the whole site as static files
 ```
