@@ -148,8 +148,6 @@ jobs:
             cargo clippy -p memoire-orm --no-default-features --features "$f" --all-targets -- -D warnings
             echo "::endgroup::"
           done
-      - name: Nuage DB (the `nuage` crate)
-        run: cargo clippy -p nuage --all-targets -- -D warnings
 
   msrv:
     name: MSRV (1.95)
@@ -159,7 +157,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p memoire-orm --all-features
-      - run: cargo check -p nuage
 
   wasm:
     name: WebAssembly build

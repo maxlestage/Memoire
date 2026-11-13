@@ -151,7 +151,7 @@ jobs:
             exit 1
           fi
           version="${{ steps.version.outputs.version }}"
-          for crate in memoire-orm-derive memoire-orm nuage; do
+          for crate in memoire-orm-derive memoire-orm; do
             status=$(curl -s -o /dev/null -w '%{http_code}' -A "memoire-orm-release (github.com/${GITHUB_REPOSITORY})" \
               "https://crates.io/api/v1/crates/${crate}/${version}")
             if [ "$status" = "200" ]; then

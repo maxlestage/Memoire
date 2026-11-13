@@ -1,7 +1,0 @@
-# Heroku with the emk/rust buildpack (https://elements.heroku.com/buildpacks/emk/heroku-buildpack-rust).
-# Copy this file, Procfile and heroku-build.sh to the root of the repository that
-# holds the `nuage` crate. The buildpack installs Rust, then heroku-build.sh builds
-# the `nuage` binary into target/release, where the Procfile starts it.
-VERSION=1.99
-RUST_SKIP_BUILD=1
-trap 'status=$?; if [ "$status" -eq 0 ]; then ENV_DIR="$ENV_DIR" bash "$BUILD_DIR/heroku-build.sh" || exit 1; fi' EXIT

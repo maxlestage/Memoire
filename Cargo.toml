@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/memoire-orm", "crates/memoire-orm-derive", "crates/nuage"]
+members = ["crates/memoire-orm", "crates/memoire-orm-derive"]
 exclude = ["site"]
 
 [workspace.package]

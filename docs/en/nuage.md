@@ -60,6 +60,7 @@ async fn main() -> memoire_orm::Result<()> {
 Run the server (here locally, the data in `./nuage-data`):
 
 ```bash
+git clone https://github.com/maxlestage/Nuage && cd Nuage
 NUAGE_TOKEN=dev-token NUAGE_ADMIN_PASSWORD=dev-password cargo run -p nuage --release
 # nuage: data is stored in /home/me/app/nuage-data on this server's disk
 # nuage: listening on 0.0.0.0:8080
@@ -165,7 +166,7 @@ The server is one binary configured by environment variables:
 | `NUAGE_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | backups to S3-compatible storage |
 | `NUAGE_BACKUP_SNAPSHOT_MINUTES` | minutes between snapshots (default 60) |
 
-`crates/nuage/deploy/` holds a `Dockerfile` (the data in a `/data` volume), a commented `nuage.env.example`, and the Heroku files below. Put the server behind HTTPS (most hosts do it for you): the token travels in a header.
+`deploy/` in the Nuage repository holds a `Dockerfile` (the data in a `/data` volume), a commented `nuage.env.example`, and the Heroku files below. Put the server behind HTTPS (most hosts do it for you): the token travels in a header.
 
 ## Deploy on Heroku
 
@@ -177,7 +178,7 @@ Heroku runs the server on one **Basic** dyno. A dyno's disk is **ephemeral**: it
    heroku create my-nuage --buildpack emk/rust
    ```
 
-2. Copy `crates/nuage/deploy/Procfile`, `RustConfig` and `heroku-build.sh` to the root of the repository you deploy (`app.json` too, for a "Deploy to Heroku" button). The `Procfile` starts `./target/release/nuage`.
+2. Deploy the Nuage repository (https://github.com/maxlestage/Nuage) as is: its root already holds the `Procfile`, `RustConfig`, `heroku-build.sh` and `app.json` (for a "Deploy to Heroku" button). The `Procfile` starts `./target/release/nuage`.
 
 3. Create a bucket (AWS S3, Cloudflare R2...) and an access key limited to it, then set the config vars:
 

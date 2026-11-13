@@ -29,7 +29,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
     with a public subset (`NUAGE_PUBLIC_STATUS`), and a hook to serve a website from the same
     port (`ServerOptions::site`).
   - `nuage::Db::from_env()`: the embedded engine or a server, from `NUAGE_URL`.
-  - Deployment files in `crates/nuage/deploy` (Heroku, Docker).
+  - Nuage DB (the `nuage` crate: engine, server, console, Heroku and Docker files) lives in its own repository, https://github.com/maxlestage/Nuage.
 - memoire-orm `nuage` feature: `NuageDb`, the client of a Nuage DB server over HTTP(S), native
   (hyper + rustls) and in WebAssembly (the browser's `fetch`); `NuageDb::batch`, branches.
 - `memoire_orm::evaluator`: Memoire's in-memory evaluator over rows supplied by another storage

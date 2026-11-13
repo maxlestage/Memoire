@@ -149,7 +149,7 @@ Référence de l'API : [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 ```text
 crates/memoire-orm/          l'ORM (publié sur crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] et #[derive(FromRow)]
-crates/nuage/                Nuage DB : le moteur, le serveur, la console (deploy/ : fichiers Heroku et Docker)
+(Nuage DB, le moteur, le serveur et la console, a son propre dépôt : https://github.com/maxlestage/Nuage)
 docs/{en,fr,es}/             documentation (affichée par le site)
 site/                        site de présentation, écrit avec active (serveur + îlots WebAssembly, PWA)
 RustConfig, Procfile, app.json     déploiement Heroku en un clic (buildpack emk/rust, heroku-build.sh)
