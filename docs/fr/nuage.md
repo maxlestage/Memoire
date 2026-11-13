@@ -20,7 +20,7 @@ Pour de nombreux serveurs d'application qui écrivent beaucoup dans une même ba
 
 ```bash
 # Le moteur, embarqué, et le serveur
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 cargo add tokio --features macros,rt-multi-thread
 
