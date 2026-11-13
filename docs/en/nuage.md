@@ -20,7 +20,7 @@ For many application servers writing heavily to one shared database, or for SQL 
 
 ```bash
 # The engine, embedded, and the server
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 cargo add tokio --features macros,rt-multi-thread
 

@@ -20,7 +20,7 @@ Para muchos servidores de aplicación que escriben mucho en una misma base compa
 
 ```bash
 # El motor, embebido, y el servidor
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 cargo add tokio --features macros,rt-multi-thread
 
