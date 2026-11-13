@@ -12,7 +12,7 @@ The quickest way is `cargo add`. Pick the line that matches the database you wan
 # Nuage DB, Memoire's own database (recommended for new projects): the client
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features nuage
 # ...and the engine, embedded, and the server
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 
 # In-memory engine only (the default feature)
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire

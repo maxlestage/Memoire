@@ -12,7 +12,7 @@ La forma más rápida es `cargo add`. Elige la línea que corresponda a la base 
 # Nuage DB, la base de datos propia de Memoire (recomendada para proyectos nuevos): el cliente
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features nuage
 # ...y el motor, embebido, y el servidor
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 
 # Solo el motor en memoria (la feature por defecto)
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
