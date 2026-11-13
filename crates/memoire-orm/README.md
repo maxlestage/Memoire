@@ -15,14 +15,18 @@
   does not. Combine conditions with `&`, `|` and `!`.
 - **Zero-cost row mapping** — rows are decoded by position in one pass and values
   are moved (never cloned) into your structs.
-- **SQL and NoSQL, one API** — PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and
-  an in-memory engine written in pure Rust (it even runs in WebAssembly). The same test
-  suite passes on all six.
+- **Nuage DB** — Memoire's own database, in Rust (crate `nuage`): tables on disk behind
+  a write-ahead log, instant copy-on-write branches, backups, an HTTP server and a
+  console. Embedded in development, a server in production (`NuageDb`, feature `nuage`,
+  also from WebAssembly), with the same code.
+- **SQL and NoSQL, one API** — Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB
+  and an in-memory engine written in pure Rust (it even runs in WebAssembly). The same test
+  suite passes on all seven.
 - **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent` and
   many-to-many `load_via` load related rows in one query per level, from the foreign
   keys you already declare.
 - **Search and indexes everywhere** — full-text search (`Post::BODY.matches("rust orm")`)
-  and unique indexes over several columns, with the same behaviour on all six backends.
+  and unique indexes over several columns, with the same behaviour on all seven backends.
 - **Change notifications** — `Observed::new(db).subscribe(...)` hears every write, on any
   backend, when it commits.
 - **Browser storage** — `Store::<Cart>::new("cart")`, a Pinia-style store saved in
@@ -43,6 +47,7 @@ memoire-orm = { git = "https://github.com/maxlestage/Memoire", features = ["sqli
 
 | Feature | Default | What you get |
 |---|---|---|
+| `nuage` | | `NuageDb`, the client of a Nuage DB server over HTTP(S) (also on `wasm32`) |
 | `memory` | ✓ | `MemoryDb`, a pure-Rust in-memory engine (also on `wasm32`) |
 | `sqlite` | | `SqliteDb` (SQLite is compiled in, nothing to install) |
 | `postgres` | | `PgPool` (tokio-postgres + connection pool, needs Tokio) |

@@ -38,6 +38,7 @@ pub const SOURCES: &[(&str, [&str; 3])] = sources!(
     "migrations",
     "factories",
     "raw-sql",
+    "nuage",
     "memory",
     "sqlite",
     "postgres",

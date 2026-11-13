@@ -4,10 +4,11 @@ Les réponses aux questions les plus fréquentes sur Memoire ORM. Chaque répons
 
 ## Quelles bases de données sont prises en charge ?
 
-Six backends, qui partagent tous la même API et passent la même suite de tests :
+Sept backends, qui partagent tous la même API et passent la même suite de tests :
 
 | Backend | Feature | Page |
 |---|---|---|
+| `NuageDb` / `nuage::Embedded` | `nuage` | [Nuage DB](nuage) |
 | `MemoryDb` | `memory` (par défaut) | [Moteur en mémoire](memory) |
 | `SqliteDb` | `sqlite` | [SQLite](sqlite) |
 | `PgPool` | `postgres` (`postgres-tls` pour TLS) | [PostgreSQL](postgres) |
@@ -53,7 +54,7 @@ Faites du champ une `Option` : `pub age: Option<i32>`. `None` est stocké sous f
 
 ## `LIKE` est-il sensible à la casse ?
 
-Oui, `like`, `contains`, `starts_with` et `ends_with` sont sensibles à la casse sur les six backends (Memoire configure en ce sens SQLite et les tables MySQL qu'il crée, pour que tous les backends se comportent de la même façon). Utilisez `ilike` ou `icontains` pour ignorer la casse. Sur SQLite, la recherche insensible à la casse ne concerne que les lettres ASCII ; les autres backends gèrent aussi les lettres accentuées. Voir [Constructeur de requêtes](queries).
+Oui, `like`, `contains`, `starts_with` et `ends_with` sont sensibles à la casse sur les sept backends (Memoire configure en ce sens SQLite et les tables MySQL qu'il crée, pour que tous les backends se comportent de la même façon). Utilisez `ilike` ou `icontains` pour ignorer la casse. Sur SQLite, la recherche insensible à la casse ne concerne que les lettres ASCII ; les autres backends gèrent aussi les lettres accentuées. Voir [Constructeur de requêtes](queries).
 
 ## Pourquoi les valeurs NULL apparaissent-elles en premier sur une base de données et en dernier sur une autre ?
 

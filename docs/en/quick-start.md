@@ -328,6 +328,7 @@ The same `run` function works with every backend. Enable the feature, and change
 
 | Database | Feature | Open it in `main` |
 |---|---|---|
+| Nuage DB (recommended) | `nuage` crate | `let db = nuage::Embedded::open("tasks-data")?;` (or `NuageDb::connect(url, token).await?` for a server) |
 | In-memory | `memory` (default) | `let db = MemoryDb::new();` |
 | SQLite | `sqlite` | `let db = SqliteDb::open("tasks.db")?;` |
 | PostgreSQL | `postgres` | `let db = PgPool::connect("postgres://user:password@localhost/tasks").await?;` |

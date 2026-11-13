@@ -11,8 +11,13 @@
 //!   are moved (never cloned) into your structs, parameters are borrowed.
 //! * **SQL and NoSQL, one API** — [`MemoryDb`] (pure Rust, runs in WebAssembly),
 //!   `SqliteDb` (`sqlite`), `PgPool` (`postgres`), `MySqlPool` (`mysql`),
-//!   `RedisDb` (`redis`) and `MongoDb` (`mongodb`). The same test suite passes on
-//!   all of them.
+//!   `RedisDb` (`redis`), `MongoDb` (`mongodb`) and `NuageDb` (`nuage`). The same
+//!   test suite passes on all of them.
+//! * **Nuage DB** — `NuageDb` (feature `nuage`) is the client of Nuage DB,
+//!   Memoire's own database server, written in Rust (the `nuage` crate): data
+//!   on disk with a write-ahead log, copy-on-write branches, backups and a
+//!   management console. The client speaks HTTP(S), from native code and from
+//!   WebAssembly in the browser.
 //! * **Relations without N+1** — `users.load_children::<Post>(&db)`, `load_parent`,
 //!   many-to-many `load_via`, all from the foreign keys you already declare
 //!   ([`relation`]).
@@ -54,7 +59,7 @@
 //! }
 //!
 //! # memoire_orm::block_on(async {
-//! let db = MemoryDb::new(); // or SqliteDb, PgPool, MySqlPool, RedisDb, MongoDb
+//! let db = MemoryDb::new(); // or SqliteDb, PgPool, MySqlPool, RedisDb, MongoDb, NuageDb
 //! db.create_table::<User>().await?;
 //!
 //! let mut alice = User { id: 0, email: "alice@rust.dev".into(), name: "Alice".into(), age: Some(31) };
@@ -86,6 +91,7 @@
 //! | `redis` | | Redis backend (`RedisDb`, requires Tokio) |
 //! | `redis-tls` | | TLS for Redis (`rediss://`) |
 //! | `mongodb` | | MongoDB backend (`MongoDb`, requires Tokio) |
+//! | `nuage` | | Client of a Nuage DB server (`NuageDb`), also on wasm32 |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |
@@ -104,6 +110,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod ast;
 pub mod backend;
 mod error;
+#[cfg(feature = "memory")]
+pub mod evaluator;
 pub mod events;
 mod executor;
 mod expr;
@@ -159,6 +167,12 @@ pub use backend::memory::{MemoryDb, MemoryTransaction, StorageOptions};
 pub use backend::mongodb::{MongoDb, MongoTransaction};
 #[cfg(feature = "mysql")]
 pub use backend::mysql::{MySqlPool, MySqlTransaction};
+/// The client of Nuage DB (feature `nuage`). Same module as [`backend::nuage`].
+#[cfg(feature = "nuage")]
+#[cfg_attr(docsrs, doc(cfg(feature = "nuage")))]
+pub use backend::nuage;
+#[cfg(feature = "nuage")]
+pub use backend::nuage::{NuageDb, NuageTransaction};
 #[cfg(feature = "postgres")]
 pub use backend::postgres::{PgPool, PgTransaction};
 #[cfg(feature = "redis")]
@@ -176,6 +190,8 @@ pub mod prelude {
     pub use crate::MongoDb;
     #[cfg(feature = "mysql")]
     pub use crate::MySqlPool;
+    #[cfg(feature = "nuage")]
+    pub use crate::NuageDb;
     #[cfg(feature = "postgres")]
     pub use crate::PgPool;
     #[cfg(feature = "redis")]

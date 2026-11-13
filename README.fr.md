@@ -23,15 +23,16 @@
 | ⚡ **SQL généré à la compilation** | `#[derive(Model)]` produit toutes les requêtes par clé primaire (`find`, `insert`, `update`, `delete`, `upsert`) pour PostgreSQL, SQLite et MySQL pendant la compilation. |
 | 🛡️ **Requêtes typées** | `User::AGE.gt(18)` compile, `User::AGE.gt("18")` non. Combinez les conditions avec `&`, `\|` et `!`. |
 | 🧬 **Mapping sans surcoût** | Les lignes sont décodées par position en une seule passe ; les valeurs sont déplacées, jamais copiées. |
-| 🗄️ **SQL et NoSQL, une seule API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire 100 % Rust (qui tourne même en WebAssembly !). |
+| ☁️ **Nuage DB, notre propre base** | La base de données de Memoire, en Rust (crate `nuage`) : tables sur disque derrière un journal d'écriture anticipée, branches copy-on-write instantanées, sauvegardes vers S3, un serveur HTTP avec une console. Embarquée en développement (`nuage::Embedded::open("data")`), un serveur en production (`NuageDb::connect(url, token)`), le même code. |
+| 🗄️ **SQL et NoSQL, une seule API** | Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire 100 % Rust (qui tourne même en WebAssembly !). |
 | 🔗 **Relations sans N+1** | `users.load_children::<Post>(&db)`, `load_parent`, plusieurs-à-plusieurs avec `load_via` : une requête par niveau, déduite des clés étrangères déjà déclarées. |
-| 🔎 **Recherche et index partout** | Recherche plein texte (`Post::BODY.matches("rust orm")`) et index uniques sur plusieurs colonnes (`#[memoire(unique(user_id, team_id))]`), avec le même comportement sur les six moteurs. |
+| 🔎 **Recherche et index partout** | Recherche plein texte (`Post::BODY.matches("rust orm")`) et index uniques sur plusieurs colonnes (`#[memoire(unique(user_id, team_id))]`), avec le même comportement sur les sept moteurs. |
 | ⏱️ **Cycle de vie des modèles, façon Eloquent** | `#[memoire(timestamps, soft_deletes, hooks)]` : `created_at`/`updated_at` remplis pour vous, `delete` qui ne fait que masquer la ligne (`with_trashed`, `restore`), hooks qui peuvent refuser une écriture ; `save`, `first_or_create`, `update_or_create`, `chunks`, `cursor_paginate` et un journal des requêtes (`Logged`). |
 | 📣 **Notifications de changements** | `Observed::new(db).subscribe(...)` : chaque écriture, sur n'importe quelle base, annoncée au commit. |
 | 🌐 **Stockage du navigateur** | `Store::<Cart>::new("cart")`, un store façon Pinia enregistré dans `localStorage`, et `LocalStorageDb::open("app")`, une base entière dans `localStorage`, synchronisés entre onglets (feature `web`). |
 | 💾 **Embarqué et durable** | `MemoryDb::open("app.memoire")` : le moteur en mémoire enregistré dans un fichier résistant aux crashs, chiffrable (AES-256-GCM). |
 | 🔋 **Tout est inclus** | `db.transaction(...)` qui se relance seul en cas de conflit (comme `$transaction` de Prisma), `db.push::<User>()` qui ajoute les nouvelles colonnes et les index sans fichier de migration (comme `drizzle-kit push`), migrations, jointures, agrégats, `GROUP BY`, pagination, upserts, mises à jour partielles (`update_only`), `find_many`, erreurs unifiées. |
-| 🦀 **Sûr** | `#![forbid(unsafe_code)]`, la même suite de tests passe sur les six moteurs. |
+| 🦀 **Sûr** | `#![forbid(unsafe_code)]`, la même suite de tests passe sur les sept moteurs. |
 
 ## Aperçu
 
@@ -78,9 +79,10 @@ Moteurs pris en charge (une feature chacun) :
 
 | Moteur | Feature | Connexion | Remarques |
 |---|---|---|---|
+| Nuage DB | `nuage` (client) + crate `nuage` | `nuage::Embedded::open("data")?` / `NuageDb::connect(url, token).await?` | La base de données de Memoire : embarquée ou serveur, branches, sauvegardes, console ; le client tourne en WebAssembly. Voir [Nuage DB](docs/fr/nuage.md) |
 | En mémoire | `memory` (par défaut) | `MemoryDb::new()` / `MemoryDb::open(path)` | 100 % Rust, tourne en WebAssembly, idéal pour les tests ; enregistrable dans un fichier (`encryption` pour le chiffrer) |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embarqué, rien à installer |
-| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
+| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Supabase… |
 | MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
 | Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL clé-valeur, lignes stockées en JSON |
 | MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documents, vraies transactions sur replica set |
@@ -147,6 +149,7 @@ Référence de l'API : [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 ```text
 crates/memoire-orm/          l'ORM (publié sur crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] et #[derive(FromRow)]
+crates/nuage/                Nuage DB : le moteur, le serveur, la console (deploy/ : fichiers Heroku et Docker)
 docs/{en,fr,es}/             documentation (affichée par le site)
 site/                        site de présentation, écrit avec active (serveur + îlots WebAssembly, PWA)
 RustConfig, Procfile, app.json     déploiement Heroku en un clic (buildpack emk/rust, heroku-build.sh)
@@ -192,7 +195,7 @@ Guide pas à pas : [docs/fr/deploy-heroku-mobile.md](docs/fr/deploy-heroku-mobil
 
 ## Automatisation
 
-- **CI** (`ci.yml`) : formatage, clippy, la même suite de tests sur **les six moteurs** (mémoire, SQLite,
+- **CI** (`ci.yml`) : formatage, clippy, la même suite de tests sur **les sept moteurs** (Nuage DB, mémoire, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), chaque feature isolément, compilation WebAssembly, compilation du site.
 - **Fusion automatique** (`ci.yml`) : les pull requests vers `master` sont fusionnées automatiquement dès que
   la CI est verte (puis le déploiement Heroku est lancé).

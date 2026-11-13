@@ -42,6 +42,15 @@ mongodb = ["memory", "dep:mongodb", "dep:serde_json", "dep:async-lock"]
 ## TLS for PostgreSQL (rustls, `sslmode=require|verify-ca|verify-full`), needed by
 ## Heroku Postgres and most managed databases.
 postgres-tls = ["postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:webpki-roots"]
+## Client of Nuage DB, Memoire's own database server (the `nuage` crate): queries
+## travel as JSON over HTTP(S). On wasm32 it uses the browser's `fetch`; elsewhere a
+## small HTTP/1.1 client (hyper + rustls, requires Tokio).
+nuage = [
+    "dep:serde_json", "dep:tokio", "tokio?/net", "tokio?/time", "dep:hyper", "hyper?/client", "hyper?/http1",
+    "dep:hyper-util", "dep:http-body-util", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots",
+    "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys",
+    "web-sys/Headers", "web-sys/Request", "web-sys/RequestInit", "web-sys/Response",
+]
 ## Encryption of `MemoryDb` storage files (AES-256-GCM, key derived from a password
 ## with Argon2id).
 encryption = ["memory", "dep:aes-gcm", "dep:argon2"]
@@ -56,7 +65,7 @@ uuid = ["dep:uuid", "tokio-postgres?/with-uuid-1"]
 ## JSON columns (`serde_json::Value` and `Json<T>`).
 json = ["dep:serde", "dep:serde_json", "tokio-postgres?/with-serde_json-1"]
 ## Everything.
-full = ["memory", "encryption", "web", "sqlite", "postgres", "postgres-tls", "mysql", "mysql-tls", "redis", "redis-tls", "mongodb", "chrono", "uuid", "json"]
+full = ["memory", "encryption", "web", "sqlite", "postgres", "postgres-tls", "mysql", "mysql-tls", "redis", "redis-tls", "mongodb", "nuage", "chrono", "uuid", "json"]
 
 [dependencies]
 memoire-orm-derive.workspace = true
@@ -71,14 +80,11 @@ async-lock = { version = "3", optional = true }
 
 tokio-postgres = { version = "0.7", optional = true }
 deadpool-postgres = { version = "0.14", optional = true }
-tokio = { version = "1", optional = true, features = ["rt"] }
 bytes = { version = "1", optional = true }
 tokio-postgres-rustls = { version = "0.14", optional = true }
 mongodb = { version = "3.10", optional = true }
 redis = { version = "1.8", optional = true, default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 mysql_async = { version = "0.37", optional = true, default-features = false, features = ["minimal-rust"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = { version = "1", optional = true }
 
 aes-gcm = { version = "0.11", optional = true }
 argon2 = { version = "0.6", optional = true }
@@ -88,8 +94,20 @@ uuid = { version = "1", optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
+# Native only: Tokio, TLS and the HTTP/1.1 transport of the Nuage DB client. Declared here so
+# that `--features nuage` on wasm32 pulls none of them (it uses `fetch` there).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", optional = true, features = ["rt"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = { version = "1", optional = true }
+hyper = { version = "1", optional = true, default-features = false }
+hyper-util = { version = "0.1", optional = true, default-features = false, features = ["tokio"] }
+http-body-util = { version = "0.1", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring", "tls12"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "StorageEvent", "Event", "EventTarget"] }
 

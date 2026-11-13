@@ -9,6 +9,11 @@ The crate is called `memoire-orm` on crates.io, and you import it in Rust as `me
 The quickest way is `cargo add`. Pick the line that matches the database you want to use:
 
 ```bash
+# Nuage DB, Memoire's own database (recommended for new projects): the client
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features nuage
+# ...and the engine, embedded, and the server
+cargo add nuage --git https://github.com/maxlestage/Memoire
+
 # In-memory engine only (the default feature)
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 
@@ -48,6 +53,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 | Feature | Enabled by default | What it adds |
 |---|---|---|
+| `nuage` | no | `NuageDb`, the client of a [Nuage DB](nuage) server over HTTP(S), also on `wasm32` (requires Tokio natively). The embedded engine and the server are in the `nuage` crate |
 | `memory` | yes | `MemoryDb`, the pure-Rust in-memory engine (also works on `wasm32`) |
 | `sqlite` | no | `SqliteDb`, an embedded SQLite database (SQLite is compiled in) |
 | `postgres` | no | `PgPool`, a PostgreSQL connection pool (requires Tokio) |
@@ -64,7 +70,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `json` | no | JSON columns: `serde_json::Value` and `Json<T>` for any `serde` type |
 | `full` | no | All of the above |
 
-Each backend is described on its own page: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
+Each backend is described on its own page: [Nuage DB](nuage), [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
 
 Features add up, so you can combine them freely:
 
@@ -139,6 +145,8 @@ cargo build --target wasm32-unknown-unknown
 ```
 
 In the browser you can drive the futures with `memoire_orm::block_on` or with `wasm-bindgen-futures`. The other backends (SQLite, PostgreSQL, MySQL, Redis and MongoDB) are not available on `wasm32`. See [In-memory engine](memory) for details.
+
+`NuageDb` (feature `nuage`) also compiles to `wasm32`: in the browser it reaches a [Nuage DB](nuage) server through `fetch`.
 
 ## Check that everything works
 

@@ -9,6 +9,11 @@ La crate s'appelle `memoire-orm` sur crates.io, et vous l'importez en Rust sous 
 Le plus rapide est d'utiliser `cargo add`. Choisissez la ligne qui correspond à la base de données que vous voulez utiliser :
 
 ```bash
+# Nuage DB, la base de données de Memoire (recommandée pour les nouveaux projets) : le client
+cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features nuage
+# ...et le moteur, embarqué, et le serveur
+cargo add nuage --git https://github.com/maxlestage/Memoire
+
 # Moteur en mémoire uniquement (la feature par défaut)
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
 
@@ -48,6 +53,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 | Feature | Activée par défaut | Ce qu'elle apporte |
 |---|---|---|
+| `nuage` | non | `NuageDb`, le client d'un serveur [Nuage DB](nuage) en HTTP(S), aussi sur `wasm32` (Tokio requis en natif). Le moteur embarqué et le serveur sont dans la crate `nuage` |
 | `memory` | oui | `MemoryDb`, le moteur en mémoire en Rust pur (fonctionne aussi sur `wasm32`) |
 | `sqlite` | non | `SqliteDb`, une base SQLite embarquée (SQLite est compilé avec la crate) |
 | `postgres` | non | `PgPool`, un pool de connexions PostgreSQL (nécessite Tokio) |
@@ -64,7 +70,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 | `json` | non | Colonnes JSON : `serde_json::Value` et `Json<T>` pour n'importe quel type `serde` |
 | `full` | non | Tout ce qui précède |
 
-Chaque backend est décrit sur sa propre page : [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb).
+Chaque backend est décrit sur sa propre page : [Nuage DB](nuage), [Moteur en mémoire](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) et [MongoDB](mongodb).
 
 Les features s'additionnent, vous pouvez donc les combiner librement :
 
@@ -139,6 +145,8 @@ cargo build --target wasm32-unknown-unknown
 ```
 
 Dans le navigateur, vous pouvez piloter les futures avec `memoire_orm::block_on` ou avec `wasm-bindgen-futures`. Les autres backends (SQLite, PostgreSQL, MySQL, Redis et MongoDB) ne sont pas disponibles sur `wasm32`. Pour plus de détails, consultez [Moteur en mémoire](memory).
+
+`NuageDb` (feature `nuage`) compile aussi vers `wasm32` : dans le navigateur, il atteint un serveur [Nuage DB](nuage) au moyen de `fetch`.
 
 ## Vérifier que tout fonctionne
 

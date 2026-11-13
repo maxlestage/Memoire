@@ -1,6 +1,6 @@
 # Introduction
 
-Memoire ORM is a fast, type-safe, asynchronous ORM written in pure Rust. You describe your tables as ordinary Rust structs, and Memoire gives you a typed API to create, query, update and delete rows, with the same code on six databases: an in-memory engine, SQLite, PostgreSQL, MySQL/MariaDB, Redis and MongoDB.
+Memoire ORM is a fast, type-safe, asynchronous ORM written in pure Rust. You describe your tables as ordinary Rust structs, and Memoire gives you a typed API to create, query, update and delete rows, with the same code on seven databases: Nuage DB (Memoire's own database, embedded or as a server), an in-memory engine, SQLite, PostgreSQL, MySQL/MariaDB, Redis and MongoDB.
 
 ## What is an ORM?
 
@@ -43,7 +43,7 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 ## Why Memoire?
 
 - **Type-safe queries.** Every field gets a typed column constant (`User::AGE`, `User::EMAIL`, ...). `User::AGE.gt(18)` compiles; `User::AGE.gt("18")` is a compile error. Typos in column names are compile errors too.
-- **One API, six databases.** The same model and the same queries run on the in-memory engine, SQLite, PostgreSQL, MySQL/MariaDB, Redis and MongoDB, and they all pass the same test suite. Switching databases is a one-line change.
+- **One API, seven databases.** The same model and the same queries run on Nuage DB, the in-memory engine, SQLite, PostgreSQL, MySQL/MariaDB, Redis and MongoDB, and they all pass the same test suite. Switching databases is a one-line change.
 - **Fast by design.** The SQL for primary-key operations is generated while your code compiles, rows are decoded in a single pass without cloning, and statements are prepared once and cached. See [Why it's fast](performance).
 - **Batteries included.** Joins, aggregates, `GROUP BY`, pagination, upserts, bulk inserts, transactions, migrations and raw SQL.
 - **Safe.** The crate is `#![forbid(unsafe_code)]`, and values are always sent as bound parameters, never pasted into SQL text.
@@ -66,6 +66,7 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 
 | Backend | Type | Cargo feature | Async runtime | Raw SQL |
 |---|---|---|---|---|
+| `NuageDb` / `nuage::Embedded` | Nuage DB, Memoire's own database: embedded on disk, or a server over HTTP(S) | `nuage` (client), `nuage` crate (engine, server) | Tokio (embedded: any) | No |
 | `MemoryDb` | In-memory engine, pure Rust | `memory` (default) | Any, or none (`block_on`) | No |
 | `SqliteDb` | Embedded SQLite database (file or memory) | `sqlite` | Any, or none (`block_on`) | Yes |
 | `PgPool` | PostgreSQL client with a connection pool | `postgres` (`postgres-tls` for TLS) | Tokio | Yes |
@@ -73,14 +74,15 @@ Memoire turns `User::query().filter(User::AGE.ge(18))` into the right SQL for yo
 | `RedisDb` | Tables stored in Redis, queries evaluated by the in-memory engine | `redis` (`redis-tls` for TLS) | Tokio | No |
 | `MongoDb` | One collection per table, queries translated to MongoDB filters | `mongodb` | Tokio | No |
 
-Each backend has its own page: [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
+Each backend has its own page: [Nuage DB](nuage), [In-memory engine](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL & MariaDB](mysql), [Redis](redis) and [MongoDB](mongodb).
 
 ## Which backend should I use?
 
 | You want to... | Use | Why |
 |---|---|---|
+| Start a new project: one database in development and production, branches for previews | Nuage DB (`nuage::Embedded`, then `NuageDb`) | Memoire's own database: embedded in development and tests, a server with backups and a console in production, the same code |
 | Learn Memoire, prototype, write fast unit tests | `MemoryDb` | Zero setup, no files, extremely fast, nothing to clean up |
-| Run in the browser (WebAssembly) | `MemoryDb` | The only backend that compiles to `wasm32` |
+| Run in the browser (WebAssembly) | `MemoryDb`, or `NuageDb` for shared data | `MemoryDb` keeps the data in the page; `NuageDb` reaches a Nuage DB server through `fetch` |
 | Ship a desktop app, CLI tool or small server with data on disk | `SqliteDb` | One file, no server to install, very fast for a single machine |
 | Run a web service with several instances or many concurrent writers | `PgPool` | A real database server with a connection pool, network access and strong concurrency |
 | Use an existing MySQL or MariaDB database, or a host that offers MySQL | `MySqlPool` | A full SQL server with a connection pool, offered by almost every hosting provider |
