@@ -149,7 +149,7 @@ API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 ```text
 crates/memoire-orm/          the ORM (published on crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] and #[derive(FromRow)]
-crates/nuage/                Nuage DB: the engine, the server, the console (deploy/: Heroku and Docker files)
+(Nuage DB, the engine, server and console, lives in its own repository: https://github.com/maxlestage/Nuage)
 docs/{en,fr,es}/             documentation (rendered by the website)
 site/                        presentation website, written with active (server + WebAssembly islands, PWA)
 RustConfig, Procfile, app.json     one-click Heroku deployment (emk/rust buildpack, heroku-build.sh)

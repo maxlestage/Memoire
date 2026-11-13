@@ -60,6 +60,7 @@ async fn main() -> memoire_orm::Result<()> {
 Lancez le serveur (ici en local, les données dans `./nuage-data`) :
 
 ```bash
+git clone https://github.com/maxlestage/Nuage && cd Nuage
 NUAGE_TOKEN=dev-token NUAGE_ADMIN_PASSWORD=dev-password cargo run -p nuage --release
 # nuage: data is stored in /home/me/app/nuage-data on this server's disk
 # nuage: listening on 0.0.0.0:8080
@@ -165,7 +166,7 @@ Le serveur est un seul binaire, configuré par des variables d'environnement :
 | `NUAGE_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | sauvegardes vers un stockage compatible S3 |
 | `NUAGE_BACKUP_SNAPSHOT_MINUTES` | minutes entre deux instantanés (par défaut 60) |
 
-`crates/nuage/deploy/` contient un `Dockerfile` (les données dans un volume `/data`), un `nuage.env.example` commenté et les fichiers Heroku ci-dessous. Placez le serveur derrière HTTPS (la plupart des hébergeurs le font pour vous) : le jeton voyage dans un en-tête.
+`deploy/` dans le dépôt Nuage contient un `Dockerfile` (les données dans un volume `/data`), un `nuage.env.example` commenté et les fichiers Heroku ci-dessous. Placez le serveur derrière HTTPS (la plupart des hébergeurs le font pour vous) : le jeton voyage dans un en-tête.
 
 ## Déployer sur Heroku
 
@@ -177,7 +178,7 @@ Heroku fait tourner le serveur sur un dyno **Basic**. Le disque d'un dyno est **
    heroku create my-nuage --buildpack emk/rust
    ```
 
-2. Copiez `crates/nuage/deploy/Procfile`, `RustConfig` et `heroku-build.sh` à la racine du dépôt que vous déployez (`app.json` aussi, pour un bouton « Deploy to Heroku »). Le `Procfile` lance `./target/release/nuage`.
+2. Déployez le dépôt Nuage (https://github.com/maxlestage/Nuage) tel quel : sa racine contient déjà le `Procfile`, `RustConfig`, `heroku-build.sh` et `app.json` (pour un bouton « Deploy to Heroku »). Le `Procfile` lance `./target/release/nuage`.
 
 3. Créez un bucket (AWS S3, Cloudflare R2...) et une clé d'accès limitée à lui, puis définissez les config vars :
 

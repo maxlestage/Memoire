@@ -60,6 +60,7 @@ async fn main() -> memoire_orm::Result<()> {
 Arranca el servidor (aquí en local, con los datos en `./nuage-data`):
 
 ```bash
+git clone https://github.com/maxlestage/Nuage && cd Nuage
 NUAGE_TOKEN=dev-token NUAGE_ADMIN_PASSWORD=dev-password cargo run -p nuage --release
 # nuage: data is stored in /home/me/app/nuage-data on this server's disk
 # nuage: listening on 0.0.0.0:8080
@@ -165,7 +166,7 @@ El servidor es un solo binario configurado con variables de entorno:
 | `NUAGE_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | copias de seguridad en un almacenamiento compatible con S3 |
 | `NUAGE_BACKUP_SNAPSHOT_MINUTES` | minutos entre instantáneas (por defecto 60) |
 
-`crates/nuage/deploy/` contiene un `Dockerfile` (los datos en un volumen `/data`), un `nuage.env.example` comentado y los archivos de Heroku de más abajo. Pon el servidor detrás de HTTPS (la mayoría de los alojamientos lo hacen por ti): el token viaja en una cabecera.
+`deploy/` en el repositorio Nuage contiene un `Dockerfile` (los datos en un volumen `/data`), un `nuage.env.example` comentado y los archivos de Heroku de más abajo. Pon el servidor detrás de HTTPS (la mayoría de los alojamientos lo hacen por ti): el token viaja en una cabecera.
 
 ## Desplegar en Heroku
 
@@ -177,7 +178,7 @@ Heroku ejecuta el servidor en un dyno **Basic**. El disco de un dyno es **efíme
    heroku create my-nuage --buildpack emk/rust
    ```
 
-2. Copia `crates/nuage/deploy/Procfile`, `RustConfig` y `heroku-build.sh` en la raíz del repositorio que despliegas (también `app.json`, para un botón «Deploy to Heroku»). El `Procfile` arranca `./target/release/nuage`.
+2. Despliega el repositorio Nuage (https://github.com/maxlestage/Nuage) tal cual: su raíz ya contiene el `Procfile`, `RustConfig`, `heroku-build.sh` y `app.json` (para un botón «Deploy to Heroku»). El `Procfile` arranca `./target/release/nuage`.
 
 3. Crea un bucket (AWS S3, Cloudflare R2...) y una clave de acceso limitada a él, y define las config vars:
 
