@@ -14,7 +14,7 @@ Tiene dos partes:
 - **Navegadores y funciones edge**: `NuageDb` habla HTTP(S), así que el código WebAssembly llega a la base mediante `fetch`.
 - **Equipos pequeños sin administrador de bases de datos**: los checkpoints, las copias de seguridad, las restauraciones y la compactación se hacen solos.
 
-Para muchos servidores de aplicación que escriben mucho en una misma base compartida, o para SQL escrito a mano, es mejor [PostgreSQL](postgres): Nuage DB ejecuta sentencias de Memoire, no SQL (ver [Límites](#límites)).
+Para muchos servidores de aplicación que escriben mucho en una misma base compartida, es mejor [PostgreSQL](postgres). Nuage DB también habla SQL, para sitios web y cualquier lenguaje (ver [SQL](#sql)).
 
 ## Instalación
 
@@ -61,6 +61,8 @@ Arranca el servidor (aquí en local, con los datos en `./nuage-data`):
 
 ```bash
 git clone https://github.com/maxlestage/Nuage && cd Nuage
+# La clave que lo cifra todo: guárdala, los datos son ilegibles sin ella.
+export NUAGE_ENCRYPTION_KEY=$(openssl rand -hex 32)
 NUAGE_TOKEN=dev-token NUAGE_ADMIN_PASSWORD=dev-password cargo run -p nuage --release
 # nuage: data is stored in /home/me/app/nuage-data on this server's disk
 # nuage: listening on 0.0.0.0:8080
@@ -84,6 +86,51 @@ Note::query().filter(Note::TEXT.contains("hola")).all(&db).await?;
 // NUAGE_URL=https://db.example.com NUAGE_TOKEN=…  -> un servidor
 let db = nuage::Db::from_env().await?;
 ```
+
+## Instalar en un servidor
+
+En cualquier servidor Linux (Debian, Ubuntu, Fedora, Rocky, Alpine..., x86_64 o ARM64, desde 512 MiB de memoria), un comando:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh | sudo bash
+```
+
+Instala el binario `nuage` (compilado estático, comprobado con su sha256), **crea swap** si el servidor no tiene (el tamaño de la memoria, de 1 a 4 GiB, con `vm.swappiness=10` para que la memoria sea para la base), un usuario `nuage`, los datos en `/var/lib/nuage`, los ajustes en `/etc/nuage/nuage.env` con una clave, un token y una contraseña de consola generados, y un servicio systemd que arranca con el sistema. Muestra una vez la dirección, el token y la contraseña: **copia `/etc/nuage/nuage.env` en un lugar seguro**, nadie puede leer los datos sin su clave.
+
+- **HTTPS**: apunta un nombre de dominio al servidor y ejecuta `curl -fsSL .../install.sh | sudo NUAGE_DOMAIN=db.example.com bash` (Caddy, con un certificado gratuito).
+- **Actualizar**: vuelve a ejecutar el comando; datos, clave y ajustes se conservan.
+- **Opciones**: `NUAGE_PORT`, `NUAGE_SWAP_MB` (`0`: sin swap), `NUAGE_VERSION=v0.3.0`, `NUAGE_FROM_SOURCE=1`.
+- **Desinstalar**: `... | sudo bash -s uninstall` (conserva los datos), o `purge`.
+- **Docker**: `docker compose up -d` en el repositorio Nuage, con los ajustes en `.env`.
+
+Hay binarios para Linux, macOS y Windows en la [página de versiones](https://github.com/maxlestage/Nuage/releases).
+
+## Memoria
+
+La caché de páginas de la base de cada aplicación es la única memoria que Nuage DB guarda a propósito; los datos se quedan en disco. `NUAGE_CACHE_MB=auto` (por defecto) le da un octavo de la memoria, de 8 a 512 MiB, incluido el límite del contenedor: un servidor de 512 MiB conserva libre la mayor parte de su memoria. La página **Servidor** de la consola y `/api/status` (`memory`) muestran la memoria que usa Nuage DB, la memoria libre y el swap.
+
+## Cifrado
+
+Nuage DB cifra todo lo que guarda: las páginas con XTS-AES-256, cada registro del log con AES-256-GCM, y las copias de seguridad, copias de ambos. `NUAGE_ENCRYPTION_KEY` es una clave (`nuage genkey`, `openssl rand -hex 32`) o una frase de contraseña (Argon2id); el servidor no arranca sin ella, y una clave errónea se rechaza antes de leer nada. **Guarda la clave**: sin ella, ni los datos ni las copias se pueden leer. En modo embebido, pasa `EngineOptions { encryption: Some(nuage::Encryption::parse(clave)?), .. }` a `Embedded::open_with`, o usa `nuage::Db::from_env()`, que lee `NUAGE_ENCRYPTION_KEY`.
+
+## Varias aplicaciones
+
+Un servidor aloja varias aplicaciones, cada una con su base, sus claves, sus copias y sus tokens. La primera es la base del servidor (`NUAGE_NAME`, `NUAGE_TOKEN`); la consola (**Nueva aplicación**) crea las demás y muestra cada token nuevo una vez (el servidor solo guarda su huella SHA-256). El token que envía una aplicación elige su base: `NuageDb::connect(url, token)` no cambia, y una aplicación nunca ve los datos de otra. Los tokens de solo lectura y los sitios autorizados a llamar al servidor desde el navegador (CORS) se ajustan por aplicación.
+
+## SQL
+
+Nuage DB habla SQL: `POST /v1/sql` desde cualquier lenguaje, la pestaña **Consulta** de la consola, y `Embedded::sql` en Rust. `SELECT` con uniones, `GROUP BY`, `HAVING`, `UNION`, subconsultas, `CASE` y las funciones habituales; `INSERT ... ON CONFLICT`, `UPDATE`, `DELETE`, `RETURNING`; `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE ... ADD COLUMN`, `DROP`. Los parámetros (`?` o `$1`) nunca se interpretan como SQL. Varias sentencias en una petición se ejecutan en una sola transacción.
+
+```bash
+curl https://db.example.com/v1/sql -H "Authorization: Bearer $NUAGE_TOKEN" \
+  -d '{"sql": "SELECT id, text FROM notes WHERE text LIKE ? ORDER BY id DESC LIMIT 20", "params": ["%hello%"]}'
+```
+
+```rust
+let page = db.sql("SELECT id, upper(text) AS t FROM notes ORDER BY id DESC LIMIT 10", &[])?;
+```
+
+`db.raw(...)` y los pasos de migración en SQL de Memoire siguen respondiendo `Error::Unsupported` en Nuage DB: desde Rust, usa los modelos y el constructor de consultas, o `Embedded::sql`.
 
 ## Transacciones
 
@@ -120,11 +167,11 @@ Define `NUAGE_ADMIN_PASSWORD` y abre `/admin`:
 
 - **Resumen**: tamaño, tablas, filas, ramas, tiempo en marcha, conexiones, caché, último checkpoint, copias de seguridad;
 - **Tablas**: número de filas y tamaño, y las filas de cada tabla, página a página;
-- **Consulta**: una consola para un pequeño subconjunto de SQL (`SELECT`, `UPDATE`, `DELETE` sobre una tabla, con `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`). Las sentencias que cambian datos indican cuántas filas tocarían y esperan una confirmación;
+- **Consulta**: SQL, con una confirmación antes de las sentencias que cambian datos;
 - **Ramas**: lista, creación, reinicio, borrado;
 - **Almacenamiento**: uso del disco, registro, estado de las copias de seguridad, y botones para un checkpoint, una copia de seguridad, una verificación de integridad y una compactación.
 
-Las páginas las genera el servidor y funcionan sin JavaScript, también en el móvil, en tema claro y oscuro. La cookie de sesión es `HttpOnly`, `Secure` y `SameSite=Strict`, cada formulario lleva un token CSRF y los inicios de sesión fallidos están limitados (5 por dirección y 30 en total cada 15 minutos). Los navegadores solo guardan una cookie `Secure` en HTTPS (o en `localhost`): sirve la consola por HTTPS. Un enlace a `/admin?next=/una/pagina` vuelve a esa página del mismo sitio tras iniciar sesión; los demás destinos (otro sitio) llevan a `/admin`.
+Las páginas las genera el servidor y funcionan sin JavaScript, también en el móvil, en tema claro y oscuro, en español, inglés y francés. La cookie de sesión es `HttpOnly`, `SameSite=Strict` y, por HTTPS o en `localhost`, `Secure`; cada formulario lleva un token CSRF, y los inicios de sesión fallidos están limitados (5 por dirección y 30 en total cada 15 minutos). Por HTTP simple (un servidor recién instalado, al que se llega por su IP) la consola funciona, pero su página de inicio de sesión avisa de que la contraseña viaja sin cifrar: sírvela por HTTPS. Un enlace a `/admin?next=/una/pagina` vuelve a esa página del mismo sitio tras iniciar sesión; los demás destinos (otro sitio) llevan a `/admin`.
 
 ## Estado en vivo
 
@@ -138,7 +185,7 @@ Con `NUAGE_PUBLIC_STATUS=true`, las peticiones sin credenciales reciben un subco
 
 ## Cómo funciona
 
-- **Páginas en disco.** Tablas e índices viven en un solo archivo, un almacén de árboles B ([redb](https://docs.rs/redb), Rust puro) con una caché de páginas acotada (`NUAGE_CACHE_MB`, 64 MiB por defecto). Los datos no están limitados por la memoria y el archivo crece con ellos.
+- **Páginas en disco.** Tablas e índices viven en un solo archivo, un almacén de árboles B ([redb](https://docs.rs/redb), Rust puro) con una caché de páginas acotada (`NUAGE_CACHE_MB`, por defecto un octavo de la memoria, de 8 a 512 MiB). Los datos no están limitados por la memoria y el archivo crece con ellos.
 - **Registro de escritura anticipada.** Cada commit se añade al registro y se sincroniza con el disco (`fsync`) antes de aplicarse. Un checkpoint, cada 30 segundos o cada 16 MiB de registro, hace duradero el almacén de páginas y empieza un nuevo segmento del registro. Tras un fallo, el siguiente arranque vuelve a aplicar lo que faltaba desde el último checkpoint. Los registros llevan un CRC-32 y las páginas una suma de comprobación: los daños se detectan, y un registro cortado por el fallo se descarta.
 - **Sentencias.** El motor solo lee las filas que necesita una sentencia: las búsquedas por clave primaria y por índice leen las filas que coinciden, los demás filtros recorren la tabla por bloques, `LIMIT` se detiene pronto y `ORDER BY ... LIMIT n` guarda las `n` mejores filas mientras lee; `COUNT(*)` lee un contador. Luego el evaluador de Memoire ejecuta la sentencia sobre esas filas: Nuage DB se comporta exactamente como el motor en memoria.
 - **Mantenimiento.** Un hilo en segundo plano hace los checkpoints, envía las copias de seguridad y compacta el archivo cuando una cuarta parte es espacio libre.
@@ -156,17 +203,19 @@ El servidor es un solo binario configurado con variables de entorno:
 | Variable | Función |
 |---|---|
 | `PORT` | puerto (por defecto `8080`) |
+| `NUAGE_ENCRYPTION_KEY` | la clave que lo cifra todo; **obligatoria** |
+| `NUAGE_BIND` | dirección de escucha (por defecto `0.0.0.0`; `127.0.0.1` detrás de un proxy) |
 | `NUAGE_DATA_DIR` | carpeta de datos (por defecto `nuage-data`) |
 | `NUAGE_NAME` | nombre de la base (por defecto `nuage`) |
 | `NUAGE_TOKEN` | token de la API de la base; sin él, la API rechaza todas las peticiones |
 | `NUAGE_ADMIN_PASSWORD` | contraseña de la consola; sin ella, la consola está desactivada |
 | `NUAGE_PUBLIC_STATUS` | `true` para el subconjunto público del estado |
-| `NUAGE_CACHE_MB` | caché de páginas en MiB |
+| `NUAGE_CACHE_MB` | caché de páginas de cada aplicación en MiB, o `auto` (por defecto) |
 | `NUAGE_BACKUP_DIR` | copias de seguridad en una carpeta |
 | `NUAGE_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | copias de seguridad en un almacenamiento compatible con S3 |
 | `NUAGE_BACKUP_SNAPSHOT_MINUTES` | minutos entre instantáneas (por defecto 60) |
 
-`deploy/` en el repositorio Nuage contiene un `Dockerfile` (los datos en un volumen `/data`), un `nuage.env.example` comentado y los archivos de Heroku de más abajo. Pon el servidor detrás de HTTPS (la mayoría de los alojamientos lo hacen por ti): el token viaja en una cabecera.
+La raíz del repositorio Nuage contiene `install.sh` (arriba), un `Dockerfile` (los datos en un volumen `/data`) y `docker-compose.yml`, un `nuage.env.example` comentado y los archivos de Heroku de abajo. Pon el servidor detrás de HTTPS (la mayoría de alojamientos lo hacen por ti; en tu propio servidor, `NUAGE_DOMAIN` del instalador): el token viaja en una cabecera.
 
 ## Desplegar en Heroku
 
@@ -183,7 +232,7 @@ Heroku ejecuta el servidor en un dyno **Basic**. El disco de un dyno es **efíme
 3. Crea un bucket (AWS S3, Cloudflare R2...) y una clave de acceso limitada a él, y define las config vars:
 
    ```bash
-   heroku config:set NUAGE_TOKEN=$(openssl rand -hex 32) \
+   heroku config:set NUAGE_ENCRYPTION_KEY=$(openssl rand -hex 32) NUAGE_TOKEN=$(openssl rand -hex 32) \
      NUAGE_ADMIN_PASSWORD='una frase de paso larga' \
      NUAGE_NAME=nuage \
      NUAGE_BACKUP_S3_BUCKET=my-bucket NUAGE_BACKUP_S3_REGION=eu-west-3 \
@@ -205,10 +254,10 @@ A tener en cuenta en Heroku:
 
 ## Límites
 
-- **Sin SQL.** Nuage DB ejecuta sentencias de Memoire; `db.raw(...)` y los pasos de migración en SQL responden `Error::Unsupported` (como en el motor en memoria). El lenguaje de consulta de la consola es un pequeño subconjunto de SQL.
+- **SQL desde Memoire.** `db.raw(...)` y los pasos de migración en SQL responden `Error::Unsupported` (como en el motor en memoria); el SQL pasa por `/v1/sql` o `Embedded::sql`. No están: uniones `RIGHT`/`FULL`, `WITH`, funciones de ventana, vistas, disparadores, claves primarias de varias columnas.
 - **Un solo escritor a la vez.** Las escrituras se aplican una tras otra; las lecturas se ejecutan en paralelo. Un servidor por base.
-- **Las uniones, `GROUP BY` y los agregados** distintos de `COUNT(*)` cargan en memoria las filas que combinan (tras los filtros propios de cada tabla). Los índices se usan para igualdades y listas `IN` sobre la clave primaria y las columnas `unique` e `index`; los rangos recorren la tabla.
-- **Los índices** son los del modelo al crear la tabla. Las columnas nuevas de un modelo se guardan a partir de entonces (las filas existentes leen `NULL`); los índices nuevos no se construyen para tablas existentes.
+- **Las uniones, `GROUP BY` y los agregados** distintos de `COUNT(*)` cargan en memoria las filas que combinan (tras los filtros propios de cada tabla; en SQL, uniones por hash). Los índices sirven para igualdades y listas `IN` sobre la clave primaria y las columnas `unique` e `index`; los rangos recorren la tabla.
+- **Los índices** son los del modelo al crear la tabla, más los creados con `CREATE INDEX` (construidos a partir de las filas existentes). Las columnas nuevas de un modelo se guardan a partir de entonces (las filas existentes leen `NULL`); `ALTER TABLE ... ADD COLUMN` rellena las filas existentes con el valor por defecto.
 - **Ramas.** Una escritura en una rama que tiene sus propias ramas copia primero el valor anterior en cada una de ellas. Borrar una tabla en una rama que tiene ramas conserva sus filas hasta que se borren esas ramas.
 - **Las copias de seguridad** copian todo el almacén de páginas en cada instantánea (las escrituras esperan durante la copia local), y el envío a S3 mantiene la instantánea en memoria.
 - **WebAssembly**: solo el cliente; el motor necesita un sistema de archivos.

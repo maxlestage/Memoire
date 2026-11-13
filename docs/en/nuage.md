@@ -14,7 +14,7 @@ It comes in two parts:
 - **Browsers and edge functions**: `NuageDb` speaks HTTP(S), so WebAssembly code can reach the database through `fetch`.
 - **Small teams without a database administrator**: checkpoints, backups, restores and compaction run on their own.
 
-For many application servers writing heavily to one shared database, or for SQL written by hand, prefer [PostgreSQL](postgres): Nuage DB runs Memoire statements, not SQL (see [Limits](#limits)).
+For many application servers writing heavily to one shared database, prefer [PostgreSQL](postgres). Nuage DB also speaks SQL, for websites and any language (see [SQL](#sql)).
 
 ## Install
 
@@ -61,6 +61,8 @@ Run the server (here locally, the data in `./nuage-data`):
 
 ```bash
 git clone https://github.com/maxlestage/Nuage && cd Nuage
+# The key everything is encrypted with: keep it, the data cannot be read without it.
+export NUAGE_ENCRYPTION_KEY=$(openssl rand -hex 32)
 NUAGE_TOKEN=dev-token NUAGE_ADMIN_PASSWORD=dev-password cargo run -p nuage --release
 # nuage: data is stored in /home/me/app/nuage-data on this server's disk
 # nuage: listening on 0.0.0.0:8080
@@ -84,6 +86,51 @@ Note::query().filter(Note::TEXT.contains("hello")).all(&db).await?;
 // NUAGE_URL=https://db.example.com NUAGE_TOKEN=…  -> a server
 let db = nuage::Db::from_env().await?;
 ```
+
+## Install on a server
+
+On any Linux server (Debian, Ubuntu, Fedora, Rocky, Alpine..., x86_64 or ARM64, from 512 MiB of memory), one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh | sudo bash
+```
+
+It installs the `nuage` binary (a static build, checked with its sha256), **creates swap** when the server has none (the size of the memory, 1 to 4 GiB, with `vm.swappiness=10` so the memory goes to the database), a `nuage` user, the data in `/var/lib/nuage`, the settings in `/etc/nuage/nuage.env` with a generated key, token and console password, and a systemd service started at boot. It prints the address, the token and the password once: **copy `/etc/nuage/nuage.env` somewhere safe**, nobody can read the data without its key.
+
+- **HTTPS**: point a domain name to the server, then run `curl -fsSL .../install.sh | sudo NUAGE_DOMAIN=db.example.com bash` (Caddy, with a free certificate).
+- **Upgrade**: run the command again; data, key and settings stay.
+- **Options**: `NUAGE_PORT`, `NUAGE_SWAP_MB` (`0`: no swap), `NUAGE_VERSION=v0.3.0`, `NUAGE_FROM_SOURCE=1`.
+- **Remove**: `... | sudo bash -s uninstall` (keeps the data), or `purge`.
+- **Docker**: `docker compose up -d` in the Nuage repository, with the settings in `.env`.
+
+Binaries for Linux, macOS and Windows are on the [releases page](https://github.com/maxlestage/Nuage/releases).
+
+## Memory
+
+The page cache of each application's database is the only memory Nuage DB keeps on purpose; the data stays on disk. `NUAGE_CACHE_MB=auto` (the default) gives it an eighth of the memory, between 8 and 512 MiB, the container's limit included: a 512 MiB server keeps most of its memory free. The console's **Server** page and `/api/status` (`memory`) show the memory Nuage DB uses, the free memory and the swap.
+
+## Encryption
+
+Nuage DB encrypts everything it stores: the pages with XTS-AES-256, each write-ahead log record with AES-256-GCM, and the backups, copies of both. `NUAGE_ENCRYPTION_KEY` is a key (`nuage genkey`, `openssl rand -hex 32`) or a passphrase (Argon2id); the server does not start without it, and a wrong key is refused before anything is read. **Keep the key**: without it, neither the data nor the backups can be read. Embedded, pass `EngineOptions { encryption: Some(nuage::Encryption::parse(key)?), .. }` to `Embedded::open_with`, or use `nuage::Db::from_env()`, which reads `NUAGE_ENCRYPTION_KEY`.
+
+## Several applications
+
+One server holds several applications, each with its own database, keys, backups and tokens. The first one is the server's own database (`NUAGE_NAME`, `NUAGE_TOKEN`); the console (**New application**) makes the others and shows each new token once (the server keeps only its SHA-256 digest). The token an application sends picks its database: `NuageDb::connect(url, token)` does not change, and an application never sees another's data. Read-only tokens and the websites allowed to call the server from the browser (CORS) are set per application.
+
+## SQL
+
+Nuage DB speaks SQL: `POST /v1/sql` from any language, the console's **Query** tab, and `Embedded::sql` in Rust. `SELECT` with joins, `GROUP BY`, `HAVING`, `UNION`, subqueries, `CASE` and the usual functions; `INSERT ... ON CONFLICT`, `UPDATE`, `DELETE`, `RETURNING`; `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE ... ADD COLUMN`, `DROP`. Parameters (`?` or `$1`) are never parsed as SQL. Several statements in one request run in one transaction.
+
+```bash
+curl https://db.example.com/v1/sql -H "Authorization: Bearer $NUAGE_TOKEN" \
+  -d '{"sql": "SELECT id, text FROM notes WHERE text LIKE ? ORDER BY id DESC LIMIT 20", "params": ["%hello%"]}'
+```
+
+```rust
+let page = db.sql("SELECT id, upper(text) AS t FROM notes ORDER BY id DESC LIMIT 10", &[])?;
+```
+
+`db.raw(...)` and SQL migration steps of Memoire still answer `Error::Unsupported` on Nuage DB: from Rust, use models and the query builder, or `Embedded::sql`.
 
 ## Transactions
 
@@ -120,11 +167,11 @@ Set `NUAGE_ADMIN_PASSWORD` and open `/admin`:
 
 - **Overview**: size, tables, rows, branches, uptime, connections, cache, last checkpoint, backups;
 - **Tables**: row counts and sizes, and the rows of each table, page by page;
-- **Query**: a console for a small subset of SQL (`SELECT`, `UPDATE`, `DELETE` on one table, with `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`). Statements that change data show how many rows they would touch and wait for a confirmation;
+- **Query**: SQL, with a confirmation before statements that change data;
 - **Branches**: list, create, reset, delete;
 - **Storage**: disk use, write-ahead log, backup status, and buttons for a checkpoint, a backup, an integrity check and a compaction.
 
-The pages are rendered by the server and work without JavaScript, on a phone too, in light and dark mode. The session cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, every form carries a CSRF token, and failed logins are limited (5 per address and 30 in all per 15 minutes). Browsers keep a `Secure` cookie only over HTTPS (or on `localhost`): serve the console over HTTPS. A link to `/admin?next=/some/page` returns to that page of the same site after the login; other targets (another site) go to `/admin`.
+The pages are rendered by the server and work without JavaScript, on a phone too, in light and dark mode, in English, French and Spanish. The session cookie is `HttpOnly`, `SameSite=Strict` and, over HTTPS or on `localhost`, `Secure`; every form carries a CSRF token, and failed logins are limited (5 per address and 30 in all per 15 minutes). Over plain HTTP (a server just installed, reached by its IP) the console works, but its login page warns that the password travels in clear: serve it over HTTPS. A link to `/admin?next=/some/page` returns to that page of the same site after the login; other targets (another site) go to `/admin`.
 
 ## Live status
 
@@ -138,7 +185,7 @@ With `NUAGE_PUBLIC_STATUS=true`, requests without credentials get a public subse
 
 ## How it works
 
-- **Pages on disk.** Tables and indexes live in one file, a B-tree store ([redb](https://docs.rs/redb), pure Rust) with a bounded page cache (`NUAGE_CACHE_MB`, 64 MiB by default). The data is not limited by memory, and the file grows with it.
+- **Pages on disk.** Tables and indexes live in one file, a B-tree store ([redb](https://docs.rs/redb), pure Rust) with a bounded page cache (`NUAGE_CACHE_MB`, by default an eighth of the memory, 8 to 512 MiB). The data is not limited by memory, and the file grows with it.
 - **Write-ahead log.** Each commit is appended to the log and synced to disk (`fsync`) before it is applied. A checkpoint, every 30 seconds or 16 MiB of log, makes the page store durable and starts a new log segment. After a crash, the next start replays what the last checkpoint missed. Log records carry a CRC-32 and pages a checksum: damage is detected, and a record torn by the crash is dropped.
 - **Statements.** The engine reads only the rows a statement needs: primary-key and index lookups read the matching rows, other filters stream the table in chunks, `LIMIT` stops early and `ORDER BY ... LIMIT n` keeps the best `n` rows while streaming; `COUNT(*)` reads a counter. Memoire's own evaluator then runs the statement on those rows, so Nuage DB behaves exactly like the in-memory engine.
 - **Upkeep.** A background thread runs the checkpoints, ships the backups and compacts the file when a quarter of it is free space.
@@ -156,17 +203,19 @@ The server is one binary configured by environment variables:
 | Variable | Meaning |
 |---|---|
 | `PORT` | port (default `8080`) |
+| `NUAGE_ENCRYPTION_KEY` | the key everything is encrypted with; **required** |
+| `NUAGE_BIND` | address to listen on (default `0.0.0.0`; `127.0.0.1` behind a proxy) |
 | `NUAGE_DATA_DIR` | data directory (default `nuage-data`) |
 | `NUAGE_NAME` | name of the database (default `nuage`) |
 | `NUAGE_TOKEN` | token of the database API; without it, the API refuses every request |
 | `NUAGE_ADMIN_PASSWORD` | password of the console; without it, the console is off |
 | `NUAGE_PUBLIC_STATUS` | `true` for the public status subset |
-| `NUAGE_CACHE_MB` | page cache in MiB |
+| `NUAGE_CACHE_MB` | page cache of each application in MiB, or `auto` (the default) |
 | `NUAGE_BACKUP_DIR` | backups to a directory |
 | `NUAGE_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | backups to S3-compatible storage |
 | `NUAGE_BACKUP_SNAPSHOT_MINUTES` | minutes between snapshots (default 60) |
 
-`deploy/` in the Nuage repository holds a `Dockerfile` (the data in a `/data` volume), a commented `nuage.env.example`, and the Heroku files below. Put the server behind HTTPS (most hosts do it for you): the token travels in a header.
+The root of the Nuage repository holds `install.sh` (above), a `Dockerfile` (the data in a `/data` volume) and `docker-compose.yml`, a commented `nuage.env.example`, and the Heroku files below. Put the server behind HTTPS (most hosts do it for you; on your own server, the installer's `NUAGE_DOMAIN`): the token travels in a header.
 
 ## Deploy on Heroku
 
@@ -183,7 +232,7 @@ Heroku runs the server on one **Basic** dyno. A dyno's disk is **ephemeral**: it
 3. Create a bucket (AWS S3, Cloudflare R2...) and an access key limited to it, then set the config vars:
 
    ```bash
-   heroku config:set NUAGE_TOKEN=$(openssl rand -hex 32) \
+   heroku config:set NUAGE_ENCRYPTION_KEY=$(openssl rand -hex 32) NUAGE_TOKEN=$(openssl rand -hex 32) \
      NUAGE_ADMIN_PASSWORD='a long passphrase' \
      NUAGE_NAME=nuage \
      NUAGE_BACKUP_S3_BUCKET=my-bucket NUAGE_BACKUP_S3_REGION=eu-west-3 \
@@ -205,10 +254,10 @@ Things to know on Heroku:
 
 ## Limits
 
-- **No SQL.** Nuage DB runs Memoire statements; `db.raw(...)` and SQL migration steps answer `Error::Unsupported` (as on the in-memory engine). The console's query language is a small subset of SQL.
+- **SQL from Memoire.** `db.raw(...)` and SQL migration steps answer `Error::Unsupported` (as on the in-memory engine); SQL goes through `/v1/sql` or `Embedded::sql`. Not there: `RIGHT`/`FULL` joins, `WITH`, window functions, views, triggers, primary keys of several columns.
 - **One writer at a time.** Writes are applied one after another; reads run in parallel. One server per database.
-- **Joins, `GROUP BY` and aggregates** other than `COUNT(*)` load the rows they combine into memory (after the filters that apply to each table). Index lookups are used for equalities and `IN` lists on the primary key, `unique` and `index` columns; ranges scan the table.
-- **Indexes** are those of the model when the table was created. New columns added to a model are stored from then on (existing rows read `NULL`); new indexes are not built for existing tables.
+- **Joins, `GROUP BY` and aggregates** other than `COUNT(*)` load the rows they combine into memory (after the filters that apply to each table; SQL joins are hash joins). Index lookups are used for equalities and `IN` lists on the primary key, `unique` and `index` columns; ranges scan the table.
+- **Indexes** are those of the model when the table was created, plus those made with `CREATE INDEX` (built from the existing rows). New columns added to a model are stored from then on (existing rows read `NULL`); `ALTER TABLE ... ADD COLUMN` fills existing rows with the default.
 - **Branches.** A write in a branch that has branches of its own first copies the old value into each of them. Dropping a table in a branch that has branches keeps its rows until those branches are deleted.
 - **Backups** copy the whole page store for each snapshot (writes wait during the local copy), and the S3 upload holds the snapshot in memory.
 - **WebAssembly**: the client only; the engine needs a file system.

@@ -12,7 +12,7 @@ Le plus rapide est d'utiliser `cargo add`. Choisissez la ligne qui correspond à
 # Nuage DB, la base de données de Memoire (recommandée pour les nouveaux projets) : le client
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire --features nuage
 # ...et le moteur, embarqué, et le serveur
-cargo add nuage --git https://github.com/maxlestage/Memoire
+cargo add nuage --git https://github.com/maxlestage/Nuage
 
 # Moteur en mémoire uniquement (la feature par défaut)
 cargo add memoire-orm --git https://github.com/maxlestage/Memoire
