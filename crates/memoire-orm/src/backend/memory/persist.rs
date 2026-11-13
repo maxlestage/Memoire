@@ -118,27 +118,28 @@ impl Record {
     }
 }
 
-struct Enc(Vec<u8>);
+/// Binary encoder of values (also used by Nuage DB's storage).
+pub(crate) struct Enc(pub(crate) Vec<u8>);
 
 impl Enc {
-    fn u8(&mut self, v: u8) {
+    pub(crate) fn u8(&mut self, v: u8) {
         self.0.push(v);
     }
-    fn u32(&mut self, v: u32) {
+    pub(crate) fn u32(&mut self, v: u32) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
-    fn i64(&mut self, v: i64) {
+    pub(crate) fn i64(&mut self, v: i64) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
-    fn bytes(&mut self, b: &[u8]) {
+    pub(crate) fn bytes(&mut self, b: &[u8]) {
         self.u32(b.len() as u32);
         self.0.extend_from_slice(b);
     }
-    fn str(&mut self, s: &str) {
+    pub(crate) fn str(&mut self, s: &str) {
         self.bytes(s.as_bytes());
     }
 
-    fn value(&mut self, v: &Value) {
+    pub(crate) fn value(&mut self, v: &Value) {
         match v {
             Value::Null => self.u8(0),
             Value::Bool(b) => {
@@ -241,10 +242,11 @@ impl Enc {
     }
 }
 
-struct Dec<'a>(&'a [u8]);
+/// Decoder of what [`Enc`] writes.
+pub(crate) struct Dec<'a>(pub(crate) &'a [u8]);
 
 impl Dec<'_> {
-    fn take(&mut self, n: usize) -> Result<&[u8]> {
+    pub(crate) fn take(&mut self, n: usize) -> Result<&[u8]> {
         if self.0.len() < n {
             return Err(corrupt("truncated record"));
         }
@@ -252,24 +254,24 @@ impl Dec<'_> {
         self.0 = b;
         Ok(a)
     }
-    fn u8(&mut self) -> Result<u8> {
+    pub(crate) fn u8(&mut self) -> Result<u8> {
         Ok(self.take(1)?[0])
     }
-    fn u32(&mut self) -> Result<u32> {
+    pub(crate) fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap_or_default()))
     }
-    fn i64(&mut self) -> Result<i64> {
+    pub(crate) fn i64(&mut self) -> Result<i64> {
         Ok(i64::from_le_bytes(self.take(8)?.try_into().unwrap_or_default()))
     }
-    fn bytes(&mut self) -> Result<Vec<u8>> {
+    pub(crate) fn bytes(&mut self) -> Result<Vec<u8>> {
         let n = self.u32()? as usize;
         Ok(self.take(n)?.to_vec())
     }
-    fn str(&mut self) -> Result<String> {
+    pub(crate) fn str(&mut self) -> Result<String> {
         String::from_utf8(self.bytes()?).map_err(|_| corrupt("invalid UTF-8"))
     }
 
-    fn value(&mut self) -> Result<Value> {
+    pub(crate) fn value(&mut self) -> Result<Value> {
         Ok(match self.u8()? {
             0 => Value::Null,
             1 => Value::Bool(self.u8()? != 0),
@@ -351,7 +353,7 @@ impl Dec<'_> {
 }
 
 /// CRC-32 (IEEE), to detect a record torn by a crash.
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     static TABLE: std::sync::LazyLock<[u32; 256]> = std::sync::LazyLock::new(|| {
         let mut t = [0u32; 256];
         for (i, slot) in t.iter_mut().enumerate() {

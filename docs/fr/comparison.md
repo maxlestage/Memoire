@@ -6,7 +6,7 @@ Diesel et SeaORM sont les deux ORM les plus utilisés en Rust, et Nitrite une ba
 
 - **Diesel** : un constructeur de requêtes synchrone qui vérifie chaque requête à la compilation contre un `schema.rs` généré depuis votre base (l'asynchrone passe par la crate séparée `diesel-async`). PostgreSQL, MySQL, SQLite.
 - **SeaORM** : un ORM asynchrone construit sur SQLx, avec des entités générées par une CLI, des `ActiveModel` pour les modifications et de nombreux outils de relations. PostgreSQL, MySQL, SQLite.
-- **Memoire** : un ORM asynchrone avec un seul `#[derive(Model)]` sur votre propre struct, le SQL des opérations par clé primaire produit pendant la compilation, et la même API en SQL et en NoSQL : PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire en pur Rust qui tourne en WebAssembly.
+- **Memoire** : un ORM asynchrone avec un seul `#[derive(Model)]` sur votre propre struct, le SQL des opérations par clé primaire produit pendant la compilation, et la même API en SQL et en NoSQL : Nuage DB (la base de données de Memoire, embarquée ou en serveur), PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire en pur Rust qui tourne en WebAssembly.
 
 ## Fonctionnalité par fonctionnalité
 
@@ -24,7 +24,7 @@ Diesel et SeaORM sont les deux ORM les plus utilisés en Rust, et Nitrite une ba
 | Déclaration des relations | `#[diesel(belongs_to)]` + `joinable!` | enum `Relation` + impls `Related` | aucune : lue dans `references = "table(col)"` |
 | Mise à jour partielle | struct `AsChangeset` | `ActiveModel` avec `Set(...)` | `update_only(&db, (User::NAME, User::AGE))` |
 | Index sur plusieurs colonnes | dans les migrations | dans les migrations | `#[memoire(unique(a, b), index(c, d))]`, respectés par toutes les bases |
-| Recherche plein texte | PostgreSQL, avec la crate `diesel_full_text_search` | expressions personnalisées | `Column::matches`, la même règle sur les six bases |
+| Recherche plein texte | PostgreSQL, avec la crate `diesel_full_text_search` | expressions personnalisées | `Column::matches`, la même règle sur les sept bases |
 | Notifications de changements | non | hooks `ActiveModelBehavior` par entité | `Observed::subscribe` : chaque écriture, annoncée au commit |
 | Mise à jour / suppression en masse filtrée | oui | oui | oui, avec `increment`, `set_null`... |
 | Insertion multiple | oui, renvoie les lignes sur PG/SQLite | oui | oui, par lots sous la limite de paramètres de chaque base |

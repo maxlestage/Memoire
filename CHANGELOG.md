@@ -6,7 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-13
+
 ### Added
+- **Nuage DB**, Memoire's own database, in a new crate, `nuage`: tables and indexes on disk in a
+  B-tree page store (redb) with a bounded page cache, behind a write-ahead log synced on every
+  commit (CRC-32 on each record), with checkpoints and crash recovery at startup. Statements
+  are evaluated by Memoire's own engine over the rows read from disk (primary-key and index
+  lookups, streamed filters, early `LIMIT`, top-N `ORDER BY ... LIMIT`), so Memoire's backend
+  test suite passes on it unchanged.
+  - Embedded: `nuage::Embedded::open("data")`, behind the `Executor` and `Database` traits.
+  - Server: the `nuage` binary (`PORT`, `NUAGE_DATA_DIR`, `NUAGE_TOKEN`,
+    `NUAGE_ADMIN_PASSWORD`, `NUAGE_BACKUP_*`), interactive transactions over HTTP, batches.
+  - Copy-on-write branches, made in an instant: create, list, reset to the parent, delete.
+  - Backups to a directory or S3-compatible storage (snapshots plus shipped log segments),
+    restored automatically into an empty data directory at startup (Heroku and other hosts
+    with an ephemeral disk); automatic compaction; integrity checks.
+  - A management console at `/admin` (password, `HttpOnly`/`Secure`/`SameSite=Strict`
+    session cookie, CSRF tokens, login rate limits): overview, tables and rows, a query
+    console for a subset of SQL with a confirmation before writes, branches, storage.
+  - Live status: `/api/health`, `/api/status` and `/api/status/stream` (Server-Sent Events),
+    with a public subset (`NUAGE_PUBLIC_STATUS`), and a hook to serve a website from the same
+    port (`ServerOptions::site`).
+  - `nuage::Db::from_env()`: the embedded engine or a server, from `NUAGE_URL`.
+  - Deployment files in `crates/nuage/deploy` (Heroku, Docker).
+- memoire-orm `nuage` feature: `NuageDb`, the client of a Nuage DB server over HTTP(S), native
+  (hyper + rustls) and in WebAssembly (the browser's `fetch`); `NuageDb::batch`, branches.
+- `memoire_orm::evaluator`: Memoire's in-memory evaluator over rows supplied by another storage
+  engine (used by Nuage DB).
 - `Database::transaction(|tx| Box::pin(async move { ... }))`, like Prisma's `$transaction`:
   commits on `Ok`, rolls back on `Err`, and runs the closure again when the database reports a
   conflict (concurrent writer, deadlock, serialization failure, busy SQLite file), up to
@@ -20,6 +47,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - SQLite: a database still busy after `busy_timeout` now reports `Error::Conflict` (safe to
   retry) instead of a generic `Error::Database`.
 - Minimum Rust version (MSRV): 1.95 (was 1.88), required by `parking_lot` 0.13.
+- Tokio, rustls and webpki-roots are declared for native targets only, so wasm32 builds with
+  the `nuage` feature pull none of them.
 - Dependencies at their latest version: `syn` 3 (the derive macros generate the same code and
   the same error messages), `aes-gcm` 0.11 and `argon2` 0.6 (the encrypted storage format does
   not change: files written by earlier versions still open, checked by a test on a file

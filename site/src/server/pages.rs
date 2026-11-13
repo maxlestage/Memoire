@@ -137,7 +137,7 @@ fn stats(lang: Lang) -> Element {
     let tx = t(lang);
     let stats: [(usize, &str, &str); 4] = [
         (100, "%", tx.stat_rust),
-        (6, "", tx.stat_backends),
+        (7, "", tx.stat_backends),
         (3, "", tx.stat_dialects),
         (docs::page_count(), "", tx.stat_guides),
     ];
@@ -306,9 +306,11 @@ fn cta_banner(lang: Lang) -> Element {
 // ---------------------------------------------------------------------------
 
 /// Same order as `Texts::backends`.
-const BACKEND_ICONS: [Icon; 6] = [Icon::Cpu, Icon::Database, Icon::Database, Icon::Database, Icon::Zap, Icon::Layers];
+const BACKEND_ICONS: [Icon; 7] =
+    [Icon::Globe, Icon::Cpu, Icon::Database, Icon::Database, Icon::Database, Icon::Zap, Icon::Layers];
 
-const BACKEND_HINTS: [&str; 6] = [
+const BACKEND_HINTS: [&str; 7] = [
+    "nuage::Embedded::open(\"data\")?",
     "MemoryDb::new()",
     "SqliteDb::open(\"app.db\")?",
     "PgPool::connect(url).await?",

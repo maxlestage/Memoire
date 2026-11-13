@@ -104,7 +104,7 @@ pub struct Texts {
     pub fp_subtitle: &'static str,
     pub backends_title: &'static str,
     pub backends_subtitle: &'static str,
-    pub backends: &'static [Step; 6],
+    pub backends: &'static [Step; 7],
 
     // CTA
     pub cta_title: &'static str,
@@ -223,8 +223,8 @@ static EN_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Multiple backends",
-        desc: "SQL + NoSQL: PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine (WASM).",
-        detail: "Six backends behind one API, SQL and NoSQL alike. Write your models once, use MemoryDb in tests, then PostgreSQL, MySQL/MariaDB, SQLite, Redis or MongoDB in production.",
+        desc: "Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine (WASM).",
+        detail: "Seven backends behind one API, SQL and NoSQL alike. Write your models once, use MemoryDb or an embedded Nuage DB in tests, then a Nuage DB server, PostgreSQL, MySQL/MariaDB, SQLite, Redis or MongoDB in production.",
     },
     Feature {
         title: "In-memory engine, even in WASM",
@@ -249,7 +249,7 @@ static EN_STEPS: [Step; 4] = [
     Step { title: "Query", desc: "Compose type-safe queries with filters, ordering and limits." },
     Step {
         title: "Ship",
-        desc: "Run on PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB or in memory, from servers to WebAssembly.",
+        desc: "Run on Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB or in memory, from servers to WebAssembly.",
     },
 ];
 
@@ -272,7 +272,11 @@ static EN_WHY: [Step; 4] = [
     },
 ];
 
-static EN_BACKENDS: [Step; 6] = [
+static EN_BACKENDS: [Step; 7] = [
+    Step {
+        title: "Nuage DB",
+        desc: "Memoire's own database, in Rust: embedded or as a server, with branches, backups and a console.",
+    },
     Step { title: "In-memory", desc: "Instant and zero-setup: perfect for tests, demos and WebAssembly." },
     Step { title: "SQLite", desc: "A single file, ideal for apps, command-line tools and the edge." },
     Step { title: "PostgreSQL", desc: "Pooled connections for production workloads." },
@@ -300,7 +304,7 @@ static EN: Texts = Texts {
     hero_badge: "Pure Rust · Async · WebAssembly-ready",
     hero_title_1: "The Rust ORM",
     hero_title_2: "built for speed.",
-    hero_subtitle: "Memoire ORM turns plain Rust structs into type-safe, compile-time checked queries for PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine that even runs in your browser.",
+    hero_subtitle: "Memoire ORM turns plain Rust structs into type-safe, compile-time checked queries for Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and an in-memory engine that even runs in your browser.",
     hero_taglines: &[
         "Type-safe queries.",
         "SQL generated at compile time.",
@@ -320,6 +324,7 @@ static EN: Texts = Texts {
     stat_guides: "Documentation guides",
 
     marquee_items: &[
+        "Nuage DB",
         "PostgreSQL",
         "MySQL",
         "MariaDB",
@@ -457,7 +462,7 @@ static EN: Texts = Texts {
     offline_text: "This page has not been saved on this device yet. The pages you have already opened, the home page and the playground still work without a connection.",
     choose_language: "Choose your language",
 
-    meta_description: "Memoire ORM: a blazing-fast, pure-Rust ORM for SQL and NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB) with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly.",
+    meta_description: "Memoire ORM: a blazing-fast, pure-Rust ORM for SQL and NoSQL (Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB) with compile-time SQL, a type-safe query builder and an in-memory engine that runs in WebAssembly.",
 };
 
 // ---------------------------------------------------------------------------
@@ -487,8 +492,8 @@ static FR_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Plusieurs bases",
-        desc: "SQL + NoSQL : PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire (WASM).",
-        detail: "Six bases derrière une seule API, SQL comme NoSQL. Écrivez vos modèles une fois, utilisez MemoryDb dans les tests, puis PostgreSQL, MySQL/MariaDB, SQLite, Redis ou MongoDB en production.",
+        desc: "Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire (WASM).",
+        detail: "Sept bases derrière une seule API, SQL comme NoSQL. Écrivez vos modèles une fois, utilisez MemoryDb ou Nuage DB embarqué dans les tests, puis un serveur Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis ou MongoDB en production.",
     },
     Feature {
         title: "Moteur en mémoire, même en WASM",
@@ -515,7 +520,7 @@ static FR_STEPS: [Step; 4] = [
     Step { title: "Interroger", desc: "Composez des requêtes typées avec filtres, tri et limites." },
     Step {
         title: "Livrer",
-        desc: "Déployez sur PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB ou en mémoire, du serveur au WebAssembly.",
+        desc: "Déployez sur Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB ou en mémoire, du serveur au WebAssembly.",
     },
 ];
 
@@ -538,7 +543,11 @@ static FR_WHY: [Step; 4] = [
     },
 ];
 
-static FR_BACKENDS: [Step; 6] = [
+static FR_BACKENDS: [Step; 7] = [
+    Step {
+        title: "Nuage DB",
+        desc: "La base de données de Memoire, en Rust : embarquée ou en serveur, avec branches, sauvegardes et console.",
+    },
     Step {
         title: "En mémoire",
         desc: "Instantané et sans configuration : idéal pour les tests, les démos et le WebAssembly.",
@@ -572,7 +581,7 @@ static FR: Texts = Texts {
     hero_badge: "100 % Rust · Async · Prêt pour WebAssembly",
     hero_title_1: "L'ORM Rust",
     hero_title_2: "taillé pour la vitesse.",
-    hero_subtitle: "Memoire ORM transforme de simples structs Rust en requêtes typées et vérifiées à la compilation, pour PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire qui tourne même dans votre navigateur.",
+    hero_subtitle: "Memoire ORM transforme de simples structs Rust en requêtes typées et vérifiées à la compilation, pour Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB et un moteur en mémoire qui tourne même dans votre navigateur.",
     hero_taglines: &[
         "Des requêtes typées.",
         "Du SQL généré à la compilation.",
@@ -592,6 +601,7 @@ static FR: Texts = Texts {
     stat_guides: "Guides de documentation",
 
     marquee_items: &[
+        "Nuage DB",
         "PostgreSQL",
         "MySQL",
         "MariaDB",
@@ -729,7 +739,7 @@ static FR: Texts = Texts {
     offline_text: "Cette page n'a pas encore été enregistrée sur cet appareil. Les pages déjà ouvertes, l'accueil et le playground fonctionnent toujours sans connexion.",
     choose_language: "Choisissez votre langue",
 
-    meta_description: "Memoire ORM : un ORM 100 % Rust ultra-rapide pour SQL et NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), avec SQL généré à la compilation, requêtes typées et moteur en mémoire compatible WebAssembly.",
+    meta_description: "Memoire ORM : un ORM 100 % Rust ultra-rapide pour SQL et NoSQL (Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), avec SQL généré à la compilation, requêtes typées et moteur en mémoire compatible WebAssembly.",
 };
 
 // ---------------------------------------------------------------------------
@@ -759,8 +769,8 @@ static ES_FEATURES: [Feature; 8] = [
     },
     Feature {
         title: "Varias bases de datos",
-        desc: "SQL + NoSQL: PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria (WASM).",
-        detail: "Seis bases de datos tras una sola API, tanto SQL como NoSQL. Escribe tus modelos una vez, usa MemoryDb en los tests y luego PostgreSQL, MySQL/MariaDB, SQLite, Redis o MongoDB en producción.",
+        desc: "Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria (WASM).",
+        detail: "Siete bases de datos tras una sola API, tanto SQL como NoSQL. Escribe tus modelos una vez, usa MemoryDb o Nuage DB embebido en los tests y luego un servidor Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis o MongoDB en producción.",
     },
     Feature {
         title: "Motor en memoria, incluso en WASM",
@@ -785,7 +795,7 @@ static ES_STEPS: [Step; 4] = [
     Step { title: "Consultar", desc: "Compón consultas con tipos seguros, con filtros, orden y límites." },
     Step {
         title: "Desplegar",
-        desc: "Funciona con PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB o en memoria, del servidor a WebAssembly.",
+        desc: "Funciona con Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB o en memoria, del servidor a WebAssembly.",
     },
 ];
 
@@ -808,7 +818,11 @@ static ES_WHY: [Step; 4] = [
     },
 ];
 
-static ES_BACKENDS: [Step; 6] = [
+static ES_BACKENDS: [Step; 7] = [
+    Step {
+        title: "Nuage DB",
+        desc: "La base de datos propia de Memoire, en Rust: embebida o como servidor, con ramas, copias de seguridad y consola.",
+    },
     Step { title: "En memoria", desc: "Instantáneo y sin configuración: perfecto para tests, demos y WebAssembly." },
     Step { title: "SQLite", desc: "Un solo archivo, ideal para apps, herramientas de línea de comandos y edge." },
     Step { title: "PostgreSQL", desc: "Conexiones agrupadas para cargas de producción." },
@@ -836,7 +850,7 @@ static ES: Texts = Texts {
     hero_badge: "Rust puro · Async · Listo para WebAssembly",
     hero_title_1: "El ORM de Rust",
     hero_title_2: "hecho para la velocidad.",
-    hero_subtitle: "Memoire ORM convierte structs de Rust normales en consultas con tipos seguros y verificadas al compilar, para PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria que funciona incluso en tu navegador.",
+    hero_subtitle: "Memoire ORM convierte structs de Rust normales en consultas con tipos seguros y verificadas al compilar, para Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB y un motor en memoria que funciona incluso en tu navegador.",
     hero_taglines: &[
         "Consultas con tipos seguros.",
         "SQL generado al compilar.",
@@ -856,6 +870,7 @@ static ES: Texts = Texts {
     stat_guides: "Guías de documentación",
 
     marquee_items: &[
+        "Nuage DB",
         "PostgreSQL",
         "MySQL",
         "MariaDB",
@@ -993,5 +1008,5 @@ static ES: Texts = Texts {
     offline_text: "Esta página aún no se ha guardado en este dispositivo. Las páginas que ya abriste, el inicio y el playground siguen funcionando sin conexión.",
     choose_language: "Elige tu idioma",
 
-    meta_description: "Memoire ORM: un ORM ultrarrápido en Rust puro para SQL y NoSQL (PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), con SQL generado al compilar, consultas con tipos seguros y un motor en memoria que funciona en WebAssembly.",
+    meta_description: "Memoire ORM: un ORM ultrarrápido en Rust puro para SQL y NoSQL (Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB), con SQL generado al compilar, consultas con tipos seguros y un motor en memoria que funciona en WebAssembly.",
 };

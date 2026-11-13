@@ -4,10 +4,11 @@ Answers to the questions people ask most often about Memoire ORM. Each answer li
 
 ## Which databases are supported?
 
-Six backends, all with the same API and passing the same test suite:
+Seven backends, all with the same API and passing the same test suite:
 
 | Backend | Feature | Page |
 |---|---|---|
+| `NuageDb` / `nuage::Embedded` | `nuage` | [Nuage DB](nuage) |
 | `MemoryDb` | `memory` (default) | [In-memory engine](memory) |
 | `SqliteDb` | `sqlite` | [SQLite](sqlite) |
 | `PgPool` | `postgres` (`postgres-tls` for TLS) | [PostgreSQL](postgres) |
@@ -53,7 +54,7 @@ Make the field an `Option`: `pub age: Option<i32>`. `None` is stored as `NULL`, 
 
 ## Is `LIKE` case-sensitive?
 
-Yes, `like`, `contains`, `starts_with` and `ends_with` are case-sensitive on all six backends (Memoire configures SQLite and the MySQL tables it creates that way so every backend agrees). Use `ilike` or `icontains` to ignore case. On SQLite, case-insensitive matching only covers ASCII letters; the other backends also handle accented letters. See [Query builder](queries).
+Yes, `like`, `contains`, `starts_with` and `ends_with` are case-sensitive on all seven backends (Memoire configures SQLite and the MySQL tables it creates that way so every backend agrees). Use `ilike` or `icontains` to ignore case. On SQLite, case-insensitive matching only covers ASCII letters; the other backends also handle accented letters. See [Query builder](queries).
 
 ## Why do NULL values appear first on one database and last on another?
 

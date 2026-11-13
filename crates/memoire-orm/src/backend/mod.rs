@@ -2,6 +2,7 @@
 //!
 //! | Backend | Feature | Pure Rust | Notes |
 //! |---|---|---|---|
+//! | `nuage::NuageDb` | `nuage` | yes | Nuage DB: embedded on disk, or a Nuage DB server over HTTP(S) (also from `wasm32`) |
 //! | [`memory::MemoryDb`] | `memory` (default) | yes | also runs on `wasm32` |
 //! | `sqlite::SqliteDb` | `sqlite` | driver in Rust, SQLite compiled in | embedded, zero config |
 //! | `postgres::PgPool` | `postgres` | yes | `tokio-postgres` + pooling |
@@ -17,6 +18,9 @@ pub mod sqlite;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
+
+#[cfg(feature = "nuage")]
+pub mod nuage;
 
 #[cfg(feature = "mysql")]
 pub mod mysql;

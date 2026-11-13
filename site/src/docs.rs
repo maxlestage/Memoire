@@ -78,6 +78,7 @@ pub static CATEGORIES: &[DocCategory] = &[
     DocCategory {
         title: ["Backends", "Bases de données", "Bases de datos"],
         pages: &[
+            page!("nuage", "Nuage DB", "Nuage DB", "Nuage DB"),
             page!("memory", "In-memory engine", "Moteur en mémoire", "Motor en memoria"),
             page!("sqlite", "SQLite", "SQLite", "SQLite"),
             page!("postgres", "PostgreSQL", "PostgreSQL", "PostgreSQL"),
@@ -170,7 +171,7 @@ mod tests {
     #[test]
     fn manifest_shape() {
         assert_eq!(CATEGORIES.len(), 6);
-        assert_eq!(page_count(), 30);
+        assert_eq!(page_count(), 31);
         assert!(find("quick-start").is_some());
         let (prev, next) = neighbours("introduction");
         assert!(prev.is_none());

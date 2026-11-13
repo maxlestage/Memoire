@@ -1,6 +1,6 @@
 # PostgreSQL
 
-`PgPool` connecte Memoire à un serveur PostgreSQL au moyen d'un pool de connexions réutilisables. C'est le backend de prédilection pour les services web : plusieurs instances de l'application peuvent partager une même base de données, de nombreuses requêtes peuvent s'exécuter en même temps, et les offres hébergées (Heroku Postgres, Amazon RDS, Supabase, Neon...) sont faciles à trouver.
+`PgPool` connecte Memoire à un serveur PostgreSQL au moyen d'un pool de connexions réutilisables. C'est le backend de prédilection pour les services web : plusieurs instances de l'application peuvent partager une même base de données, de nombreuses requêtes peuvent s'exécuter en même temps, et les offres hébergées (Heroku Postgres, Amazon RDS, Supabase...) sont faciles à trouver.
 
 ## Activer le backend
 

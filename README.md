@@ -23,15 +23,16 @@
 | ⚡ **Compile-time SQL** | `#[derive(Model)]` renders every primary-key statement (`find`, `insert`, `update`, `delete`, `upsert`) for PostgreSQL, SQLite and MySQL while your code compiles. |
 | 🛡️ **Type-safe queries** | `User::AGE.gt(18)` compiles, `User::AGE.gt("18")` does not. Combine conditions with `&`, `\|` and `!`. |
 | 🧬 **Zero-cost row mapping** | Rows are decoded by position in a single pass; values are moved, never cloned. |
-| 🗄️ **SQL and NoSQL, one API** | PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
+| ☁️ **Nuage DB, our own database** | Memoire's database, in Rust (crate `nuage`): tables on disk behind a write-ahead log, instant copy-on-write branches, backups to S3, an HTTP server with a console. Embedded in development (`nuage::Embedded::open("data")`), a server in production (`NuageDb::connect(url, token)`), the same code. |
+| 🗄️ **SQL and NoSQL, one API** | Nuage DB, PostgreSQL, MySQL/MariaDB, SQLite, Redis, MongoDB and a pure-Rust in-memory engine (runs in WebAssembly!). |
 | 🔗 **Relations without N+1** | `users.load_children::<Post>(&db)`, `load_parent`, many-to-many `load_via`: one query per level, read from the foreign keys you already declare. |
-| 🔎 **Search and indexes everywhere** | Full-text search (`Post::BODY.matches("rust orm")`) and unique indexes over several columns (`#[memoire(unique(user_id, team_id))]`), with the same behaviour on all six backends. |
+| 🔎 **Search and indexes everywhere** | Full-text search (`Post::BODY.matches("rust orm")`) and unique indexes over several columns (`#[memoire(unique(user_id, team_id))]`), with the same behaviour on all seven backends. |
 | ⏱️ **Model lifecycle, Eloquent-style** | `#[memoire(timestamps, soft_deletes, hooks)]`: `created_at`/`updated_at` filled for you, `delete` that only hides the row (`with_trashed`, `restore`), hooks that can reject a write; `save`, `first_or_create`, `update_or_create`, `chunks`, `cursor_paginate` and a query log (`Logged`). |
 | 📣 **Change notifications** | `Observed::new(db).subscribe(...)`: every write, on any backend, announced when it commits. |
 | 🌐 **Browser storage** | `Store::<Cart>::new("cart")`, a Pinia-style store saved in `localStorage`, and `LocalStorageDb::open("app")`, a whole database in `localStorage`, in step across tabs (feature `web`). |
 | 💾 **Embedded and durable** | `MemoryDb::open("app.memoire")`: the in-memory engine stored in a crash-safe file, optionally encrypted (AES-256-GCM). |
 | 🔋 **Batteries included** | `db.transaction(...)` that retries itself on conflicts (like Prisma's `$transaction`), `db.push::<User>()` that adds new columns and indexes without migration files (like `drizzle-kit push`), migrations, joins, aggregates, `GROUP BY`, pagination, upserts, partial updates (`update_only`), `find_many`, normalised errors. |
-| 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all six backends. |
+| 🦀 **Safe** | `#![forbid(unsafe_code)]`, the same test suite passes on all seven backends. |
 
 ## Quick look
 
@@ -78,9 +79,10 @@ Supported backends (one feature each):
 
 | Backend | Feature | Handle | Notes |
 |---|---|---|---|
+| Nuage DB | `nuage` (client) + crate `nuage` | `nuage::Embedded::open("data")?` / `NuageDb::connect(url, token).await?` | Memoire's own database: embedded or server, branches, backups, console; the client runs in WebAssembly. See [Nuage DB](docs/en/nuage.md) |
 | In-memory | `memory` (default) | `MemoryDb::new()` / `MemoryDb::open(path)` | pure Rust, runs in WebAssembly, perfect for tests; can be stored in a file (`encryption` to encrypt it) |
 | SQLite | `sqlite` | `SqliteDb::open("app.db")?` | embedded, nothing to install |
-| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Neon, Supabase… |
+| PostgreSQL | `postgres` (+ `postgres-tls`) | `PgPool::connect(url).await?` | Heroku Postgres, Supabase… |
 | MySQL / MariaDB | `mysql` (+ `mysql-tls`) | `MySqlPool::connect(url).await?` | MySQL 8+, MariaDB 10.6+ |
 | Redis | `redis` (+ `redis-tls`) | `RedisDb::connect(url).await?` | NoSQL key-value, rows stored as JSON |
 | MongoDB | `mongodb` | `MongoDb::connect(url).await?` | NoSQL documents, real transactions on replica sets |
@@ -147,6 +149,7 @@ API reference: [docs.rs/memoire-orm](https://docs.rs/memoire-orm).
 ```text
 crates/memoire-orm/          the ORM (published on crates.io)
 crates/memoire-orm-derive/   #[derive(Model)] and #[derive(FromRow)]
+crates/nuage/                Nuage DB: the engine, the server, the console (deploy/: Heroku and Docker files)
 docs/{en,fr,es}/             documentation (rendered by the website)
 site/                        presentation website, written with active (server + WebAssembly islands, PWA)
 RustConfig, Procfile, app.json     one-click Heroku deployment (emk/rust buildpack, heroku-build.sh)
@@ -191,7 +194,7 @@ Step-by-step guide: [docs/en/deploy-heroku-mobile.md](docs/en/deploy-heroku-mobi
 
 ## Automation
 
-- **CI** (`ci.yml`): formatting, clippy, the same test suite on **all six backends** (memory, SQLite,
+- **CI** (`ci.yml`): formatting, clippy, the same test suite on **all seven backends** (Nuage DB, memory, SQLite,
   PostgreSQL, MySQL/MariaDB, Redis, MongoDB), every feature on its own, WebAssembly build, website build.
 - **Auto-merge** (`ci.yml`): pull requests to `master` are merged automatically as soon as CI is green
   (and the Heroku deployment is triggered).

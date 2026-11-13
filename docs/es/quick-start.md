@@ -328,6 +328,7 @@ La misma función `run` funciona con todos los backends. Activa la feature y cam
 
 | Base de datos | Feature | Cómo abrirla en `main` |
 |---|---|---|
+| Nuage DB (recomendada) | crate `nuage` | `let db = nuage::Embedded::open("tasks-data")?;` (o `NuageDb::connect(url, token).await?` para un servidor) |
 | En memoria | `memory` (por defecto) | `let db = MemoryDb::new();` |
 | SQLite | `sqlite` | `let db = SqliteDb::open("tasks.db")?;` |
 | PostgreSQL | `postgres` | `let db = PgPool::connect("postgres://user:password@localhost/tasks").await?;` |

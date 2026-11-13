@@ -4,10 +4,11 @@ Respuestas a las preguntas que más se hacen sobre Memoire ORM. Cada respuesta e
 
 ## ¿Qué bases de datos son compatibles?
 
-Seis backends, todos con la misma API y superando la misma batería de pruebas:
+Siete backends, todos con la misma API y superando la misma batería de pruebas:
 
 | Backend | Feature | Página |
 |---|---|---|
+| `NuageDb` / `nuage::Embedded` | `nuage` | [Nuage DB](nuage) |
 | `MemoryDb` | `memory` (por defecto) | [Motor en memoria](memory) |
 | `SqliteDb` | `sqlite` | [SQLite](sqlite) |
 | `PgPool` | `postgres` (`postgres-tls` para TLS) | [PostgreSQL](postgres) |
@@ -53,7 +54,7 @@ Haz que el campo sea un `Option`: `pub age: Option<i32>`. `None` se guarda como 
 
 ## ¿`LIKE` distingue mayúsculas y minúsculas?
 
-Sí: `like`, `contains`, `starts_with` y `ends_with` distinguen mayúsculas y minúsculas en los seis backends (Memoire configura así SQLite y las tablas de MySQL que crea para que todos los backends coincidan). Usa `ilike` o `icontains` para no distinguirlas. En SQLite, la coincidencia sin distinguir mayúsculas solo cubre las letras ASCII; los demás backends también gestionan las letras acentuadas. Consulta [Constructor de consultas](queries).
+Sí: `like`, `contains`, `starts_with` y `ends_with` distinguen mayúsculas y minúsculas en los siete backends (Memoire configura así SQLite y las tablas de MySQL que crea para que todos los backends coincidan). Usa `ilike` o `icontains` para no distinguirlas. En SQLite, la coincidencia sin distinguir mayúsculas solo cubre las letras ASCII; los demás backends también gestionan las letras acentuadas. Consulta [Constructor de consultas](queries).
 
 ## ¿Por qué los valores NULL aparecen al principio en una base de datos y al final en otra?
 

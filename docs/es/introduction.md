@@ -1,6 +1,6 @@
 # Introducción
 
-Memoire ORM es un ORM rápido, con tipado seguro y asíncrono, escrito en Rust puro. Describes tus tablas como structs normales de Rust y Memoire te ofrece una API tipada para crear, consultar, actualizar y eliminar filas, con el mismo código en seis bases de datos: un motor en memoria, SQLite, PostgreSQL, MySQL/MariaDB, Redis y MongoDB.
+Memoire ORM es un ORM rápido, con tipado seguro y asíncrono, escrito en Rust puro. Describes tus tablas como structs normales de Rust y Memoire te ofrece una API tipada para crear, consultar, actualizar y eliminar filas, con el mismo código en siete bases de datos: Nuage DB (la base de datos propia de Memoire, embebida o como servidor), un motor en memoria, SQLite, PostgreSQL, MySQL/MariaDB, Redis y MongoDB.
 
 ## ¿Qué es un ORM?
 
@@ -43,7 +43,7 @@ Memoire convierte `User::query().filter(User::AGE.ge(18))` en el SQL adecuado pa
 ## ¿Por qué Memoire?
 
 - **Consultas con tipado seguro.** Cada campo obtiene una constante de columna tipada (`User::AGE`, `User::EMAIL`, ...). `User::AGE.gt(18)` compila; `User::AGE.gt("18")` es un error de compilación. Las erratas en los nombres de columna también son errores de compilación.
-- **Una API, seis bases de datos.** El mismo modelo y las mismas consultas funcionan con el motor en memoria, SQLite, PostgreSQL, MySQL/MariaDB, Redis y MongoDB, y todos superan la misma batería de pruebas. Cambiar de base de datos es cuestión de modificar una sola línea.
+- **Una API, siete bases de datos.** El mismo modelo y las mismas consultas funcionan con Nuage DB, el motor en memoria, SQLite, PostgreSQL, MySQL/MariaDB, Redis y MongoDB, y todos superan la misma batería de pruebas. Cambiar de base de datos es cuestión de modificar una sola línea.
 - **Rápido por diseño.** El SQL de las operaciones por clave primaria se genera mientras tu código compila, las filas se decodifican en una sola pasada sin clonar nada y las sentencias se preparan una vez y se guardan en caché. Consulta [Por qué es rápido](performance).
 - **Todo incluido.** Joins, agregados, `GROUP BY`, paginación, upserts, inserciones masivas, transacciones, migraciones y SQL sin procesar.
 - **Seguro.** El crate es `#![forbid(unsafe_code)]` y los valores siempre se envían como parámetros enlazados, nunca se pegan en el texto SQL.
@@ -66,6 +66,7 @@ Memoire convierte `User::query().filter(User::AGE.ge(18))` en el SQL adecuado pa
 
 | Backend | Tipo | Feature de Cargo | Runtime asíncrono | SQL sin procesar |
 |---|---|---|---|---|
+| `NuageDb` / `nuage::Embedded` | Nuage DB, la base de datos propia de Memoire: embebida en disco, o un servidor por HTTP(S) | `nuage` (cliente), crate `nuage` (motor, servidor) | Tokio (embebida: cualquiera) | No |
 | `MemoryDb` | Motor en memoria, Rust puro | `memory` (por defecto) | Cualquiera, o ninguno (`block_on`) | No |
 | `SqliteDb` | Base de datos SQLite embebida (en archivo o en memoria) | `sqlite` | Cualquiera, o ninguno (`block_on`) | Sí |
 | `PgPool` | Cliente PostgreSQL con pool de conexiones | `postgres` (`postgres-tls` para TLS) | Tokio | Sí |
@@ -73,14 +74,15 @@ Memoire convierte `User::query().filter(User::AGE.ge(18))` en el SQL adecuado pa
 | `RedisDb` | Tablas almacenadas en Redis, consultas evaluadas por el motor en memoria | `redis` (`redis-tls` para TLS) | Tokio | No |
 | `MongoDb` | Una colección por tabla, consultas traducidas a filtros de MongoDB | `mongodb` | Tokio | No |
 
-Cada backend tiene su propia página: [Motor en memoria](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL y MariaDB](mysql), [Redis](redis) y [MongoDB](mongodb).
+Cada backend tiene su propia página: [Nuage DB](nuage), [Motor en memoria](memory), [SQLite](sqlite), [PostgreSQL](postgres), [MySQL y MariaDB](mysql), [Redis](redis) y [MongoDB](mongodb).
 
 ## ¿Qué backend debería usar?
 
 | Quieres... | Usa | Por qué |
 |---|---|---|
+| Empezar un proyecto nuevo: una sola base en desarrollo y producción, ramas para previsualizaciones | Nuage DB (`nuage::Embedded`, luego `NuageDb`) | La base de datos propia de Memoire: embebida en desarrollo y tests, un servidor con copias de seguridad y consola en producción, el mismo código |
 | Aprender Memoire, hacer prototipos, escribir pruebas unitarias rápidas | `MemoryDb` | Sin configuración, sin archivos, rapidísimo, nada que limpiar |
-| Ejecutarlo en el navegador (WebAssembly) | `MemoryDb` | Es el único backend que compila a `wasm32` |
+| Ejecutarlo en el navegador (WebAssembly) | `MemoryDb`, o `NuageDb` para datos compartidos | `MemoryDb` guarda los datos en la página; `NuageDb` llega a un servidor Nuage DB mediante `fetch` |
 | Distribuir una aplicación de escritorio, una herramienta CLI o un servidor pequeño con datos en disco | `SqliteDb` | Un solo archivo, ningún servidor que instalar, muy rápido en una sola máquina |
 | Ejecutar un servicio web con varias instancias o muchos escritores concurrentes | `PgPool` | Un servidor de base de datos de verdad con pool de conexiones, acceso por red y una concurrencia sólida |
 | Usar una base de datos MySQL o MariaDB existente, o un alojamiento que ofrece MySQL | `MySqlPool` | Un servidor SQL completo con pool de conexiones, disponible en casi todos los proveedores de alojamiento |

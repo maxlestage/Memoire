@@ -40,7 +40,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Tests (memory, SQLite, PostgreSQL, MariaDB, MySQL, Redis, MongoDB)
+    name: Tests (Nuage DB, memory, SQLite, PostgreSQL, MariaDB, MySQL, Redis, MongoDB)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -143,11 +143,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Each backend on its own
         run: |
-          for f in memory sqlite postgres postgres-tls mysql mysql-tls redis redis-tls mongodb encryption web chrono,uuid,json; do
+          for f in memory sqlite postgres postgres-tls mysql mysql-tls redis redis-tls mongodb nuage encryption web chrono,uuid,json; do
             echo "::group::--no-default-features --features $f"
             cargo clippy -p memoire-orm --no-default-features --features "$f" --all-targets -- -D warnings
             echo "::endgroup::"
           done
+      - name: Nuage DB (the `nuage` crate)
+        run: cargo clippy -p nuage --all-targets -- -D warnings
 
   msrv:
     name: MSRV (1.95)
@@ -157,6 +159,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p memoire-orm --all-features
+      - run: cargo check -p nuage
 
   wasm:
     name: WebAssembly build
@@ -171,6 +174,8 @@ jobs:
       - run: cargo build -p memoire-orm --target wasm32-unknown-unknown --features chrono,uuid,json
       - name: Browser storage (localStorage) for wasm32
         run: cargo clippy -p memoire-orm --target wasm32-unknown-unknown --no-default-features --features web,chrono,uuid,json -- -D warnings
+      - name: Nuage DB client (fetch) for wasm32
+        run: cargo clippy -p memoire-orm --target wasm32-unknown-unknown --no-default-features --features nuage,chrono,uuid,json -- -D warnings
 
   package:
     name: crates.io dry run
