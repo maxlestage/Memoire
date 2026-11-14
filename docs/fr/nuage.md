@@ -87,23 +87,25 @@ Note::query().filter(Note::TEXT.contains("bonjour")).all(&db).await?;
 let db = nuage::Db::from_env().await?;
 ```
 
-## Installer sur un serveur
+## Installer partout
 
-Sur n'importe quel serveur Linux (Debian, Ubuntu, Fedora, Rocky, Alpine..., x86_64 ou ARM64, dès 512 Mio de mémoire), une commande :
+Le serveur tourne sur n'importe quel ordinateur : un serveur Linux, un Raspberry Pi, un Mac, un PC sous Windows. Une commande l'installe comme un service lancé avec l'ordinateur, crée sa clé et ses jetons, et demande où vont les sauvegardes :
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh | sudo bash
-```
+| | Commande |
+|---|---|
+| Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh \| sudo bash` |
+| Windows (PowerShell en administrateur) | `irm https://raw.githubusercontent.com/maxlestage/Nuage/master/install.ps1 \| iex` |
+| avec cargo | `cargo install --locked --git https://github.com/maxlestage/Nuage nuage` |
+| Docker | `docker compose up -d` dans le dépôt Nuage, avec les réglages dans `.env` |
 
-Elle installe le binaire `nuage` (compilé en statique, vérifié par son sha256), **crée un swap** si le serveur n'en a pas (la taille de la mémoire, de 1 à 4 Gio, avec `vm.swappiness=10` pour que la mémoire aille à la base), un utilisateur `nuage`, les données dans `/var/lib/nuage`, les réglages dans `/etc/nuage/nuage.env` avec une clé, un jeton et un mot de passe de console générés, et un service systemd lancé au démarrage. Elle affiche une fois l'adresse, le jeton et le mot de passe : **copiez `/etc/nuage/nuage.env` en lieu sûr**, personne ne peut lire les données sans sa clé.
+Elle affiche une fois l'adresse, un jeton et le mot de passe de la console : **copiez le fichier de réglages (`/etc/nuage/nuage.env`, `/usr/local/etc/nuage/nuage.env` sur macOS, `C:\ProgramData\Nuage\nuage.env` sur Windows) en lieu sûr**, personne ne peut lire les données sans sa clé. Sur Linux, elle crée aussi un swap s'il n'y en a pas et un utilisateur `nuage` ; avec `NUAGE_DOMAIN=db.example.com`, HTTPS par Caddy.
 
-- **HTTPS** : faites pointer un nom de domaine vers le serveur, puis lancez `curl -fsSL .../install.sh | sudo NUAGE_DOMAIN=db.example.com bash` (Caddy, avec un certificat gratuit).
-- **Mise à jour** : relancez la commande ; données, clé et réglages restent.
-- **Options** : `NUAGE_PORT`, `NUAGE_SWAP_MB` (`0` : pas de swap), `NUAGE_VERSION=v0.3.0`, `NUAGE_FROM_SOURCE=1`.
-- **Désinstaller** : `... | sudo bash -s uninstall` (garde les données), ou `purge`.
-- **Docker** : `docker compose up -d` dans le dépôt Nuage, avec les réglages dans `.env`.
+- **Sauvegardes** : un dossier sur un autre disque (`NUAGE_BACKUP_DIR=/Volumes/MonDisque/nuage`), un stockage compatible S3 (`NUAGE_BACKUP_S3_*`) ou aucune (`NUAGE_BACKUP=none`), dans la commande ou demandé par l'installateur ; un dossier de données vide en est restauré au démarrage (voir [Sauvegardes et restauration](#sauvegardes-et-restauration)).
+- **cargo** ne pose que le binaire dans `~/.cargo/bin` ; donnez-le à l'installateur pour le service et les sauvegardes : `curl ... | sudo NUAGE_BINARY="$(command -v nuage)" bash`.
+- **Mise à jour** : relancez la commande ; données, clé, réglages et sauvegardes restent.
+- **Désinstaller** : `... | sudo bash -s uninstall` (garde les données), ou `purge` ; les sauvegardes ne sont jamais effacées.
 
-Des binaires pour Linux, macOS et Windows sont sur la [page des versions](https://github.com/maxlestage/Nuage/releases).
+Des binaires pour Linux, macOS et Windows sont sur la [page des versions](https://github.com/maxlestage/Nuage/releases) ; `nuage --env-file nuage.env` démarre le serveur avec les réglages d'un fichier.
 
 ## Mémoire
 
@@ -115,7 +117,29 @@ Nuage DB chiffre tout ce qu'il stocke : les pages en XTS-AES-256, chaque enregis
 
 ## Plusieurs applications
 
-Un serveur héberge plusieurs applications, chacune avec sa base, ses clés, ses sauvegardes et ses jetons. La première est la base du serveur (`NUAGE_NAME`, `NUAGE_TOKEN`) ; la console (**Nouvelle application**) crée les autres et affiche chaque nouveau jeton une fois (le serveur n'en garde que l'empreinte SHA-256). Le jeton qu'envoie une application choisit sa base : `NuageDb::connect(url, jeton)` ne change pas, et une application ne voit jamais les données d'une autre. Les jetons en lecture seule et les sites autorisés à appeler le serveur depuis le navigateur (CORS) se règlent par application.
+Un serveur héberge plusieurs applications, chacune avec sa base, ses clés, ses sauvegardes et ses jetons. La première est la base du serveur (`NUAGE_NAME`, `NUAGE_TOKEN`). Le jeton qu'envoie une application choisit sa base : `NuageDb::connect(url, jeton)` ne change pas, et une application ne voit jamais les données d'une autre. Les jetons en lecture seule et les sites autorisés à appeler le serveur depuis le navigateur (CORS) se règlent par application.
+
+Les autres se créent en une étape, avec le jeton de gestion du serveur (`NUAGE_ADMIN_TOKEN` ; les installateurs en mettent un). Chaque réponse donne le jeton de la nouvelle application, une seule fois (le serveur n'en garde que l'empreinte SHA-256), et les deux lignes à coller dans sa configuration :
+
+```bash
+sudo nuage apps create boutique "La boutique"   # sur l'ordinateur du serveur : rien d'autre
+NUAGE_URL=https://db.example.com NUAGE_ADMIN_TOKEN=… nuage apps create boutique   # d'ailleurs
+paquets nuage create boutique                   # dans un projet Paquets : écrit les deux lignes dans .env
+```
+
+Depuis Rust, `NuageAdmin` (fonction `nuage`, en natif et en WebAssembly) :
+
+```rust
+use memoire_orm::prelude::*;
+
+let admin = NuageAdmin::new("https://db.example.com", &jeton_de_gestion)?; // ou NuageAdmin::from_env()
+let boutique = admin.create_app("boutique", "La boutique").await?;
+println!("{}", boutique.env()); // NUAGE_URL=https://db.example.com
+                                // NUAGE_TOKEN=nuage_…
+let db = NuageDb::connect(&boutique.url, &boutique.token).await?;
+```
+
+`apps()`, `app(nom)`, `new_token(nom, read_only)` et `revoke_token(nom, id)` font le reste ; un nom déjà pris est `Error::UniqueViolation`, un mauvais jeton de gestion une `NuageError` dont `is_unauthorized()` est vrai. La même API répond sur `/api/apps` en HTTP, pour tous les langages ([sa description](https://github.com/maxlestage/Nuage/blob/master/crates/nuage/openapi.json)), et le bouton **Nouvelle application** de la console le fait à la main. Gardez le jeton de gestion avec les secrets du serveur, jamais dans une application ni dans une page.
 
 ## SQL
 
@@ -209,6 +233,8 @@ Le serveur est un seul binaire, configuré par des variables d'environnement :
 | `NUAGE_NAME` | nom de la base (par défaut `nuage`) |
 | `NUAGE_TOKEN` | jeton de l'API de la base ; sans lui, l'API refuse toute requête |
 | `NUAGE_ADMIN_PASSWORD` | mot de passe de la console ; sans lui, la console est désactivée |
+| `NUAGE_ADMIN_TOKEN` | jeton de l'API de gestion (`/api/apps`, `nuage apps`, `NuageAdmin`), 32 caractères au moins ; sans lui, l'API est coupée |
+| `NUAGE_ENV_FILE` | lit aussi les réglages de ce fichier (lignes `CLÉ=valeur` ; `nuage --env-file <fichier>`) ; l'environnement l'emporte |
 | `NUAGE_PUBLIC_STATUS` | `true` pour le sous-ensemble public de l'état |
 | `NUAGE_CACHE_MB` | cache de pages de chaque application en Mio, ou `auto` (par défaut) |
 | `NUAGE_BACKUP_DIR` | sauvegardes dans un dossier |
