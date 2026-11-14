@@ -14,8 +14,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   short reference in its place (`nuage::wire::schema_ref`: the table's name and a
   fingerprint of its description, the same on both sides). A server that does not know a
   reference (it restarted) says so and gets the statement again with its schemas whole.
-  Nothing changes with a server or a client that does not know references: schemas travel
-  whole, as before.
+  Batches (`db.batch()`) name their schemas the same way. Nothing changes with a server or a
+  client that does not know references: schemas travel whole, as before.
 - `nuage::wire`: `query_to_json_with` (how each schema is written), `schema_ref`,
   `is_unknown_schema`; `SchemaCache::schema` also takes a reference.
 
