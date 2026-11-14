@@ -42,19 +42,28 @@ fn bad(what: impl std::fmt::Display) -> Error {
     Error::Conversion(format!("invalid Nuage DB message: {what}"))
 }
 
+/// A JSON object with these fields, in this order. The values are moved in:
+/// `json!` would serialize each value that is already JSON into a new copy,
+/// so a statement built with it was copied once per level of nesting.
+fn object<const N: usize>(fields: [(&str, Json); N]) -> Json {
+    let mut map = Map::with_capacity(N);
+    for (key, value) in fields {
+        map.insert(key.to_owned(), value);
+    }
+    Json::Object(map)
+}
+
 // ---------------------------------------------------------------------------
 // Values
 // ---------------------------------------------------------------------------
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::backend::hex::encode as hex;
 
 fn unhex(s: &str) -> Result<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return Err(bad("odd hex string"));
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| bad("hex"))).collect()
+    crate::backend::hex::decode(s).ok_or_else(|| bad("hex"))
 }
 
 /// A value as JSON.
@@ -62,24 +71,33 @@ pub fn value_to_json(v: &Value) -> Json {
     match v {
         Value::Null => Json::Null,
         Value::Bool(b) => Json::Bool(*b),
-        Value::I32(i) => json!({ "i32": i }),
-        Value::I64(i) => json!(i),
-        Value::F64(f) if f.is_finite() => json!({ "f64": f }),
-        Value::F64(f) => json!({ "f64": if f.is_nan() { "NaN" } else if *f > 0.0 { "Infinity" } else { "-Infinity" } }),
+        Value::I32(i) => object([("i32", (*i).into())]),
+        Value::I64(i) => (*i).into(),
+        Value::F64(f) if f.is_finite() => object([("f64", (*f).into())]),
+        Value::F64(f) => {
+            let name = if f.is_nan() {
+                "NaN"
+            } else if *f > 0.0 {
+                "Infinity"
+            } else {
+                "-Infinity"
+            };
+            object([("f64", name.into())])
+        }
         Value::Text(s) => Json::String(s.clone()),
-        Value::Bytes(b) => json!({ "bytes": hex(b) }),
+        Value::Bytes(b) => object([("bytes", hex(b).into())]),
         #[cfg(feature = "uuid")]
-        Value::Uuid(u) => json!({ "uuid": u.to_string() }),
+        Value::Uuid(u) => object([("uuid", u.to_string().into())]),
         #[cfg(feature = "chrono")]
-        Value::Timestamp(t) => json!({ "ts": t.format("%Y-%m-%dT%H:%M:%S%.f").to_string() }),
+        Value::Timestamp(t) => object([("ts", t.format("%Y-%m-%dT%H:%M:%S%.f").to_string().into())]),
         #[cfg(feature = "chrono")]
-        Value::TimestampTz(t) => json!({ "tstz": t.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true) }),
+        Value::TimestampTz(t) => object([("tstz", t.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true).into())]),
         #[cfg(feature = "chrono")]
-        Value::Date(d) => json!({ "date": d.to_string() }),
+        Value::Date(d) => object([("date", d.to_string().into())]),
         #[cfg(feature = "chrono")]
-        Value::Time(t) => json!({ "time": t.format("%H:%M:%S%.f").to_string() }),
+        Value::Time(t) => object([("time", t.format("%H:%M:%S%.f").to_string().into())]),
         #[cfg(feature = "json")]
-        Value::Json(j) => json!({ "json": j }),
+        Value::Json(j) => object([("json", j.clone())]),
     }
 }
 
@@ -150,9 +168,247 @@ pub fn rows_from_json(j: &Json) -> Result<Vec<Vec<Value>>> {
         .collect()
 }
 
+/// The rows of a `fetch` answer (`{"rows": [[<value>, ...], ...]}`), read
+/// straight from its text: the same rows and the same errors as parsing the
+/// answer, then [`rows_from_json`] on its `rows`, without building the JSON
+/// tree in between (one string per text value instead of two).
+///
+/// An answer that is not JSON is an [`Error::Conversion`] saying so, as when
+/// the client parses any other answer.
+pub fn rows_from_slice(body: &[u8]) -> Result<Vec<Vec<Value>>> {
+    read_rows(body)?
+}
+
+/// [`rows_from_slice`], its two kinds of errors apart: `Err` for an answer
+/// that is not JSON, `Ok(Err)` for JSON that does not hold rows.
+pub(crate) fn read_rows(body: &[u8]) -> Result<Result<Vec<Vec<Value>>>> {
+    if body.is_empty() {
+        return Ok(Err(bad("rows")));
+    }
+    let top: rows::Top =
+        serde_json::from_slice(body).map_err(|e| Error::Conversion(format!("invalid answer from Nuage DB: {e}")))?;
+    Ok(top.0.rows.unwrap_or_else(|| Err(bad("rows"))))
+}
+
+/// [`rows_from_slice`]'s reader. An error in the rows does not stop it: the
+/// text is read to its end, so that an answer that is not JSON is reported as
+/// such first, as when it was parsed whole before its rows were read.
+mod rows {
+    use serde::Deserialize;
+    use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
+    use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+
+    use super::{Json, bad, value_from_json};
+    use crate::error::Error;
+    use crate::value::Value;
+
+    type Rows = Result<Vec<Vec<Value>>, Error>;
+
+    #[derive(Default)]
+    pub(super) struct Answer {
+        /// The last `rows` field (a JSON object keeps the last of a repeated key).
+        pub(super) rows: Option<Rows>,
+    }
+
+    pub(super) struct Top(pub(super) Answer);
+
+    impl<'de> Deserialize<'de> for Top {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_any(TopVisitor).map(Top)
+        }
+    }
+
+    /// Anything else than an object has no `rows`.
+    struct TopVisitor;
+
+    impl<'de> Visitor<'de> for TopVisitor {
+        type Value = Answer;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("an answer")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Answer, A::Error> {
+            let mut answer = Answer::default();
+            while let Some(key) = map.next_key::<std::borrow::Cow<'de, str>>()? {
+                if key == "rows" {
+                    answer.rows = Some(map.next_value_seed(RowsSeed)?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(answer)
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Answer, A::Error> {
+            while seq.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(Answer::default())
+        }
+        fn visit_bool<E>(self, _: bool) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+        fn visit_str<E>(self, _: &str) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+        fn visit_unit<E>(self) -> Result<Answer, E> {
+            Ok(Answer::default())
+        }
+    }
+
+    /// A value that is not an array: read through, `Err(bad(what))`.
+    macro_rules! not_an_array {
+        ($what:literal, $ty:ty) => {
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<$ty, A::Error> {
+                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                Ok(Err(bad($what)))
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+            fn visit_str<E>(self, _: &str) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+            fn visit_unit<E>(self) -> Result<$ty, E> {
+                Ok(Err(bad($what)))
+            }
+        };
+    }
+
+    struct RowsSeed;
+
+    impl<'de> DeserializeSeed<'de> for RowsSeed {
+        type Value = Rows;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Rows, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> Visitor<'de> for RowsSeed {
+        type Value = Rows;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("rows")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Rows, A::Error> {
+            let mut rows = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            let mut failed = None;
+            while let Some(row) = seq.next_element_seed(RowSeed { failed: failed.is_some() })? {
+                match row {
+                    Ok(row) if failed.is_none() => rows.push(row),
+                    Ok(_) => {}
+                    Err(e) => failed = failed.or(Some(e)),
+                }
+            }
+            Ok(failed.map_or(Ok(rows), Err))
+        }
+        not_an_array!("rows", Rows);
+    }
+
+    /// One row; once a row before it failed, it is only read through.
+    struct RowSeed {
+        failed: bool,
+    }
+
+    impl<'de> DeserializeSeed<'de> for RowSeed {
+        type Value = Result<Vec<Value>, Error>;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> Visitor<'de> for RowSeed {
+        type Value = Result<Vec<Value>, Error>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a row")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            if self.failed {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                return Ok(Ok(Vec::new()));
+            }
+            let mut row = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            let mut failed = None;
+            while let Some(value) = seq.next_element_seed(ValueSeed)? {
+                match value {
+                    Ok(v) if failed.is_none() => row.push(v),
+                    Ok(_) => {}
+                    Err(e) => failed = failed.or(Some(e)),
+                }
+            }
+            Ok(failed.map_or(Ok(row), Err))
+        }
+        not_an_array!("row", Result<Vec<Value>, Error>);
+    }
+
+    /// One value, as [`value_from_json`] reads it; objects (tagged values)
+    /// and arrays are built as JSON and handed to it.
+    struct ValueSeed;
+
+    impl<'de> DeserializeSeed<'de> for ValueSeed {
+        type Value = Result<Value, Error>;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> Visitor<'de> for ValueSeed {
+        type Value = Result<Value, Error>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a value")
+        }
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(Ok(Value::Null))
+        }
+        fn visit_bool<E>(self, b: bool) -> Result<Self::Value, E> {
+            Ok(Ok(Value::Bool(b)))
+        }
+        fn visit_i64<E>(self, i: i64) -> Result<Self::Value, E> {
+            Ok(Ok(Value::I64(i)))
+        }
+        fn visit_u64<E>(self, u: u64) -> Result<Self::Value, E> {
+            // As `serde_json::Number::as_i64`, then `as_f64`.
+            Ok(Ok(i64::try_from(u).map_or(Value::F64(u as f64), Value::I64)))
+        }
+        fn visit_f64<E>(self, f: f64) -> Result<Self::Value, E> {
+            Ok(Ok(Value::F64(f)))
+        }
+        fn visit_str<E>(self, s: &str) -> Result<Self::Value, E> {
+            Ok(Ok(Value::Text(s.to_owned())))
+        }
+        fn visit_string<E>(self, s: String) -> Result<Self::Value, E> {
+            Ok(Ok(Value::Text(s)))
+        }
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+            let j = Json::deserialize(MapAccessDeserializer::new(map))?;
+            Ok(value_from_json(&j))
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+            let j = Json::deserialize(SeqAccessDeserializer::new(seq))?;
+            Ok(value_from_json(&j))
+        }
+    }
+}
+
 /// The answer to an `execute`.
 pub fn exec_result_to_json(r: &ExecResult) -> Json {
-    json!({ "rowsAffected": r.rows_affected, "lastInsertId": r.last_insert_id.as_ref().map(value_to_json) })
+    object([
+        ("rowsAffected", r.rows_affected.into()),
+        ("lastInsertId", r.last_insert_id.as_ref().map(value_to_json).into()),
+    ])
 }
 
 /// Reads the answer to an `execute`.
@@ -292,29 +548,43 @@ fn type_of(name: &str) -> Result<ColumnType> {
 
 /// A table schema as JSON.
 pub fn schema_to_json(t: &TableSchema) -> Json {
-    json!({
-        "name": t.name,
-        "pk": t.primary_key,
-        "columns": t.columns.iter().map(|c| json!({
-            "name": c.name,
-            "field": c.field,
-            "kind": type_name(c.kind),
-            "nullable": c.nullable,
-            "primaryKey": c.primary_key,
-            "autoIncrement": c.auto_increment,
-            "unique": c.unique,
-            "indexed": c.indexed,
-            "fulltext": c.fulltext,
-            "sqlType": c.sql_type,
-            "default": c.default,
-            "references": c.references.map(|r| json!({
-                "table": r.table, "column": r.column, "onDelete": r.on_delete, "onUpdate": r.on_update,
-            })),
-        })).collect::<Vec<_>>(),
-        "indexes": t.indexes.iter().map(|ix| json!({
-            "name": ix.name, "columns": ix.columns, "unique": ix.unique,
-        })).collect::<Vec<_>>(),
-    })
+    let column = |c: &ColumnDef| {
+        object([
+            ("name", c.name.into()),
+            ("field", c.field.into()),
+            ("kind", type_name(c.kind).into()),
+            ("nullable", c.nullable.into()),
+            ("primaryKey", c.primary_key.into()),
+            ("autoIncrement", c.auto_increment.into()),
+            ("unique", c.unique.into()),
+            ("indexed", c.indexed.into()),
+            ("fulltext", c.fulltext.into()),
+            ("sqlType", c.sql_type.into()),
+            ("default", c.default.into()),
+            (
+                "references",
+                c.references
+                    .map(|r| {
+                        object([
+                            ("table", r.table.into()),
+                            ("column", r.column.into()),
+                            ("onDelete", r.on_delete.into()),
+                            ("onUpdate", r.on_update.into()),
+                        ])
+                    })
+                    .into(),
+            ),
+        ])
+    };
+    let index = |ix: &IndexDef| {
+        object([("name", ix.name.into()), ("columns", ix.columns.into()), ("unique", ix.unique.into())])
+    };
+    object([
+        ("name", t.name.into()),
+        ("pk", t.primary_key.into()),
+        ("columns", t.columns.iter().map(column).collect::<Vec<_>>().into()),
+        ("indexes", t.indexes.iter().map(index).collect::<Vec<_>>().into()),
+    ])
 }
 
 /// How a statement names a schema when it is written as JSON: the schema
@@ -405,9 +675,7 @@ pub fn schema_ref(t: &TableSchema) -> String {
     let mut reference = String::with_capacity(t.name.len() + 33);
     reference.push_str(t.name);
     reference.push('#');
-    for byte in &digest[..16] {
-        reference.push_str(&format!("{byte:02x}"));
-    }
+    reference.push_str(&hex(&digest[..16]));
     reference
 }
 
@@ -494,7 +762,8 @@ impl SchemaCache {
                 .flatten()
                 .ok_or_else(|| Error::Unsupported(format!("{UNKNOWN_SCHEMA} `{reference}`: send the schema")));
         }
-        let key = j.to_string();
+        // The same text as `j.to_string()`, written without going through `fmt`.
+        let key = serde_json::to_string(j).map_err(bad)?;
         if let Some(s) = self.schemas.lock().map_err(|_| bad("poisoned cache"))?.get(&key) {
             return Ok(s);
         }
@@ -611,36 +880,55 @@ const AGGS: [(AggFunc, &str); 5] = [
 
 fn expr_to_json(e: &Expr, enc: SchemaEncoder<'_>) -> Json {
     match e {
-        Expr::Column(c) => {
-            json!({ "col": [c.table, c.name, c.index, type_name(c.kind)] })
-        }
-        Expr::Value(v) => json!({ "val": value_to_json(v) }),
-        Expr::Binary { op, left, right } => json!({
-            "bin": [BIN_OPS.iter().find(|(o, _)| o == op).map_or("=", |(_, s)| s), expr_to_json(left, enc), expr_to_json(right, enc)]
-        }),
-        Expr::Not(inner) => json!({ "not": expr_to_json(inner, enc) }),
-        Expr::IsNull { expr, negated } => json!({ "isNull": expr_to_json(expr, enc), "negated": negated }),
-        Expr::InList { expr, list, negated } => json!({
-            "in": expr_to_json(expr, enc), "list": list.iter().map(value_to_json).collect::<Vec<_>>(), "negated": negated
-        }),
-        Expr::Between { expr, low, high, negated } => json!({
-            "between": expr_to_json(expr, enc), "low": expr_to_json(low, enc), "high": expr_to_json(high, enc), "negated": negated
-        }),
-        Expr::Like { expr, pattern, case_insensitive, negated, escaped } => json!({
-            "like": expr_to_json(expr, enc), "pattern": expr_to_json(pattern, enc),
-            "ci": case_insensitive, "negated": negated, "escaped": escaped
-        }),
-        Expr::Match(m) => json!({
-            "match": expr_to_json(&m.expr, enc), "words": m.words, "query": value_to_json(&m.query),
-            "patterns": m.patterns.iter().map(value_to_json).collect::<Vec<_>>()
-        }),
-        Expr::Aggregate { func, arg, distinct } => json!({
-            "agg": AGGS.iter().find(|(f, _)| f == func).map_or("count", |(_, s)| s),
-            "arg": arg.as_deref().map(|a| expr_to_json(a, enc)), "distinct": distinct
-        }),
-        Expr::InSubquery { expr, query, negated } => json!({
-            "inQuery": expr_to_json(expr, enc), "query": select_to_json(query, enc), "negated": negated
-        }),
+        Expr::Column(c) => object([(
+            "col",
+            Json::Array(vec![c.table.into(), c.name.into(), c.index.into(), type_name(c.kind).into()]),
+        )]),
+        Expr::Value(v) => object([("val", value_to_json(v))]),
+        Expr::Binary { op, left, right } => object([(
+            "bin",
+            Json::Array(vec![
+                BIN_OPS.iter().find(|(o, _)| o == op).map_or("=", |(_, s)| s).into(),
+                expr_to_json(left, enc),
+                expr_to_json(right, enc),
+            ]),
+        )]),
+        Expr::Not(inner) => object([("not", expr_to_json(inner, enc))]),
+        Expr::IsNull { expr, negated } => object([("isNull", expr_to_json(expr, enc)), ("negated", (*negated).into())]),
+        Expr::InList { expr, list, negated } => object([
+            ("in", expr_to_json(expr, enc)),
+            ("list", list.iter().map(value_to_json).collect::<Vec<_>>().into()),
+            ("negated", (*negated).into()),
+        ]),
+        Expr::Between { expr, low, high, negated } => object([
+            ("between", expr_to_json(expr, enc)),
+            ("low", expr_to_json(low, enc)),
+            ("high", expr_to_json(high, enc)),
+            ("negated", (*negated).into()),
+        ]),
+        Expr::Like { expr, pattern, case_insensitive, negated, escaped } => object([
+            ("like", expr_to_json(expr, enc)),
+            ("pattern", expr_to_json(pattern, enc)),
+            ("ci", (*case_insensitive).into()),
+            ("negated", (*negated).into()),
+            ("escaped", (*escaped).into()),
+        ]),
+        Expr::Match(m) => object([
+            ("match", expr_to_json(&m.expr, enc)),
+            ("words", m.words.as_slice().into()),
+            ("query", value_to_json(&m.query)),
+            ("patterns", m.patterns.iter().map(value_to_json).collect::<Vec<_>>().into()),
+        ]),
+        Expr::Aggregate { func, arg, distinct } => object([
+            ("agg", AGGS.iter().find(|(f, _)| f == func).map_or("count", |(_, s)| s).into()),
+            ("arg", arg.as_deref().map(|a| expr_to_json(a, enc)).into()),
+            ("distinct", (*distinct).into()),
+        ]),
+        Expr::InSubquery { expr, query, negated } => object([
+            ("inQuery", expr_to_json(expr, enc)),
+            ("query", select_to_json(query, enc)),
+            ("negated", (*negated).into()),
+        ]),
     }
 }
 
@@ -733,11 +1021,11 @@ fn expr_from_json(j: &Json, cache: &SchemaCache) -> Result<Expr> {
 }
 
 fn order_to_json(o: &Order, enc: SchemaEncoder<'_>) -> Json {
-    json!({
-        "expr": expr_to_json(&o.expr, enc),
-        "desc": o.desc,
-        "nulls": o.nulls.map(|n| if n == Nulls::First { "first" } else { "last" }),
-    })
+    object([
+        ("expr", expr_to_json(&o.expr, enc)),
+        ("desc", o.desc.into()),
+        ("nulls", o.nulls.map(|n| if n == Nulls::First { "first" } else { "last" }).into()),
+    ])
 }
 
 fn order_from_json(j: &Json, cache: &SchemaCache) -> Result<Order> {
@@ -754,25 +1042,31 @@ fn order_from_json(j: &Json, cache: &SchemaCache) -> Result<Order> {
 
 fn select_to_json(s: &SelectAst, enc: SchemaEncoder<'_>) -> Json {
     let expr = |e: &Expr| expr_to_json(e, enc);
-    json!({
-        "from": enc(s.from),
-        "projection": match &s.projection {
-            Projection::Tables(t) => json!({ "tables": t.iter().map(|t| t.name).collect::<Vec<_>>() }),
-            Projection::Exprs(e) => json!({ "exprs": e.iter().map(expr).collect::<Vec<_>>() }),
-        },
-        "joins": s.joins.iter().map(|j| json!({
-            "kind": if j.kind == JoinKind::Inner { "inner" } else { "left" },
-            "table": enc(j.table),
-            "on": expr(&j.on),
-        })).collect::<Vec<_>>(),
-        "filter": s.filter.as_ref().map(expr),
-        "groupBy": s.group_by.iter().map(expr).collect::<Vec<_>>(),
-        "having": s.having.as_ref().map(expr),
-        "order": s.order.iter().map(|o| order_to_json(o, enc)).collect::<Vec<_>>(),
-        "limit": s.limit,
-        "offset": s.offset,
-        "distinct": s.distinct,
-    })
+    let join = |j: &Join| {
+        object([
+            ("kind", (if j.kind == JoinKind::Inner { "inner" } else { "left" }).into()),
+            ("table", enc(j.table)),
+            ("on", expr(&j.on)),
+        ])
+    };
+    object([
+        ("from", enc(s.from)),
+        (
+            "projection",
+            match &s.projection {
+                Projection::Tables(t) => object([("tables", t.iter().map(|t| t.name).collect::<Vec<_>>().into())]),
+                Projection::Exprs(e) => object([("exprs", e.iter().map(expr).collect::<Vec<_>>().into())]),
+            },
+        ),
+        ("joins", s.joins.iter().map(join).collect::<Vec<_>>().into()),
+        ("filter", s.filter.as_ref().map(expr).into()),
+        ("groupBy", s.group_by.iter().map(expr).collect::<Vec<_>>().into()),
+        ("having", s.having.as_ref().map(expr).into()),
+        ("order", s.order.iter().map(|o| order_to_json(o, enc)).collect::<Vec<_>>().into()),
+        ("limit", s.limit.into()),
+        ("offset", s.offset.into()),
+        ("distinct", s.distinct.into()),
+    ])
 }
 
 fn opt_expr(j: Option<&Json>, cache: &SchemaCache) -> Result<Option<Expr>> {
@@ -854,34 +1148,28 @@ pub fn query_to_json(q: &Query<'_>) -> Result<Json> {
 pub fn query_to_json_with(q: &Query<'_>, enc: SchemaEncoder<'_>) -> Result<Json> {
     let expr = |e: &Expr| expr_to_json(e, enc);
     Ok(match *q {
-        Query::Select(s) => json!({ "select": select_to_json(s, enc) }),
-        Query::Insert(i) => json!({
-            "insert": enc(i.table),
-            "rows": i.rows.iter().map(|r| values_json(r)).collect::<Vec<_>>(),
-        }),
-        Query::Update(u) => json!({
-            "update": enc(u.table),
-            "sets": u.sets.iter().map(|(c, e)| json!([c, expr(e)])).collect::<Vec<_>>(),
-            "filter": u.filter.as_ref().map(expr),
-        }),
-        Query::Delete(d) => json!({ "delete": enc(d.table), "filter": d.filter.as_ref().map(expr) }),
-        Query::FindByKey { table, key } => json!({ "findByKey": enc(table), "key": value_to_json(key) }),
-        Query::InsertRow { table, values } => {
-            json!({ "insertRow": enc(table), "values": values_json(values) })
-        }
-        Query::UpsertRow { table, values } => {
-            json!({ "upsertRow": enc(table), "values": values_json(values) })
-        }
-        Query::UpdateRow { table, values } => {
-            json!({ "updateRow": enc(table), "values": values_json(values) })
-        }
-        Query::DeleteByKey { table, key } => json!({ "deleteByKey": enc(table), "key": value_to_json(key) }),
-        Query::Raw { sql, params } => json!({ "raw": sql, "params": values_json(params) }),
-        Query::Script { sql } => json!({ "script": sql }),
+        Query::Select(s) => object([("select", select_to_json(s, enc))]),
+        Query::Insert(i) => object([
+            ("insert", enc(i.table)),
+            ("rows", i.rows.iter().map(|r| values_json(r)).collect::<Vec<_>>().into()),
+        ]),
+        Query::Update(u) => object([
+            ("update", enc(u.table)),
+            ("sets", u.sets.iter().map(|(c, e)| Json::Array(vec![(*c).into(), expr(e)])).collect::<Vec<_>>().into()),
+            ("filter", u.filter.as_ref().map(expr).into()),
+        ]),
+        Query::Delete(d) => object([("delete", enc(d.table)), ("filter", d.filter.as_ref().map(expr).into())]),
+        Query::FindByKey { table, key } => object([("findByKey", enc(table)), ("key", value_to_json(key))]),
+        Query::InsertRow { table, values } => object([("insertRow", enc(table)), ("values", values_json(values))]),
+        Query::UpsertRow { table, values } => object([("upsertRow", enc(table)), ("values", values_json(values))]),
+        Query::UpdateRow { table, values } => object([("updateRow", enc(table)), ("values", values_json(values))]),
+        Query::DeleteByKey { table, key } => object([("deleteByKey", enc(table)), ("key", value_to_json(key))]),
+        Query::Raw { sql, params } => object([("raw", sql.into()), ("params", values_json(params))]),
+        Query::Script { sql } => object([("script", sql.into())]),
         Query::CreateTable { table, if_not_exists } => {
-            json!({ "createTable": enc(table), "ifNotExists": if_not_exists })
+            object([("createTable", enc(table)), ("ifNotExists", if_not_exists.into())])
         }
-        Query::DropTable { name, if_exists } => json!({ "dropTable": name, "ifExists": if_exists }),
+        Query::DropTable { name, if_exists } => object([("dropTable", name.into()), ("ifExists", if_exists.into())]),
     })
 }
 
@@ -996,6 +1284,7 @@ pub fn query_from_json(j: &Json, cache: &SchemaCache) -> Result<OwnedQuery> {
 mod tests {
     use super::*;
     use crate::prelude::*;
+    use serde_json::Value as Json;
 
     #[derive(Model, Debug, Clone, PartialEq)]
     #[memoire(table = "wire_users", index(name, age))]
@@ -1150,6 +1439,153 @@ mod tests {
         let j = query_to_json(&Query::InsertRow { table: U::SCHEMA, values: &values }).unwrap();
         let OwnedQuery::InsertRow(t, v) = query_from_json(&j, &cache).unwrap() else { panic!() };
         assert_eq!((t.name, v), ("wire_users", values));
+    }
+
+    /// The encoding written before statements were built without `json!`
+    /// (which copied every value that was already JSON): the same text, field
+    /// order included.
+    #[test]
+    fn encoding_is_unchanged() {
+        let old_schema = |t: &TableSchema| {
+            json!({
+                "name": t.name,
+                "pk": t.primary_key,
+                "columns": t.columns.iter().map(|c| json!({
+                    "name": c.name, "field": c.field, "kind": type_name(c.kind), "nullable": c.nullable,
+                    "primaryKey": c.primary_key, "autoIncrement": c.auto_increment, "unique": c.unique,
+                    "indexed": c.indexed, "fulltext": c.fulltext, "sqlType": c.sql_type, "default": c.default,
+                    "references": c.references.map(|r| json!({
+                        "table": r.table, "column": r.column, "onDelete": r.on_delete, "onUpdate": r.on_update,
+                    })),
+                })).collect::<Vec<_>>(),
+                "indexes": t.indexes.iter().map(|ix| json!({
+                    "name": ix.name, "columns": ix.columns, "unique": ix.unique,
+                })).collect::<Vec<_>>(),
+            })
+        };
+        for t in [U::SCHEMA, P::SCHEMA] {
+            assert_eq!(schema_to_json(t).to_string(), old_schema(t).to_string());
+        }
+        let values = [
+            (Value::I32(-3), json!({ "i32": -3 })),
+            (Value::I64(7), json!(7)),
+            (Value::F64(0.5), json!({ "f64": 0.5 })),
+            (Value::F64(f64::NAN), json!({ "f64": "NaN" })),
+            (Value::F64(f64::NEG_INFINITY), json!({ "f64": "-Infinity" })),
+            (Value::Bytes(vec![0, 15, 16, 255]), json!({ "bytes": "000f10ff" })),
+        ];
+        for (v, j) in values {
+            assert_eq!(value_to_json(&v).to_string(), j.to_string());
+        }
+        let col = |c: &str, i: usize, k: &str| json!({ "col": ["wire_users", c, i, k] });
+        let select = U::query()
+            .filter((U::AGE.between(1, 9) | U::NAME.like("A%")) & !U::EMAIL.is_in(["a"]) & U::AGE.is_null())
+            .order_by(U::NAME.desc())
+            .limit(5);
+        let filter = select.ast().filter.clone().unwrap();
+        let old = json!({ "select": {
+            "from": "ref",
+            "projection": { "tables": ["wire_users"] },
+            "joins": [],
+            "filter": expr_to_json(&filter, &|_| json!("ref")),
+            "groupBy": [],
+            "having": null,
+            "order": [{ "expr": col("name", 2, "text"), "desc": true, "nulls": null }],
+            "limit": 5,
+            "offset": null,
+            "distinct": false,
+        } });
+        let new = query_to_json_with(&Query::Select(select.ast()), &|_| json!("ref")).unwrap();
+        assert_eq!(new.to_string(), old.to_string());
+        let r = ExecResult { rows_affected: 2, last_insert_id: Some(Value::I32(4)) };
+        assert_eq!(
+            exec_result_to_json(&r).to_string(),
+            json!({ "rowsAffected": 2, "lastInsertId": { "i32": 4 } }).to_string()
+        );
+        // Expressions, one of each kind, as `json!` wrote them.
+        let between = json!({ "between": col("age", 3, "int"), "low": { "val": { "i32": 1 } },
+            "high": { "val": { "i32": 9 } }, "negated": false });
+        assert_eq!(expr_to_json(&U::AGE.between(1, 9), &|_| json!("ref")).to_string(), between.to_string());
+        let like = json!({ "like": col("name", 2, "text"), "pattern": { "val": "A%" }, "ci": false,
+            "negated": false, "escaped": true });
+        assert_eq!(expr_to_json(&U::NAME.like("A%"), &|_| json!("ref")).to_string(), like.to_string());
+        let not_in = json!({ "not": { "in": col("email", 1, "text"), "list": ["a"], "negated": false } });
+        assert_eq!(expr_to_json(&!U::EMAIL.is_in(["a"]), &|_| json!("ref")).to_string(), not_in.to_string());
+        let is_null = json!({ "isNull": col("age", 3, "int"), "negated": false });
+        assert_eq!(expr_to_json(&U::AGE.is_null(), &|_| json!("ref")).to_string(), is_null.to_string());
+        let gt = json!({ "bin": [">", col("age", 3, "int"), { "val": { "i32": 18 } }] });
+        assert_eq!(expr_to_json(&U::AGE.gt(18), &|_| json!("ref")).to_string(), gt.to_string());
+    }
+
+    /// `rows_from_slice` answers what parsing the answer, then
+    /// `rows_from_json` on its `rows`, answers: rows or error, message included.
+    #[test]
+    fn rows_read_straight_from_the_text() {
+        let old = |body: &[u8]| -> Result<Vec<Vec<Value>>> {
+            let j: Json = if body.is_empty() {
+                Json::Null
+            } else {
+                serde_json::from_slice(body)
+                    .map_err(|e| Error::Conversion(format!("invalid answer from Nuage DB: {e}")))?
+            };
+            rows_from_json(j.get("rows").unwrap_or(&Json::Null))
+        };
+        #[cfg_attr(not(feature = "json"), allow(unused_mut))]
+        let mut row = vec![
+            Value::Null,
+            Value::Bool(false),
+            Value::I32(i32::MIN),
+            Value::I64(i64::MIN),
+            Value::F64(-0.0),
+            Value::F64(f64::INFINITY),
+            Value::Text("é \" \\n \u{1F600}".into()),
+            Value::Bytes(vec![1, 2, 254]),
+        ];
+        #[cfg(feature = "json")]
+        row.push(Value::Json(json!({"a": [1, {"b": null}]})));
+        let good = json!({ "rows": rows_to_json(&[row.clone(), row]) }).to_string();
+        let bodies: Vec<&[u8]> = vec![
+            good.as_bytes(),
+            b"",
+            b" ",
+            b"null",
+            b"[]",
+            b"[[1]]",
+            b"7",
+            br#""rows""#,
+            b"{}",
+            br#"{"rows": []}"#,
+            br#"{"other": [1, {"x": 2}], "rows": [[1, "a", 1.5, 18446744073709551615, -1, 1e300]]}"#,
+            br#"{"rows": [[1e400]]}"#,
+            br#"{"rows": [[1]], "rows": [[2], [3]]}"#,
+            br#"{"rows": [[{"bad": 1}]], "rows": [[4]]}"#,
+            br#"{"rows": [[4]], "rows": 5}"#,
+            br#"{"rows": {"a": 1}}"#,
+            br#"{"rows": [1, [2]]}"#,
+            br#"{"rows": [[1], 2]}"#,
+            br#"{"rows": [[[1]]]}"#,
+            br#"{"rows": [[{"i32": 1, "f64": 2}]]}"#,
+            br#"{"rows": [[{"i32": 99999999999}]]}"#,
+            br#"{"rows": [[{"bytes": "abc"}], [{"bytes": "zz"}]]}"#,
+            br#"{"rows": [[{"nope": 1}]]}"#,
+            br#"{"rows": [[{"f64": "NaN"}, {"f64": "Infinity"}, {"f64": 2}]]}"#,
+            br#"{"rows": [[{"uuid": "00000000-0000-0000-0000-00000000002a"}, {"date": "2026-01-02"}]]}"#,
+            br#"{"rows": [[{"json": [1, 2]}], [{"bad": 1}]], "x": }"#,
+            br#"{"rows": [[1]]} trailing"#,
+            br#"{"rows": [[1]"#,
+            br#"{"rows": [["\ud800"]]}"#,
+            "{\"rows\": [[\"a\\u00e9\\n\", \"é\"]]}".as_bytes(),
+        ];
+        for body in bodies {
+            let (a, b) = (rows_from_slice(body), old(body));
+            let text = String::from_utf8_lossy(body);
+            match (a, b) {
+                // `NaN` is not equal to itself: compare what the values say.
+                (Ok(a), Ok(b)) => assert_eq!(format!("{a:?}"), format!("{b:?}"), "{text}"),
+                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{text}"),
+                (a, b) => panic!("{text}: {a:?} / {b:?}"),
+            }
+        }
     }
 
     #[test]

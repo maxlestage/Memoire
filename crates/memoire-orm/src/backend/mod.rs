@@ -31,5 +31,8 @@ pub mod redis;
 #[cfg(any(feature = "redis", feature = "web"))]
 pub(crate) mod json_row;
 
+#[cfg(any(feature = "redis", feature = "web", feature = "nuage-wire"))]
+pub(crate) mod hex;
+
 #[cfg(feature = "mongodb")]
 pub mod mongodb;

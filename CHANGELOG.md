@@ -6,7 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-14
+
 ### Changed
+- **The Nuage DB protocol no longer copies what it builds.** A statement, its schemas and
+  each row were written with `json!`, which serializes again into a new copy every value
+  that is already JSON: a statement was copied once per level of nesting. They are now
+  built in place, with exactly the same text (field order included, tested). A filtered,
+  sorted `SELECT` with its schema by reference is written 2.2 times faster (9.1 µs →
+  4.1 µs, body included; 46 µs → 26 µs with its schema whole); `wire::rows_to_json`, what a
+  Nuage DB server answers, 2.3 times faster (1,000 rows: 1.02 ms → 0.44 ms).
+- **`NuageDb` reads the rows of an answer straight from its text** (the new
+  `nuage::wire::rows_from_slice`), without building the JSON tree first: 1,000 rows
+  fetched and decoded into structs in 0.88 ms instead of 1.53 ms (×1.7). Same rows, same
+  errors (tested against the previous reader on valid and broken answers).
+- Bytes as hexadecimal (Nuage DB protocol, Redis rows, browser storage) without the
+  formatting machinery: 16 bytes written in 103 ns instead of 978 ns, read in 54 ns
+  instead of 110 ns. Text that is not hexadecimal ASCII is an error, as before, and
+  no longer a panic when it holds a character of several bytes.
+- JSON text written with `serde_json::to_string` instead of `Display`, the same text two to
+  three times faster: rows of the Redis backend and of `web::LocalStorageDb`
+  (`insert_many` of 1,000 rows into `MemoryStorage`: 3.28 ms → 1.97 ms), `json` columns
+  in `MemoryDb` files and in `evaluator::encode_value` (530 ns → 177 ns per value), and
+  a schema received whole by a Nuage DB server (a statement read in 11.7 µs instead of
+  14.5 µs).
+- `NuageDb` sends its requests with `serde_json::to_vec` (same bytes, without `fmt`).
+- The times above are medians of 3 timing-loop runs, before and after back to back, on an
+  Intel Xeon @ 2.80 GHz with Rust 1.99 (Linux), on rows of 6 columns (integers, text, a
+  float, 16 bytes). The criterion suite (`benches/orm.rs`, features `memory` and
+  `sqlite`) runs none of the code changed here: its runs before and after differ by noise
+  only.
 - **`NuageDb`: a statement no longer describes its tables each time.** A table's schema
   (every column with its type, flags, default, foreign key) used to travel whole in every
   statement: more than half of the work of a short request, on both sides. A server that

@@ -309,12 +309,30 @@ impl NuageDb {
     }
 
     async fn request(&self, method: &'static str, path: &str, tx: Option<&str>, body: Json) -> Result<Json> {
-        let body = if body.is_null() { Vec::new() } else { body.to_string().into_bytes() };
-        self.request_bytes(method, path, tx, body).await
+        self.request_with(method, path, tx, body, parse).await
+    }
+
+    /// [`request`](Self::request), the answer read by `read`.
+    async fn request_with<T>(
+        &self,
+        method: &'static str,
+        path: &str,
+        tx: Option<&str>,
+        body: Json,
+        read: fn(&[u8]) -> Result<T>,
+    ) -> Result<T> {
+        // `to_vec` writes the same text as `to_string`, without going through `fmt`.
+        let body = if body.is_null() { Vec::new() } else { serde_json::to_vec(&body).map_err(Error::conversion)? };
+        read(&self.request_raw(method, path, tx, body).await?)
     }
 
     /// [`request`](Self::request) with the body already written.
     async fn request_bytes(&self, method: &'static str, path: &str, tx: Option<&str>, body: Vec<u8>) -> Result<Json> {
+        parse(&self.request_raw(method, path, tx, body).await?)
+    }
+
+    /// The body of the answer, once its status says it succeeded.
+    async fn request_raw(&self, method: &'static str, path: &str, tx: Option<&str>, body: Vec<u8>) -> Result<Vec<u8>> {
         let mut headers = self.inner.headers.clone();
         if let Some(branch) = &self.branch {
             headers.push((BRANCH_HEADER.to_owned(), branch.clone()));
@@ -327,18 +345,25 @@ impl NuageDb {
         if !(200..300).contains(&res.status) {
             return Err(wire::error_from_json(res.status, &res.body));
         }
-        if res.body.is_empty() {
-            return Ok(Json::Null);
-        }
-        serde_json::from_slice(&res.body).map_err(|e| Error::Conversion(format!("invalid answer from Nuage DB: {e}")))
+        Ok(res.body)
     }
 
     /// Sends a statement: the schemas the server has go by reference, the
     /// others whole (and by reference from the next statement on).
-    async fn send(&self, path: &str, query: &Query<'_>, tx: Option<&str>) -> Result<Json> {
+    ///
+    /// `read` reads the answer: `Err` for one that is not JSON, which counts as
+    /// a failed request; `Ok(Err)` for JSON that does not say what it should,
+    /// an error found once the request has succeeded.
+    async fn send<T>(
+        &self,
+        path: &str,
+        query: &Query<'_>,
+        tx: Option<&str>,
+        read: fn(&[u8]) -> Result<Result<T>>,
+    ) -> Result<T> {
         let schemas = &self.inner.schemas;
         if !schemas.by_reference.load(Ordering::Relaxed) {
-            return self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await;
+            return self.request_with("POST", path, tx, statement(wire::query_to_json(query)?), read).await?;
         }
         // Described in this statement: known to the server once it has accepted it.
         let described: Mutex<Vec<&'static TableSchema>> = Mutex::new(Vec::new());
@@ -353,35 +378,55 @@ impl NuageDb {
                 wire::schema_to_json(t)
             }
         })?;
-        match self.request("POST", path, tx, json!({ "query": body })).await {
+        match self.request_with("POST", path, tx, statement(body), read).await {
             Err(e) if wire::is_unknown_schema(&e) => {
                 // The server lost its schemas (a restart): everything whole again.
                 schemas.forget();
-                self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
+                self.request_with("POST", path, tx, statement(wire::query_to_json(query)?), read).await?
             }
             Err(e) if referred.load(Ordering::Relaxed) && wire::is_reference_unread(&e) => {
                 // The server was set back to a version from before references: it read
                 // one as a description and ran nothing. Whole, now and from now on.
                 schemas.stop();
-                self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
+                self.request_with("POST", path, tx, statement(wire::query_to_json(query)?), read).await?
             }
             Err(e) => Err(e),
             Ok(answer) => {
                 schemas.learn(described.into_inner().unwrap_or_else(|e| e.into_inner()));
-                Ok(answer)
+                answer
             }
         }
     }
 
     async fn fetch_rows(&self, query: &Query<'_>, tx: Option<&str>) -> Result<Vec<Vec<crate::Value>>> {
-        let res = self.send("/v1/fetch", query, tx).await?;
-        wire::rows_from_json(res.get("rows").unwrap_or(&Json::Null))
+        // The rows are read without building the JSON of the answer first.
+        self.send("/v1/fetch", query, tx, wire::read_rows).await
     }
 
     async fn exec(&self, query: &Query<'_>, tx: Option<&str>) -> Result<ExecResult> {
-        let res = self.send("/v1/execute", query, tx).await?;
+        let res = self.send("/v1/execute", query, tx, |body| parse(body).map(Ok)).await?;
         wire::exec_result_from_json(&res)
     }
+}
+
+/// An answer read as JSON (`null` when it is empty).
+fn parse(body: &[u8]) -> Result<Json> {
+    if body.is_empty() {
+        return Ok(Json::Null);
+    }
+    serde_json::from_slice(body).map_err(not_json)
+}
+
+fn not_json(e: serde_json::Error) -> Error {
+    Error::Conversion(format!("invalid answer from Nuage DB: {e}"))
+}
+
+/// The body of a `fetch` or an `execute`: `{"query": <statement>}`, the
+/// statement moved in (`json!` would copy it).
+fn statement(query: Json) -> Json {
+    let mut body = serde_json::Map::with_capacity(1);
+    body.insert("query".to_owned(), query);
+    Json::Object(body)
 }
 
 fn decode<O: FromRow>(rows: Vec<Vec<crate::Value>>) -> Result<Vec<O>> {
@@ -599,7 +644,9 @@ impl NuageBatch<'_> {
         if let Some(e) = self.error {
             return Err(e);
         }
-        let body = json!({ "statements": self.statements }).to_string().into_bytes();
+        let mut statements = serde_json::Map::with_capacity(1);
+        statements.insert("statements".to_owned(), Json::Array(self.statements));
+        let body = serde_json::to_vec(&statements).map_err(Error::conversion)?;
         let refs = &self.db.inner.schemas;
         let res = match self.db.request_bytes("POST", "/v1/batch", None, body.clone()).await {
             Err(e) if wire::is_unknown_schema(&e) => {
@@ -609,7 +656,7 @@ impl NuageBatch<'_> {
                 refs.forget();
                 for t in &self.schemas {
                     let describe = json!({ "findByKey": wire::schema_to_json(t), "key": wire::value_to_json(&crate::Value::Null) });
-                    match self.db.request("POST", "/v1/fetch", None, json!({ "query": describe })).await {
+                    match self.db.request("POST", "/v1/fetch", None, statement(describe)).await {
                         Ok(_) | Err(Error::NoSuchTable(_)) => {}
                         Err(e) => return Err(e),
                     }

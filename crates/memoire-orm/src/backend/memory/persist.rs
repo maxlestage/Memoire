@@ -200,7 +200,8 @@ impl Enc {
             #[cfg(feature = "json")]
             Value::Json(j) => {
                 self.u8(12);
-                self.str(&j.to_string());
+                // The text `j.to_string()` writes, without going through `fmt`.
+                self.str(&serde_json::to_string(j).unwrap_or_else(|_| j.to_string()));
             }
         }
     }
