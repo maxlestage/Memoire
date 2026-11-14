@@ -317,6 +317,100 @@ pub fn schema_to_json(t: &TableSchema) -> Json {
     })
 }
 
+/// How a statement names a schema when it is written as JSON: the schema
+/// whole ([`schema_to_json`]), or its [reference](schema_ref) once the server
+/// has it.
+pub type SchemaEncoder<'a> = &'a dyn Fn(&'static TableSchema) -> Json;
+
+/// What a server answers (in an `unsupported` error) to a schema reference it
+/// does not know: the client sends the statement again with its schemas whole.
+pub const UNKNOWN_SCHEMA: &str = "unknown schema reference";
+
+/// `true` for the answer to a schema reference the server does not know.
+pub fn is_unknown_schema(e: &Error) -> bool {
+    matches!(e, Error::Unsupported(m) if m.starts_with(UNKNOWN_SCHEMA))
+}
+
+/// `true` for what a server from before references answers to one: it took
+/// the reference for a description without a name, and ran nothing. Only a
+/// server set back to such a version says this to a client that was sending
+/// references: the client goes back to whole schemas.
+pub fn is_reference_unread(e: &Error) -> bool {
+    matches!(e, Error::Conversion(m) if m.contains("schema `name`"))
+}
+
+/// A short reference to a schema, the same for the client that describes it
+/// and the server that read its description: the table's name and a
+/// fingerprint of everything [`schema_to_json`] says about it. A client sends
+/// a schema whole once, then this in its place (see [`query_to_json_with`]):
+/// a statement no longer carries the description of its tables each time.
+///
+/// The fingerprint is half a SHA-256: a reference names one schema, and
+/// nobody can write another schema that answers to it.
+pub fn schema_ref(t: &TableSchema) -> String {
+    // Every field, each one with its length or of a fixed size: two schemas
+    // that differ never give the same bytes.
+    struct Fields(Vec<u8>);
+    impl Fields {
+        fn number(&mut self, n: usize) {
+            self.0.extend_from_slice(&(n as u64).to_le_bytes());
+        }
+        fn text(&mut self, s: &str) {
+            self.number(s.len());
+            self.0.extend_from_slice(s.as_bytes());
+        }
+        fn opt(&mut self, s: Option<&str>) {
+            match s {
+                Some(s) => {
+                    self.0.push(1);
+                    self.text(s);
+                }
+                None => self.0.push(0),
+            }
+        }
+    }
+    let mut f = Fields(Vec::with_capacity(64 + 96 * t.columns.len()));
+    f.text(t.name);
+    f.number(t.primary_key);
+    f.number(t.columns.len());
+    for c in t.columns {
+        f.text(c.name);
+        f.text(c.field);
+        f.text(type_name(c.kind));
+        let flags = [c.nullable, c.primary_key, c.auto_increment, c.unique, c.indexed, c.fulltext];
+        f.0.extend_from_slice(&flags.map(u8::from));
+        f.opt(c.sql_type);
+        f.opt(c.default);
+        match &c.references {
+            Some(r) => {
+                f.0.push(1);
+                f.text(r.table);
+                f.text(r.column);
+                f.opt(r.on_delete);
+                f.opt(r.on_update);
+            }
+            None => f.0.push(0),
+        }
+    }
+    f.number(t.indexes.len());
+    for ix in t.indexes {
+        f.text(ix.name);
+        f.0.push(u8::from(ix.unique));
+        f.number(ix.columns.len());
+        for c in ix.columns {
+            f.number(*c);
+        }
+    }
+    let digest = super::sha256::sha256(&f.0);
+    let mut reference = String::with_capacity(t.name.len() + 33);
+    reference.push_str(t.name);
+    reference.push('#');
+    for byte in &digest[..16] {
+        reference.push_str(&format!("{byte:02x}"));
+    }
+    reference
+}
+
 /// Schemas and names received from clients, made `'static` once and shared
 /// by every later statement. Memoire's statements point to `'static`
 /// schemas: a server builds each distinct schema once and keeps it. The
@@ -324,6 +418,10 @@ pub fn schema_to_json(t: &TableSchema) -> Json {
 /// the server's memory without bound.
 pub struct SchemaCache {
     schemas: Mutex<HashMap<String, &'static TableSchema>>,
+    /// The schemas kept, by their [reference](schema_ref). `None`: two
+    /// different schemas were described under this reference, and it is
+    /// answered as unknown from then on (their clients send them whole).
+    refs: Mutex<HashMap<String, Option<&'static TableSchema>>>,
     names: Mutex<HashSet<&'static str>>,
     max_schemas: usize,
 }
@@ -343,7 +441,12 @@ impl Default for SchemaCache {
 impl SchemaCache {
     /// A cache holding at most `max_schemas` distinct schemas.
     pub fn new(max_schemas: usize) -> Self {
-        SchemaCache { schemas: Mutex::new(HashMap::new()), names: Mutex::new(HashSet::new()), max_schemas }
+        SchemaCache {
+            schemas: Mutex::new(HashMap::new()),
+            refs: Mutex::new(HashMap::new()),
+            names: Mutex::new(HashSet::new()),
+            max_schemas,
+        }
     }
 
     /// Number of schemas kept.
@@ -377,8 +480,20 @@ impl SchemaCache {
         }
     }
 
-    /// The `'static` schema described by `j`.
+    /// The `'static` schema described by `j`: its description, or the
+    /// [reference](schema_ref) of one described before (an error that
+    /// [`is_unknown_schema`] recognizes when it was not).
     pub fn schema(&self, j: &Json) -> Result<&'static TableSchema> {
+        if let Some(reference) = j.as_str() {
+            return self
+                .refs
+                .lock()
+                .map_err(|_| bad("poisoned cache"))?
+                .get(reference)
+                .copied()
+                .flatten()
+                .ok_or_else(|| Error::Unsupported(format!("{UNKNOWN_SCHEMA} `{reference}`: send the schema")));
+        }
         let key = j.to_string();
         if let Some(s) = self.schemas.lock().map_err(|_| bad("poisoned cache"))?.get(&key) {
             return Ok(s);
@@ -453,6 +568,16 @@ impl SchemaCache {
             sql: [empty; 3],
         }));
         schemas.insert(key, schema);
+        drop(schemas);
+        let mut refs = self.refs.lock().map_err(|_| bad("poisoned cache"))?;
+        let held = refs.entry(schema_ref(schema)).or_insert(Some(schema));
+        // The same schema written another way keeps its reference. Another
+        // schema under it (which a reference should never allow) and the
+        // reference names none: a statement never runs on a schema its client
+        // did not describe.
+        if held.is_some_and(|h| !std::ptr::eq(h, schema) && schema_to_json(h) != schema_to_json(schema)) {
+            *held = None;
+        }
         Ok(schema)
     }
 }
@@ -484,37 +609,37 @@ const AGGS: [(AggFunc, &str); 5] = [
     (AggFunc::Max, "max"),
 ];
 
-fn expr_to_json(e: &Expr) -> Json {
+fn expr_to_json(e: &Expr, enc: SchemaEncoder<'_>) -> Json {
     match e {
         Expr::Column(c) => {
             json!({ "col": [c.table, c.name, c.index, type_name(c.kind)] })
         }
         Expr::Value(v) => json!({ "val": value_to_json(v) }),
         Expr::Binary { op, left, right } => json!({
-            "bin": [BIN_OPS.iter().find(|(o, _)| o == op).map_or("=", |(_, s)| s), expr_to_json(left), expr_to_json(right)]
+            "bin": [BIN_OPS.iter().find(|(o, _)| o == op).map_or("=", |(_, s)| s), expr_to_json(left, enc), expr_to_json(right, enc)]
         }),
-        Expr::Not(inner) => json!({ "not": expr_to_json(inner) }),
-        Expr::IsNull { expr, negated } => json!({ "isNull": expr_to_json(expr), "negated": negated }),
+        Expr::Not(inner) => json!({ "not": expr_to_json(inner, enc) }),
+        Expr::IsNull { expr, negated } => json!({ "isNull": expr_to_json(expr, enc), "negated": negated }),
         Expr::InList { expr, list, negated } => json!({
-            "in": expr_to_json(expr), "list": list.iter().map(value_to_json).collect::<Vec<_>>(), "negated": negated
+            "in": expr_to_json(expr, enc), "list": list.iter().map(value_to_json).collect::<Vec<_>>(), "negated": negated
         }),
         Expr::Between { expr, low, high, negated } => json!({
-            "between": expr_to_json(expr), "low": expr_to_json(low), "high": expr_to_json(high), "negated": negated
+            "between": expr_to_json(expr, enc), "low": expr_to_json(low, enc), "high": expr_to_json(high, enc), "negated": negated
         }),
         Expr::Like { expr, pattern, case_insensitive, negated, escaped } => json!({
-            "like": expr_to_json(expr), "pattern": expr_to_json(pattern),
+            "like": expr_to_json(expr, enc), "pattern": expr_to_json(pattern, enc),
             "ci": case_insensitive, "negated": negated, "escaped": escaped
         }),
         Expr::Match(m) => json!({
-            "match": expr_to_json(&m.expr), "words": m.words, "query": value_to_json(&m.query),
+            "match": expr_to_json(&m.expr, enc), "words": m.words, "query": value_to_json(&m.query),
             "patterns": m.patterns.iter().map(value_to_json).collect::<Vec<_>>()
         }),
         Expr::Aggregate { func, arg, distinct } => json!({
             "agg": AGGS.iter().find(|(f, _)| f == func).map_or("count", |(_, s)| s),
-            "arg": arg.as_deref().map(expr_to_json), "distinct": distinct
+            "arg": arg.as_deref().map(|a| expr_to_json(a, enc)), "distinct": distinct
         }),
         Expr::InSubquery { expr, query, negated } => json!({
-            "inQuery": expr_to_json(expr), "query": select_to_json(query), "negated": negated
+            "inQuery": expr_to_json(expr, enc), "query": select_to_json(query, enc), "negated": negated
         }),
     }
 }
@@ -607,9 +732,9 @@ fn expr_from_json(j: &Json, cache: &SchemaCache) -> Result<Expr> {
     Err(bad(format!("expression `{j}`")))
 }
 
-fn order_to_json(o: &Order) -> Json {
+fn order_to_json(o: &Order, enc: SchemaEncoder<'_>) -> Json {
     json!({
-        "expr": expr_to_json(&o.expr),
+        "expr": expr_to_json(&o.expr, enc),
         "desc": o.desc,
         "nulls": o.nulls.map(|n| if n == Nulls::First { "first" } else { "last" }),
     })
@@ -627,22 +752,23 @@ fn order_from_json(j: &Json, cache: &SchemaCache) -> Result<Order> {
     })
 }
 
-fn select_to_json(s: &SelectAst) -> Json {
+fn select_to_json(s: &SelectAst, enc: SchemaEncoder<'_>) -> Json {
+    let expr = |e: &Expr| expr_to_json(e, enc);
     json!({
-        "from": schema_to_json(s.from),
+        "from": enc(s.from),
         "projection": match &s.projection {
             Projection::Tables(t) => json!({ "tables": t.iter().map(|t| t.name).collect::<Vec<_>>() }),
-            Projection::Exprs(e) => json!({ "exprs": e.iter().map(expr_to_json).collect::<Vec<_>>() }),
+            Projection::Exprs(e) => json!({ "exprs": e.iter().map(expr).collect::<Vec<_>>() }),
         },
         "joins": s.joins.iter().map(|j| json!({
             "kind": if j.kind == JoinKind::Inner { "inner" } else { "left" },
-            "table": schema_to_json(j.table),
-            "on": expr_to_json(&j.on),
+            "table": enc(j.table),
+            "on": expr(&j.on),
         })).collect::<Vec<_>>(),
-        "filter": s.filter.as_ref().map(expr_to_json),
-        "groupBy": s.group_by.iter().map(expr_to_json).collect::<Vec<_>>(),
-        "having": s.having.as_ref().map(expr_to_json),
-        "order": s.order.iter().map(order_to_json).collect::<Vec<_>>(),
+        "filter": s.filter.as_ref().map(expr),
+        "groupBy": s.group_by.iter().map(expr).collect::<Vec<_>>(),
+        "having": s.having.as_ref().map(expr),
+        "order": s.order.iter().map(|o| order_to_json(o, enc)).collect::<Vec<_>>(),
         "limit": s.limit,
         "offset": s.offset,
         "distinct": s.distinct,
@@ -720,33 +846,40 @@ fn values_from(j: Option<&Json>) -> Result<Vec<Value>> {
 
 /// A statement as JSON.
 pub fn query_to_json(q: &Query<'_>) -> Result<Json> {
+    query_to_json_with(q, &|t| schema_to_json(t))
+}
+
+/// [`query_to_json`] with the schemas written by `enc`: whole, or as their
+/// [reference](schema_ref) for a server that already has them.
+pub fn query_to_json_with(q: &Query<'_>, enc: SchemaEncoder<'_>) -> Result<Json> {
+    let expr = |e: &Expr| expr_to_json(e, enc);
     Ok(match *q {
-        Query::Select(s) => json!({ "select": select_to_json(s) }),
+        Query::Select(s) => json!({ "select": select_to_json(s, enc) }),
         Query::Insert(i) => json!({
-            "insert": schema_to_json(i.table),
+            "insert": enc(i.table),
             "rows": i.rows.iter().map(|r| values_json(r)).collect::<Vec<_>>(),
         }),
         Query::Update(u) => json!({
-            "update": schema_to_json(u.table),
-            "sets": u.sets.iter().map(|(c, e)| json!([c, expr_to_json(e)])).collect::<Vec<_>>(),
-            "filter": u.filter.as_ref().map(expr_to_json),
+            "update": enc(u.table),
+            "sets": u.sets.iter().map(|(c, e)| json!([c, expr(e)])).collect::<Vec<_>>(),
+            "filter": u.filter.as_ref().map(expr),
         }),
-        Query::Delete(d) => json!({ "delete": schema_to_json(d.table), "filter": d.filter.as_ref().map(expr_to_json) }),
-        Query::FindByKey { table, key } => json!({ "findByKey": schema_to_json(table), "key": value_to_json(key) }),
+        Query::Delete(d) => json!({ "delete": enc(d.table), "filter": d.filter.as_ref().map(expr) }),
+        Query::FindByKey { table, key } => json!({ "findByKey": enc(table), "key": value_to_json(key) }),
         Query::InsertRow { table, values } => {
-            json!({ "insertRow": schema_to_json(table), "values": values_json(values) })
+            json!({ "insertRow": enc(table), "values": values_json(values) })
         }
         Query::UpsertRow { table, values } => {
-            json!({ "upsertRow": schema_to_json(table), "values": values_json(values) })
+            json!({ "upsertRow": enc(table), "values": values_json(values) })
         }
         Query::UpdateRow { table, values } => {
-            json!({ "updateRow": schema_to_json(table), "values": values_json(values) })
+            json!({ "updateRow": enc(table), "values": values_json(values) })
         }
-        Query::DeleteByKey { table, key } => json!({ "deleteByKey": schema_to_json(table), "key": value_to_json(key) }),
+        Query::DeleteByKey { table, key } => json!({ "deleteByKey": enc(table), "key": value_to_json(key) }),
         Query::Raw { sql, params } => json!({ "raw": sql, "params": values_json(params) }),
         Query::Script { sql } => json!({ "script": sql }),
         Query::CreateTable { table, if_not_exists } => {
-            json!({ "createTable": schema_to_json(table), "ifNotExists": if_not_exists })
+            json!({ "createTable": enc(table), "ifNotExists": if_not_exists })
         }
         Query::DropTable { name, if_exists } => json!({ "dropTable": name, "ifExists": if_exists }),
     })
@@ -907,6 +1040,88 @@ mod tests {
             assert_eq!(value_from_json(&value_to_json(&v)).unwrap(), v);
         }
         assert!(matches!(value_from_json(&json!({"f64": "NaN"})).unwrap(), Value::F64(f) if f.is_nan()));
+    }
+
+    /// A table with everything a schema can say: defaults, a foreign key, SQL types.
+    #[derive(Model, Debug, Clone, PartialEq)]
+    #[memoire(table = "wire_posts", index(author, title), unique(slug, author))]
+    struct P {
+        #[memoire(primary_key, auto_increment)]
+        id: i64,
+        #[memoire(references = "wire_users(id)", on_delete = "cascade", index)]
+        author: i64,
+        #[memoire(unique)]
+        slug: String,
+        #[memoire(default = "'untitled'")]
+        title: String,
+        body: Option<String>,
+    }
+
+    #[test]
+    fn schemas_by_reference() {
+        let cache = SchemaCache::default();
+        // The reference is the same for the client's schema and the one the server built from its description.
+        for schema in [U::SCHEMA, P::SCHEMA] {
+            let reference = schema_ref(schema);
+            assert!(reference.starts_with(schema.name), "{reference}");
+            // Not known before it was described.
+            let unknown = cache.schema(&json!(reference)).unwrap_err();
+            assert!(is_unknown_schema(&unknown), "{unknown}");
+            let built = cache.schema(&schema_to_json(schema)).unwrap();
+            assert_eq!(schema_ref(built), reference);
+            assert!(std::ptr::eq(cache.schema(&json!(reference)).unwrap(), built));
+        }
+        assert_ne!(schema_ref(U::SCHEMA), schema_ref(P::SCHEMA));
+
+        // A statement whose schemas go by reference reads back as the one that describes them.
+        let select = P::query().filter(P::AUTHOR.eq(3) & P::TITLE.like("a%")).order_by(P::ID.desc()).limit(2);
+        let ast = select.ast().clone();
+        let whole = query_to_json(&Query::Select(&ast)).unwrap();
+        let short = query_to_json_with(&Query::Select(&ast), &|t| json!(schema_ref(t))).unwrap();
+        assert!(short.to_string().len() * 3 < whole.to_string().len(), "{short}");
+        let (OwnedQuery::Select(a), OwnedQuery::Select(b)) =
+            (query_from_json(&whole, &cache).unwrap(), query_from_json(&short, &cache).unwrap())
+        else {
+            panic!()
+        };
+        assert!(std::ptr::eq(a.from, b.from));
+        assert_eq!((&a.filter, &a.order, a.limit), (&b.filter, &b.order, b.limit));
+        let values = vec![Value::I64(1), Value::I64(2), Value::Text("s".into()), Value::Text("t".into()), Value::Null];
+        let short =
+            query_to_json_with(&Query::InsertRow { table: P::SCHEMA, values: &values }, &|t| json!(schema_ref(t)));
+        let OwnedQuery::InsertRow(t, v) = query_from_json(&short.unwrap(), &cache).unwrap() else { panic!() };
+        assert_eq!((t.name, v), ("wire_posts", values));
+        // 128 bits of SHA-256 after the name: nobody writes another schema with the same reference.
+        let reference = schema_ref(P::SCHEMA);
+        let (name, digest) = reference.split_once('#').unwrap();
+        assert_eq!((name, digest.len()), ("wire_posts", 32));
+        assert!(digest.bytes().all(|b| b.is_ascii_hexdigit()));
+        // The same schema described in other words (a field the server does not read) keeps its reference.
+        let mut reworded = schema_to_json(P::SCHEMA);
+        reworded["note"] = json!("from another client");
+        let again = cache.schema(&reworded).unwrap();
+        assert_eq!(schema_ref(again), reference);
+        assert!(cache.schema(&json!(reference)).is_ok());
+        // Were two different schemas ever described under one reference, it would name
+        // neither: each client is told to send its own, whole.
+        let other = SchemaCache::default();
+        let users = other.schema(&schema_to_json(U::SCHEMA)).unwrap();
+        other.refs.lock().unwrap().insert(reference.clone(), Some(users));
+        other.schema(&schema_to_json(P::SCHEMA)).unwrap();
+        assert!(is_unknown_schema(&other.schema(&json!(reference)).unwrap_err()));
+        other.schema(&reworded).unwrap();
+        assert!(is_unknown_schema(&other.schema(&json!(reference)).unwrap_err()), "for good");
+        assert!(is_reference_unread(&Error::Conversion("invalid Nuage DB message: schema `name`".into())));
+        assert!(!is_reference_unread(&Error::Conversion("invalid Nuage DB message: schema columns".into())));
+        // A server that never saw the schema says so, in a way the client recognizes.
+        let fresh = SchemaCache::default();
+        let err =
+            query_from_json(&query_to_json_with(&Query::Select(&ast), &|t| json!(schema_ref(t))).unwrap(), &fresh);
+        assert!(is_unknown_schema(&err.unwrap_err()));
+        // The error survives the trip to the client.
+        let (status, body) = error_to_json(&Error::Unsupported(format!("{UNKNOWN_SCHEMA} `x#1`: send the schema")));
+        assert!(is_unknown_schema(&error_from_json(status, body.to_string().as_bytes())));
+        assert!(!is_unknown_schema(&Error::Unsupported("raw SQL".into())));
     }
 
     #[test]
