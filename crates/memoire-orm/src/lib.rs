@@ -167,9 +167,10 @@ pub use backend::memory::{MemoryDb, MemoryTransaction, StorageOptions};
 pub use backend::mongodb::{MongoDb, MongoTransaction};
 #[cfg(feature = "mysql")]
 pub use backend::mysql::{MySqlPool, MySqlTransaction};
-/// The client of Nuage DB (feature `nuage`). Same module as [`backend::nuage`].
-#[cfg(feature = "nuage")]
-#[cfg_attr(docsrs, doc(cfg(feature = "nuage")))]
+/// Nuage DB: its protocol (feature `nuage-wire`) and its client (feature `nuage`). Same
+/// module as [`backend::nuage`].
+#[cfg(feature = "nuage-wire")]
+#[cfg_attr(docsrs, doc(cfg(feature = "nuage-wire")))]
 pub use backend::nuage;
 #[cfg(feature = "nuage")]
 pub use backend::nuage::{NuageDb, NuageTransaction};

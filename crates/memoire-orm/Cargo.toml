@@ -45,8 +45,11 @@ postgres-tls = ["postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:webp
 ## Client of Nuage DB, Memoire's own database server (the `nuage` crate): queries
 ## travel as JSON over HTTP(S). On wasm32 it uses the browser's `fetch`; elsewhere a
 ## small HTTP/1.1 client (hyper + rustls, requires Tokio).
+## The protocol of Nuage DB alone (`nuage::wire`, `nuage::Branch`), with no network
+## dependency: what the embedded engine of the `nuage` crate needs. Pure Rust.
+nuage-wire = ["dep:serde_json"]
 nuage = [
-    "dep:serde_json", "dep:tokio", "tokio?/net", "tokio?/time", "dep:hyper", "hyper?/client", "hyper?/http1",
+    "nuage-wire", "dep:tokio", "tokio?/net", "tokio?/time", "dep:hyper", "hyper?/client", "hyper?/http1",
     "dep:hyper-util", "dep:http-body-util", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots",
     "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys",
     "web-sys/Headers", "web-sys/Request", "web-sys/RequestInit", "web-sys/Response",
