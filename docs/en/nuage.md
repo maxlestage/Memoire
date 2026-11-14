@@ -87,23 +87,25 @@ Note::query().filter(Note::TEXT.contains("hello")).all(&db).await?;
 let db = nuage::Db::from_env().await?;
 ```
 
-## Install on a server
+## Install anywhere
 
-On any Linux server (Debian, Ubuntu, Fedora, Rocky, Alpine..., x86_64 or ARM64, from 512 MiB of memory), one command:
+The server runs on any computer: a Linux server, a Raspberry Pi, a Mac, a Windows PC. One command installs it as a service started with the computer, generates its key and tokens, and asks where the backups go:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh | sudo bash
-```
+| | Command |
+|---|---|
+| Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh \| sudo bash` |
+| Windows (PowerShell as administrator) | `irm https://raw.githubusercontent.com/maxlestage/Nuage/master/install.ps1 \| iex` |
+| with cargo | `cargo install --locked --git https://github.com/maxlestage/Nuage nuage` |
+| Docker | `docker compose up -d` in the Nuage repository, with the settings in `.env` |
 
-It installs the `nuage` binary (a static build, checked with its sha256), **creates swap** when the server has none (the size of the memory, 1 to 4 GiB, with `vm.swappiness=10` so the memory goes to the database), a `nuage` user, the data in `/var/lib/nuage`, the settings in `/etc/nuage/nuage.env` with a generated key, token and console password, and a systemd service started at boot. It prints the address, the token and the password once: **copy `/etc/nuage/nuage.env` somewhere safe**, nobody can read the data without its key.
+It prints the address, a token and the console password once: **copy the settings file (`/etc/nuage/nuage.env`, `/usr/local/etc/nuage/nuage.env` on macOS, `C:\ProgramData\Nuage\nuage.env` on Windows) somewhere safe**, nobody can read the data without its key. On Linux it also creates swap when there is none and a `nuage` user; with `NUAGE_DOMAIN=db.example.com`, HTTPS through Caddy.
 
-- **HTTPS**: point a domain name to the server, then run `curl -fsSL .../install.sh | sudo NUAGE_DOMAIN=db.example.com bash` (Caddy, with a free certificate).
-- **Upgrade**: run the command again; data, key and settings stay.
-- **Options**: `NUAGE_PORT`, `NUAGE_SWAP_MB` (`0`: no swap), `NUAGE_VERSION=v0.3.0`, `NUAGE_FROM_SOURCE=1`.
-- **Remove**: `... | sudo bash -s uninstall` (keeps the data), or `purge`.
-- **Docker**: `docker compose up -d` in the Nuage repository, with the settings in `.env`.
+- **Backups**: a folder on another disk (`NUAGE_BACKUP_DIR=/Volumes/MyDisk/nuage`), S3-compatible storage (`NUAGE_BACKUP_S3_*`) or none (`NUAGE_BACKUP=none`), given in the command or asked by the installer; an empty data directory is restored from them at startup (see [Backups and restore](#backups-and-restore)).
+- **cargo** only puts the binary in `~/.cargo/bin`; hand it to the installer for the service and the backups: `curl ... | sudo NUAGE_BINARY="$(command -v nuage)" bash`.
+- **Upgrade**: run the command again; data, key, settings and backups stay.
+- **Remove**: `... | sudo bash -s uninstall` (keeps the data), or `purge`; the backups are never deleted.
 
-Binaries for Linux, macOS and Windows are on the [releases page](https://github.com/maxlestage/Nuage/releases).
+Binaries for Linux, macOS and Windows are on the [releases page](https://github.com/maxlestage/Nuage/releases); `nuage --env-file nuage.env` starts the server with the settings of a file.
 
 ## Memory
 
@@ -115,7 +117,29 @@ Nuage DB encrypts everything it stores: the pages with XTS-AES-256, each write-a
 
 ## Several applications
 
-One server holds several applications, each with its own database, keys, backups and tokens. The first one is the server's own database (`NUAGE_NAME`, `NUAGE_TOKEN`); the console (**New application**) makes the others and shows each new token once (the server keeps only its SHA-256 digest). The token an application sends picks its database: `NuageDb::connect(url, token)` does not change, and an application never sees another's data. Read-only tokens and the websites allowed to call the server from the browser (CORS) are set per application.
+One server holds several applications, each with its own database, keys, backups and tokens. The first one is the server's own database (`NUAGE_NAME`, `NUAGE_TOKEN`). The token an application sends picks its database: `NuageDb::connect(url, token)` does not change, and an application never sees another's data. Read-only tokens and the websites allowed to call the server from the browser (CORS) are set per application.
+
+The others are made in one step, with the server's management token (`NUAGE_ADMIN_TOKEN`; the installers set one). Each answer gives the new application's token, once (the server keeps only its SHA-256 digest), and the two lines to paste in its configuration:
+
+```bash
+sudo nuage apps create shop "The shop"     # on the server's computer: nothing else needed
+NUAGE_URL=https://db.example.com NUAGE_ADMIN_TOKEN=… nuage apps create shop   # from anywhere
+paquets nuage create shop                  # in a Paquets project: writes the two lines in .env
+```
+
+From Rust, `NuageAdmin` (feature `nuage`, native and WebAssembly):
+
+```rust
+use memoire_orm::prelude::*;
+
+let admin = NuageAdmin::new("https://db.example.com", &admin_token)?; // or NuageAdmin::from_env()
+let shop = admin.create_app("shop", "The shop").await?;
+println!("{}", shop.env()); // NUAGE_URL=https://db.example.com
+                            // NUAGE_TOKEN=nuage_…
+let db = NuageDb::connect(&shop.url, &shop.token).await?;
+```
+
+`apps()`, `app(name)`, `new_token(name, read_only)` and `revoke_token(name, id)` do the rest; a name already taken is `Error::UniqueViolation`, a wrong management token a `NuageError` whose `is_unauthorized()` is true. The same API answers `/api/apps` over HTTP, for any language ([its description](https://github.com/maxlestage/Nuage/blob/master/crates/nuage/openapi.json)), and the console's **New application** button does it by hand. Keep the management token with the server's secrets, never in an application or a page.
 
 ## SQL
 
@@ -209,6 +233,8 @@ The server is one binary configured by environment variables:
 | `NUAGE_NAME` | name of the database (default `nuage`) |
 | `NUAGE_TOKEN` | token of the database API; without it, the API refuses every request |
 | `NUAGE_ADMIN_PASSWORD` | password of the console; without it, the console is off |
+| `NUAGE_ADMIN_TOKEN` | token of the management API (`/api/apps`, `nuage apps`, `NuageAdmin`), 32 characters at least; without it, the API is off |
+| `NUAGE_ENV_FILE` | read the settings from this file too (`KEY=value` lines; `nuage --env-file <file>`); the environment wins |
 | `NUAGE_PUBLIC_STATUS` | `true` for the public status subset |
 | `NUAGE_CACHE_MB` | page cache of each application in MiB, or `auto` (the default) |
 | `NUAGE_BACKUP_DIR` | backups to a directory |

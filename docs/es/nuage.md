@@ -87,23 +87,25 @@ Note::query().filter(Note::TEXT.contains("hola")).all(&db).await?;
 let db = nuage::Db::from_env().await?;
 ```
 
-## Instalar en un servidor
+## Instalar en cualquier sitio
 
-En cualquier servidor Linux (Debian, Ubuntu, Fedora, Rocky, Alpine..., x86_64 o ARM64, desde 512 MiB de memoria), un comando:
+El servidor funciona en cualquier ordenador: un servidor Linux, una Raspberry Pi, un Mac, un PC con Windows. Un comando lo instala como un servicio que arranca con el ordenador, genera su clave y sus tokens, y pregunta adónde van las copias de seguridad:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh | sudo bash
-```
+| | Comando |
+|---|---|
+| Linux, macOS | `curl -fsSL https://raw.githubusercontent.com/maxlestage/Nuage/master/install.sh \| sudo bash` |
+| Windows (PowerShell como administrador) | `irm https://raw.githubusercontent.com/maxlestage/Nuage/master/install.ps1 \| iex` |
+| con cargo | `cargo install --locked --git https://github.com/maxlestage/Nuage nuage` |
+| Docker | `docker compose up -d` en el repositorio de Nuage, con los ajustes en `.env` |
 
-Instala el binario `nuage` (compilado estático, comprobado con su sha256), **crea swap** si el servidor no tiene (el tamaño de la memoria, de 1 a 4 GiB, con `vm.swappiness=10` para que la memoria sea para la base), un usuario `nuage`, los datos en `/var/lib/nuage`, los ajustes en `/etc/nuage/nuage.env` con una clave, un token y una contraseña de consola generados, y un servicio systemd que arranca con el sistema. Muestra una vez la dirección, el token y la contraseña: **copia `/etc/nuage/nuage.env` en un lugar seguro**, nadie puede leer los datos sin su clave.
+Muestra una vez la dirección, un token y la contraseña de la consola: **copia el fichero de ajustes (`/etc/nuage/nuage.env`, `/usr/local/etc/nuage/nuage.env` en macOS, `C:\ProgramData\Nuage\nuage.env` en Windows) en un lugar seguro**, nadie puede leer los datos sin su clave. En Linux también crea swap si no hay y un usuario `nuage`; con `NUAGE_DOMAIN=db.example.com`, HTTPS con Caddy.
 
-- **HTTPS**: apunta un nombre de dominio al servidor y ejecuta `curl -fsSL .../install.sh | sudo NUAGE_DOMAIN=db.example.com bash` (Caddy, con un certificado gratuito).
-- **Actualizar**: vuelve a ejecutar el comando; datos, clave y ajustes se conservan.
-- **Opciones**: `NUAGE_PORT`, `NUAGE_SWAP_MB` (`0`: sin swap), `NUAGE_VERSION=v0.3.0`, `NUAGE_FROM_SOURCE=1`.
-- **Desinstalar**: `... | sudo bash -s uninstall` (conserva los datos), o `purge`.
-- **Docker**: `docker compose up -d` en el repositorio Nuage, con los ajustes en `.env`.
+- **Copias**: una carpeta en otro disco (`NUAGE_BACKUP_DIR=/Volumes/MiDisco/nuage`), un almacenamiento compatible con S3 (`NUAGE_BACKUP_S3_*`) o ninguna (`NUAGE_BACKUP=none`), en el comando o preguntado por el instalador; una carpeta de datos vacía se restaura desde ellas al arrancar (ver [Copias de seguridad y restauración](#copias-de-seguridad-y-restauración)).
+- **cargo** solo coloca el binario en `~/.cargo/bin`; pásalo al instalador para el servicio y las copias: `curl ... | sudo NUAGE_BINARY="$(command -v nuage)" bash`.
+- **Actualizar**: vuelve a ejecutar el comando; datos, clave, ajustes y copias se conservan.
+- **Desinstalar**: `... | sudo bash -s uninstall` (conserva los datos), o `purge`; las copias nunca se borran.
 
-Hay binarios para Linux, macOS y Windows en la [página de versiones](https://github.com/maxlestage/Nuage/releases).
+Hay binarios para Linux, macOS y Windows en la [página de versiones](https://github.com/maxlestage/Nuage/releases); `nuage --env-file nuage.env` arranca el servidor con los ajustes de un fichero.
 
 ## Memoria
 
@@ -115,7 +117,29 @@ Nuage DB cifra todo lo que guarda: las páginas con XTS-AES-256, cada registro d
 
 ## Varias aplicaciones
 
-Un servidor aloja varias aplicaciones, cada una con su base, sus claves, sus copias y sus tokens. La primera es la base del servidor (`NUAGE_NAME`, `NUAGE_TOKEN`); la consola (**Nueva aplicación**) crea las demás y muestra cada token nuevo una vez (el servidor solo guarda su huella SHA-256). El token que envía una aplicación elige su base: `NuageDb::connect(url, token)` no cambia, y una aplicación nunca ve los datos de otra. Los tokens de solo lectura y los sitios autorizados a llamar al servidor desde el navegador (CORS) se ajustan por aplicación.
+Un servidor aloja varias aplicaciones, cada una con su base, sus claves, sus copias y sus tokens. La primera es la base del servidor (`NUAGE_NAME`, `NUAGE_TOKEN`). El token que envía una aplicación elige su base: `NuageDb::connect(url, token)` no cambia, y una aplicación nunca ve los datos de otra. Los tokens de solo lectura y los sitios autorizados a llamar al servidor desde el navegador (CORS) se configuran por aplicación.
+
+Las demás se crean en un paso, con el token de gestión del servidor (`NUAGE_ADMIN_TOKEN`; los instaladores ponen uno). Cada respuesta da el token de la nueva aplicación, una sola vez (el servidor solo guarda su huella SHA-256), y las dos líneas que pegar en su configuración:
+
+```bash
+sudo nuage apps create tienda "La tienda"   # en el ordenador del servidor: nada más
+NUAGE_URL=https://db.example.com NUAGE_ADMIN_TOKEN=… nuage apps create tienda   # desde cualquier sitio
+paquets nuage create tienda                 # en un proyecto Paquets: escribe las dos líneas en .env
+```
+
+Desde Rust, `NuageAdmin` (función `nuage`, nativo y WebAssembly):
+
+```rust
+use memoire_orm::prelude::*;
+
+let admin = NuageAdmin::new("https://db.example.com", &token_de_gestion)?; // o NuageAdmin::from_env()
+let tienda = admin.create_app("tienda", "La tienda").await?;
+println!("{}", tienda.env()); // NUAGE_URL=https://db.example.com
+                              // NUAGE_TOKEN=nuage_…
+let db = NuageDb::connect(&tienda.url, &tienda.token).await?;
+```
+
+`apps()`, `app(nombre)`, `new_token(nombre, read_only)` y `revoke_token(nombre, id)` hacen el resto; un nombre ya usado es `Error::UniqueViolation`, un token de gestión incorrecto una `NuageError` cuyo `is_unauthorized()` es verdadero. La misma API responde en `/api/apps` por HTTP, para cualquier lenguaje ([su descripción](https://github.com/maxlestage/Nuage/blob/master/crates/nuage/openapi.json)), y el botón **New application** de la consola lo hace a mano. Guarda el token de gestión con los secretos del servidor, nunca en una aplicación ni en una página.
 
 ## SQL
 
@@ -209,6 +233,8 @@ El servidor es un solo binario configurado con variables de entorno:
 | `NUAGE_NAME` | nombre de la base (por defecto `nuage`) |
 | `NUAGE_TOKEN` | token de la API de la base; sin él, la API rechaza todas las peticiones |
 | `NUAGE_ADMIN_PASSWORD` | contraseña de la consola; sin ella, la consola está desactivada |
+| `NUAGE_ADMIN_TOKEN` | token de la API de gestión (`/api/apps`, `nuage apps`, `NuageAdmin`), 32 caracteres como mínimo; sin él, la API está desactivada |
+| `NUAGE_ENV_FILE` | lee también los ajustes de este fichero (líneas `CLAVE=valor`; `nuage --env-file <fichero>`); el entorno gana |
 | `NUAGE_PUBLIC_STATUS` | `true` para el subconjunto público del estado |
 | `NUAGE_CACHE_MB` | caché de páginas de cada aplicación en MiB, o `auto` (por defecto) |
 | `NUAGE_BACKUP_DIR` | copias de seguridad en una carpeta |
