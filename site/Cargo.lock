@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "active"
 version = "0.3.0"
-source = "git+https://github.com/maxlestage/Active#dc77b2d0799f77e4a1651cb6c712bc2a92900550"
+source = "git+https://github.com/maxlestage/Active#e3d210dda33dae32d8bb07061fcb717b314423b9"
 dependencies = [
  "approx",
  "arrayvec",
