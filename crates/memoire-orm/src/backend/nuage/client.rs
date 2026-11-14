@@ -540,4 +540,124 @@ mod tests {
         assert!(Endpoint::parse("ftp://x").is_err());
         assert!(Endpoint::parse("https://user:pw@x").is_err());
     }
+
+    /// A server that keeps schemas by reference gets each one whole once, then
+    /// its reference; when it has forgotten them (a restart), it says so and
+    /// gets the statement again with its schemas whole.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn schemas_go_by_reference_once_the_server_has_them() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::AtomicBool;
+
+        use crate::prelude::*;
+
+        #[derive(Model, Debug, Clone, PartialEq)]
+        #[memoire(table = "client_notes")]
+        struct Note {
+            #[memoire(primary_key)]
+            id: i64,
+            text: String,
+        }
+
+        // A server of a few lines: it records what it is sent, and can forget its schemas.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let bodies: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let forgot = Arc::new(AtomicBool::new(false));
+        let (seen, lost) = (bodies.clone(), forgot.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let (seen, lost) = (seen.clone(), lost.clone());
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    loop {
+                        // One request: its head, then as many bytes as it announces.
+                        let head_end = loop {
+                            if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                                break at + 4;
+                            }
+                            let mut chunk = [0u8; 4096];
+                            match stream.read(&mut chunk) {
+                                Ok(n) if n > 0 => buf.extend_from_slice(&chunk[..n]),
+                                _ => return,
+                            }
+                        };
+                        let head = String::from_utf8_lossy(&buf[..head_end]).to_lowercase();
+                        let length: usize = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .map_or(0, |v| v.trim().parse().unwrap());
+                        while buf.len() < head_end + length {
+                            let mut chunk = [0u8; 4096];
+                            match stream.read(&mut chunk) {
+                                Ok(n) if n > 0 => buf.extend_from_slice(&chunk[..n]),
+                                _ => return,
+                            }
+                        }
+                        let body = String::from_utf8_lossy(&buf[head_end..head_end + length]).into_owned();
+                        buf.drain(..head_end + length);
+                        let (status, answer) = if head.starts_with("get /v1/info") {
+                            ("200 OK", r#"{"schemaRefs":true}"#.to_owned())
+                        } else {
+                            let by_reference = body.contains(r#""findByKey":""#);
+                            seen.lock().unwrap().push(body);
+                            if by_reference && lost.swap(false, Ordering::SeqCst) {
+                                let message = format!("{} `client_notes#0`: send the schema", wire::UNKNOWN_SCHEMA);
+                                (
+                                    "400 Bad Request",
+                                    json!({ "error": { "kind": "unsupported", "message": message } }).to_string(),
+                                )
+                            } else {
+                                ("200 OK", r#"{"rows":[]}"#.to_owned())
+                            }
+                        };
+                        let reply = format!(
+                            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{answer}",
+                            answer.len()
+                        );
+                        if stream.write_all(reply.as_bytes()).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let db = NuageDb::connect(&url, "token").await.unwrap();
+        let whole = |body: &str| body.contains(r#""findByKey":{"#);
+        let reference = format!(r#""findByKey":"{}""#, wire::schema_ref(Note::SCHEMA));
+        // Whole the first time, by reference after.
+        assert_eq!(Note::find(&db, 1).await.unwrap(), None);
+        assert_eq!(Note::find(&db, 2).await.unwrap(), None);
+        // The server forgot: told so, the client sends the statement again, whole.
+        forgot.store(true, Ordering::SeqCst);
+        assert_eq!(Note::find(&db, 3).await.unwrap(), None);
+        // Then whole once more (the server learns it again), and by reference.
+        assert_eq!(Note::find(&db, 4).await.unwrap(), None);
+        assert_eq!(Note::find(&db, 5).await.unwrap(), None);
+        let sent = bodies.lock().unwrap().clone();
+        let kinds: Vec<&str> = sent
+            .iter()
+            .map(|b| match (whole(b), b.contains(&reference)) {
+                (true, false) => "whole",
+                (false, true) => "reference",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(kinds, ["whole", "reference", "reference", "whole", "whole", "reference"], "{sent:#?}");
+        assert!(
+            sent[1].len() * 3 < sent[0].len(),
+            "a reference is much shorter: {} then {}",
+            sent[0].len(),
+            sent[1].len()
+        );
+        // A client that did not ask the server what it knows describes its schemas each time.
+        let lazy = NuageDb::builder(&url).token("token").build().unwrap();
+        for id in [6, 7] {
+            assert_eq!(Note::find(&lazy, id).await.unwrap(), None);
+        }
+        assert!(bodies.lock().unwrap()[6..].iter().all(|b| whole(b)));
+    }
 }
