@@ -13,7 +13,7 @@
 //! # Ok(()) }
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -161,9 +161,8 @@ struct Inner {
 struct Schemas {
     /// The server said (`/v1/info`) that it keeps schemas by reference.
     by_reference: AtomicBool,
-    /// The schemas sent whole in a statement the server accepted, by their
-    /// address, with their reference.
-    known: Mutex<HashMap<usize, String>>,
+    /// The schemas sent whole in a statement the server accepted.
+    known: Mutex<Known>,
     /// Times the server did not know a reference. A server restarted forgets
     /// them and is told again; one that keeps forgetting is sent schemas whole.
     unknown: AtomicU32,
@@ -171,6 +170,57 @@ struct Schemas {
 
 /// References refused before this client stops sending any.
 const UNKNOWN_SCHEMAS_MAX: u32 = 8;
+
+/// What the server has.
+#[derive(Default)]
+struct Known {
+    /// The references of the schemas it was sent.
+    references: HashSet<String>,
+    /// The reference of a schema by its address, worked out once. One table's
+    /// schema may sit at several addresses (a constant, named in several places).
+    by_address: HashMap<usize, String>,
+}
+
+impl Schemas {
+    /// The reference of `t`, when the server has the schema.
+    fn reference(&self, t: &'static TableSchema) -> Option<String> {
+        let address = std::ptr::from_ref(t) as usize;
+        let mut known = self.known.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(reference) = known.by_address.get(&address) {
+            return Some(reference.clone());
+        }
+        if known.references.is_empty() {
+            return None;
+        }
+        let reference = wire::schema_ref(t);
+        if !known.references.contains(&reference) {
+            return None;
+        }
+        known.by_address.insert(address, reference.clone());
+        Some(reference)
+    }
+
+    /// The server accepted a statement that described these schemas: it has them.
+    fn learn(&self, described: Vec<&'static TableSchema>) {
+        if described.is_empty() {
+            return;
+        }
+        let mut known = self.known.lock().unwrap_or_else(|e| e.into_inner());
+        for t in described {
+            let reference = wire::schema_ref(t);
+            known.by_address.insert(std::ptr::from_ref(t) as usize, reference.clone());
+            known.references.insert(reference);
+        }
+    }
+
+    /// The server did not know a reference: it has none of them any more.
+    fn forget(&self) {
+        *self.known.lock().unwrap_or_else(|e| e.into_inner()) = Known::default();
+        if self.unknown.fetch_add(1, Ordering::Relaxed) + 1 >= UNKNOWN_SCHEMAS_MAX {
+            self.by_reference.store(false, Ordering::Relaxed);
+        }
+    }
+}
 
 /// A Nuage DB database reached over HTTP(S). See the [module](self) docs.
 ///
@@ -248,10 +298,16 @@ impl NuageDb {
     /// them apply, or none. Works with every server; interactive
     /// transactions ([`Database::begin`]) work too.
     pub fn batch(&self) -> NuageBatch<'_> {
-        NuageBatch { db: self, statements: Vec::new(), error: None }
+        NuageBatch { db: self, statements: Vec::new(), error: None, schemas: Vec::new(), described: Vec::new() }
     }
 
     async fn request(&self, method: &'static str, path: &str, tx: Option<&str>, body: Json) -> Result<Json> {
+        let body = if body.is_null() { Vec::new() } else { body.to_string().into_bytes() };
+        self.request_bytes(method, path, tx, body).await
+    }
+
+    /// [`request`](Self::request) with the body already written.
+    async fn request_bytes(&self, method: &'static str, path: &str, tx: Option<&str>, body: Vec<u8>) -> Result<Json> {
         let mut headers = self.inner.headers.clone();
         if let Some(branch) = &self.branch {
             headers.push((BRANCH_HEADER.to_owned(), branch.clone()));
@@ -259,7 +315,6 @@ impl NuageDb {
         if let Some(tx) = tx {
             headers.push((TRANSACTION_HEADER.to_owned(), tx.to_owned()));
         }
-        let body = if body.is_null() { Vec::new() } else { body.to_string().into_bytes() };
         let path = format!("{}{path}", self.inner.base);
         let res = self.inner.transport.request(method, &path, &headers, body).await?;
         if !(200..300).contains(&res.status) {
@@ -280,34 +335,22 @@ impl NuageDb {
         }
         // Described in this statement: known to the server once it has accepted it.
         let described: Mutex<Vec<&'static TableSchema>> = Mutex::new(Vec::new());
-        let body = {
-            let known = schemas.known.lock().unwrap_or_else(|e| e.into_inner());
-            wire::query_to_json_with(query, &|t| match known.get(&(std::ptr::from_ref(t) as usize)) {
-                Some(reference) => Json::String(reference.clone()),
-                None => {
-                    described.lock().unwrap_or_else(|e| e.into_inner()).push(t);
-                    wire::schema_to_json(t)
-                }
-            })?
-        };
+        let body = wire::query_to_json_with(query, &|t| match schemas.reference(t) {
+            Some(reference) => Json::String(reference),
+            None => {
+                described.lock().unwrap_or_else(|e| e.into_inner()).push(t);
+                wire::schema_to_json(t)
+            }
+        })?;
         match self.request("POST", path, tx, json!({ "query": body })).await {
             Err(e) if wire::is_unknown_schema(&e) => {
                 // The server lost its schemas (a restart): everything whole again.
-                schemas.known.lock().unwrap_or_else(|e| e.into_inner()).clear();
-                if schemas.unknown.fetch_add(1, Ordering::Relaxed) + 1 >= UNKNOWN_SCHEMAS_MAX {
-                    schemas.by_reference.store(false, Ordering::Relaxed);
-                }
+                schemas.forget();
                 self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
             }
             Err(e) => Err(e),
             Ok(answer) => {
-                let described = described.into_inner().unwrap_or_else(|e| e.into_inner());
-                if !described.is_empty() {
-                    let mut known = schemas.known.lock().unwrap_or_else(|e| e.into_inner());
-                    for t in described {
-                        known.entry(std::ptr::from_ref(t) as usize).or_insert_with(|| wire::schema_ref(t));
-                    }
-                }
+                schemas.learn(described.into_inner().unwrap_or_else(|e| e.into_inner()));
                 Ok(answer)
             }
         }
@@ -465,6 +508,10 @@ pub struct NuageBatch<'a> {
     db: &'a NuageDb,
     statements: Vec<Json>,
     error: Option<Error>,
+    /// The schemas its statements name, each once.
+    schemas: Vec<&'static TableSchema>,
+    /// Those of them written whole, because the server does not have them yet.
+    described: Vec<&'static TableSchema>,
 }
 
 impl std::fmt::Debug for NuageBatch<'_> {
@@ -475,7 +522,31 @@ impl std::fmt::Debug for NuageBatch<'_> {
 
 impl NuageBatch<'_> {
     fn push(mut self, kind: &str, query: Query<'_>) -> Self {
-        match wire::query_to_json(&query) {
+        let refs = &self.db.inner.schemas;
+        let encoded = if refs.by_reference.load(Ordering::Relaxed) {
+            // As single statements do: by reference what the server has, whole the rest.
+            let named = std::cell::RefCell::new(Vec::new());
+            let encoded = wire::query_to_json_with(&query, &|t| {
+                let reference = refs.reference(t);
+                named.borrow_mut().push((t, reference.is_some()));
+                match reference {
+                    Some(reference) => Json::String(reference),
+                    None => wire::schema_to_json(t),
+                }
+            });
+            for (t, by_reference) in named.into_inner() {
+                if !self.schemas.iter().any(|s| std::ptr::eq(*s, t)) {
+                    self.schemas.push(t);
+                    if !by_reference {
+                        self.described.push(t);
+                    }
+                }
+            }
+            encoded
+        } else {
+            wire::query_to_json(&query)
+        };
+        match encoded {
             Ok(q) => {
                 let mut statement = serde_json::Map::new();
                 statement.insert(kind.to_owned(), q);
@@ -511,7 +582,31 @@ impl NuageBatch<'_> {
         if let Some(e) = self.error {
             return Err(e);
         }
-        let res = self.db.request("POST", "/v1/batch", None, json!({ "statements": self.statements })).await?;
+        let body = json!({ "statements": self.statements }).to_string().into_bytes();
+        let refs = &self.db.inner.schemas;
+        let res = match self.db.request_bytes("POST", "/v1/batch", None, body.clone()).await {
+            Err(e) if wire::is_unknown_schema(&e) => {
+                // The server lost its schemas (a restart), and a batch refused for that
+                // did nothing. It is told each schema again (a lookup that finds no
+                // row describes one), then sent the same batch.
+                refs.forget();
+                for t in &self.schemas {
+                    let describe = json!({ "findByKey": wire::schema_to_json(t), "key": wire::value_to_json(&crate::Value::Null) });
+                    match self.db.request("POST", "/v1/fetch", None, json!({ "query": describe })).await {
+                        Ok(_) | Err(Error::NoSuchTable(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                let res = self.db.request_bytes("POST", "/v1/batch", None, body).await?;
+                refs.learn(self.schemas);
+                res
+            }
+            Err(e) => return Err(e),
+            Ok(res) => {
+                refs.learn(self.described);
+                res
+            }
+        };
         res.get("results")
             .and_then(Json::as_array)
             .ok_or_else(|| Error::Conversion("invalid batch answer".into()))?
@@ -609,6 +704,8 @@ mod tests {
                                     "400 Bad Request",
                                     json!({ "error": { "kind": "unsupported", "message": message } }).to_string(),
                                 )
+                            } else if head.starts_with("post /v1/batch") {
+                                ("200 OK", r#"{"results":[{"rows":[]}]}"#.to_owned())
                             } else {
                                 ("200 OK", r#"{"rows":[]}"#.to_owned())
                             }
@@ -653,11 +750,39 @@ mod tests {
             sent[0].len(),
             sent[1].len()
         );
+        // A batch names its schemas the same way. Refused for a reference the server
+        // lost, it did nothing: the server is told the schema again, then sent the same batch.
+        let key = crate::Value::I64(8);
+        let batch = || db.batch().fetch(Query::FindByKey { table: Note::SCHEMA, key: &key });
+        assert_eq!(batch().run().await.unwrap().len(), 1);
+        forgot.store(true, Ordering::SeqCst);
+        assert_eq!(batch().run().await.unwrap().len(), 1);
+        assert_eq!(batch().run().await.unwrap().len(), 1);
+        let sent = bodies.lock().unwrap()[6..].to_vec();
+        let kinds: Vec<&str> = sent
+            .iter()
+            .map(|b| match (whole(b), b.contains(&reference), b.contains("statements")) {
+                (false, true, true) => "batch by reference",
+                (true, false, false) => "schema told again",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "batch by reference",
+                "batch by reference",
+                "schema told again",
+                "batch by reference",
+                "batch by reference"
+            ],
+            "{sent:#?}"
+        );
         // A client that did not ask the server what it knows describes its schemas each time.
         let lazy = NuageDb::builder(&url).token("token").build().unwrap();
         for id in [6, 7] {
             assert_eq!(Note::find(&lazy, id).await.unwrap(), None);
         }
-        assert!(bodies.lock().unwrap()[6..].iter().all(|b| whole(b)));
+        assert!(bodies.lock().unwrap()[11..].iter().all(|b| whole(b)));
     }
 }
