@@ -74,7 +74,7 @@ The three steps:
 
 `commit` and `rollback` consume the transaction, so the compiler stops you from using it afterwards.
 
-`begin` is part of the `Database` trait, implemented by all six backends (`MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`). Writing `D: Database` makes `transfer` work with every one of them.
+`begin` is part of the `Database` trait, implemented by all seven backends (`NuageDb`, `MemoryDb`, `SqliteDb`, `PgPool`, `MySqlPool`, `RedisDb`, `MongoDb`). Writing `D: Database` makes `transfer` work with every one of them.
 
 ## Dropping a transaction rolls it back
 

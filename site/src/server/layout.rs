@@ -31,11 +31,12 @@ pub const LICENSE_PATH: &str = "/static/LICENSE.txt";
 pub const AUTHOR: &str = "Maxime Nathan Lestage";
 /// The sister projects of Memoire, by the same author: (name, website). The footer links
 /// them in this order; `i18n::Texts::footer_projects` describes each one in the same order.
-pub const ECOSYSTEM: [(&str, &str); 5] = [
+pub const ECOSYSTEM: [(&str, &str); 6] = [
     ("Active", "https://active-c1883a966650.herokuapp.com/"),
     ("Vitesse", "https://vitesse-f16135654c3d.herokuapp.com/"),
     ("Securite", "https://securite-2db4c1994be7.herokuapp.com/"),
     ("Memoire", "https://memoire-7f4525f1fdaf.herokuapp.com/"),
+    ("Nuage DB", "https://github.com/maxlestage/Nuage"),
     ("Paquets", "https://paquets-90dfc06b6fea.herokuapp.com/"),
 ];
 
