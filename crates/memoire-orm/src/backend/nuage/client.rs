@@ -13,7 +13,9 @@
 //! # Ok(()) }
 //! ```
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value as Json, json};
@@ -23,7 +25,7 @@ use crate::ast::Query;
 use crate::error::{Error, Result};
 use crate::executor::{Database, ExecResult, Executor, Transaction};
 use crate::row::{FromRow, ValueRow};
-use crate::schema::Dialect;
+use crate::schema::{Dialect, TableSchema};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "native.rs"]
@@ -130,13 +132,17 @@ impl NuageBuilder {
         if let Some(token) = &self.token {
             headers.push(("Authorization".to_owned(), format!("Bearer {token}")));
         }
-        Ok(NuageDb { inner: Arc::new(Inner { transport, base, headers }), branch: None })
+        Ok(NuageDb { inner: Arc::new(Inner { transport, base, headers, schemas: Schemas::default() }), branch: None })
     }
 
     /// Builds the client and checks the server and the token.
     pub async fn connect(self) -> Result<NuageDb> {
         let db = self.build()?;
-        db.request("GET", "/v1/info", None, Json::Null).await?;
+        let info = db.request("GET", "/v1/info", None, Json::Null).await?;
+        // A server that keeps schemas by reference is sent each one whole once.
+        if info.get("schemaRefs").and_then(Json::as_bool) == Some(true) {
+            db.inner.schemas.by_reference.store(true, Ordering::Relaxed);
+        }
         Ok(db)
     }
 }
@@ -146,7 +152,25 @@ struct Inner {
     base: String,
     /// Headers sent with every request.
     headers: Vec<(String, String)>,
+    schemas: Schemas,
 }
+
+/// The schemas the server already has: a statement names them by their
+/// [reference](wire::schema_ref) instead of describing them each time.
+#[derive(Default)]
+struct Schemas {
+    /// The server said (`/v1/info`) that it keeps schemas by reference.
+    by_reference: AtomicBool,
+    /// The schemas sent whole in a statement the server accepted, by their
+    /// address, with their reference.
+    known: Mutex<HashMap<usize, String>>,
+    /// Times the server did not know a reference. A server restarted forgets
+    /// them and is told again; one that keeps forgetting is sent schemas whole.
+    unknown: AtomicU32,
+}
+
+/// References refused before this client stops sending any.
+const UNKNOWN_SCHEMAS_MAX: u32 = 8;
 
 /// A Nuage DB database reached over HTTP(S). See the [module](self) docs.
 ///
@@ -247,13 +271,55 @@ impl NuageDb {
         serde_json::from_slice(&res.body).map_err(|e| Error::Conversion(format!("invalid answer from Nuage DB: {e}")))
     }
 
+    /// Sends a statement: the schemas the server has go by reference, the
+    /// others whole (and by reference from the next statement on).
+    async fn send(&self, path: &str, query: &Query<'_>, tx: Option<&str>) -> Result<Json> {
+        let schemas = &self.inner.schemas;
+        if !schemas.by_reference.load(Ordering::Relaxed) {
+            return self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await;
+        }
+        // Described in this statement: known to the server once it has accepted it.
+        let described: Mutex<Vec<&'static TableSchema>> = Mutex::new(Vec::new());
+        let body = {
+            let known = schemas.known.lock().unwrap_or_else(|e| e.into_inner());
+            wire::query_to_json_with(query, &|t| match known.get(&(std::ptr::from_ref(t) as usize)) {
+                Some(reference) => Json::String(reference.clone()),
+                None => {
+                    described.lock().unwrap_or_else(|e| e.into_inner()).push(t);
+                    wire::schema_to_json(t)
+                }
+            })?
+        };
+        match self.request("POST", path, tx, json!({ "query": body })).await {
+            Err(e) if wire::is_unknown_schema(&e) => {
+                // The server lost its schemas (a restart): everything whole again.
+                schemas.known.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                if schemas.unknown.fetch_add(1, Ordering::Relaxed) + 1 >= UNKNOWN_SCHEMAS_MAX {
+                    schemas.by_reference.store(false, Ordering::Relaxed);
+                }
+                self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
+            }
+            Err(e) => Err(e),
+            Ok(answer) => {
+                let described = described.into_inner().unwrap_or_else(|e| e.into_inner());
+                if !described.is_empty() {
+                    let mut known = schemas.known.lock().unwrap_or_else(|e| e.into_inner());
+                    for t in described {
+                        known.entry(std::ptr::from_ref(t) as usize).or_insert_with(|| wire::schema_ref(t));
+                    }
+                }
+                Ok(answer)
+            }
+        }
+    }
+
     async fn fetch_rows(&self, query: &Query<'_>, tx: Option<&str>) -> Result<Vec<Vec<crate::Value>>> {
-        let res = self.request("POST", "/v1/fetch", tx, json!({ "query": wire::query_to_json(query)? })).await?;
+        let res = self.send("/v1/fetch", query, tx).await?;
         wire::rows_from_json(res.get("rows").unwrap_or(&Json::Null))
     }
 
     async fn exec(&self, query: &Query<'_>, tx: Option<&str>) -> Result<ExecResult> {
-        let res = self.request("POST", "/v1/execute", tx, json!({ "query": wire::query_to_json(query)? })).await?;
+        let res = self.send("/v1/execute", query, tx).await?;
         wire::exec_result_from_json(&res)
     }
 }

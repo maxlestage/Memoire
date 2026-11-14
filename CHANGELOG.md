@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`NuageDb`: a statement no longer describes its tables each time.** A table's schema
+  (every column with its type, flags, default, foreign key) used to travel whole in every
+  statement: more than half of the work of a short request, on both sides. A server that
+  says so in `/v1/info` (`schemaRefs`) is now sent each schema whole once per client, then a
+  short reference in its place (`nuage::wire::schema_ref`: the table's name and a
+  fingerprint of its description, the same on both sides). A server that does not know a
+  reference (it restarted) says so and gets the statement again with its schemas whole.
+  Nothing changes with a server or a client that does not know references: schemas travel
+  whole, as before.
+- `nuage::wire`: `query_to_json_with` (how each schema is written), `schema_ref`,
+  `is_unknown_schema`; `SchemaCache::schema` also takes a reference.
+
 ## [0.2.1] - 2026-11-13
 
 ### Added
