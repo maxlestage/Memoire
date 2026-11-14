@@ -39,6 +39,10 @@ mod wasm;
 #[cfg(target_arch = "wasm32")]
 use wasm::Transport;
 
+#[path = "admin.rs"]
+mod admin;
+pub use admin::{AppInfo, NewApp, NewToken, NuageAdmin, TokenInfo};
+
 /// An HTTP answer, whatever the transport.
 pub(crate) struct HttpResponse {
     pub status: u16,
