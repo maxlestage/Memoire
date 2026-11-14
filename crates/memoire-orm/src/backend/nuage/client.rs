@@ -220,6 +220,13 @@ impl Schemas {
             self.by_reference.store(false, Ordering::Relaxed);
         }
     }
+
+    /// The server does not read references (it was set back to a version
+    /// from before them): schemas go whole from now on.
+    fn stop(&self) {
+        self.by_reference.store(false, Ordering::Relaxed);
+        *self.known.lock().unwrap_or_else(|e| e.into_inner()) = Known::default();
+    }
 }
 
 /// A Nuage DB database reached over HTTP(S). See the [module](self) docs.
@@ -335,8 +342,12 @@ impl NuageDb {
         }
         // Described in this statement: known to the server once it has accepted it.
         let described: Mutex<Vec<&'static TableSchema>> = Mutex::new(Vec::new());
+        let referred = AtomicBool::new(false);
         let body = wire::query_to_json_with(query, &|t| match schemas.reference(t) {
-            Some(reference) => Json::String(reference),
+            Some(reference) => {
+                referred.store(true, Ordering::Relaxed);
+                Json::String(reference)
+            }
             None => {
                 described.lock().unwrap_or_else(|e| e.into_inner()).push(t);
                 wire::schema_to_json(t)
@@ -346,6 +357,12 @@ impl NuageDb {
             Err(e) if wire::is_unknown_schema(&e) => {
                 // The server lost its schemas (a restart): everything whole again.
                 schemas.forget();
+                self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
+            }
+            Err(e) if referred.load(Ordering::Relaxed) && wire::is_reference_unread(&e) => {
+                // The server was set back to a version from before references: it read
+                // one as a description and ran nothing. Whole, now and from now on.
+                schemas.stop();
                 self.request("POST", path, tx, json!({ "query": wire::query_to_json(query)? })).await
             }
             Err(e) => Err(e),
@@ -601,7 +618,14 @@ impl NuageBatch<'_> {
                 refs.learn(self.schemas);
                 res
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                if self.schemas.len() > self.described.len() && wire::is_reference_unread(&e) {
+                    // The server was set back to a version from before references: this
+                    // batch did nothing and is refused; what is sent next goes whole.
+                    refs.stop();
+                }
+                return Err(e);
+            }
             Ok(res) => {
                 refs.learn(self.described);
                 res
@@ -660,11 +684,13 @@ mod tests {
         let url = format!("http://{}", listener.local_addr().unwrap());
         let bodies: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let forgot = Arc::new(AtomicBool::new(false));
-        let (seen, lost) = (bodies.clone(), forgot.clone());
+        // Set back to a version from before references: one is read as a description.
+        let older = Arc::new(AtomicBool::new(false));
+        let (seen, lost, old) = (bodies.clone(), forgot.clone(), older.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
-                let (seen, lost) = (seen.clone(), lost.clone());
+                let (seen, lost, old) = (seen.clone(), lost.clone(), old.clone());
                 std::thread::spawn(move || {
                     let mut buf = Vec::new();
                     loop {
@@ -698,7 +724,13 @@ mod tests {
                         } else {
                             let by_reference = body.contains(r#""findByKey":""#);
                             seen.lock().unwrap().push(body);
-                            if by_reference && lost.swap(false, Ordering::SeqCst) {
+                            if by_reference && old.load(Ordering::SeqCst) {
+                                let message = "invalid Nuage DB message: schema `name`";
+                                (
+                                    "400 Bad Request",
+                                    json!({ "error": { "kind": "conversion", "message": message } }).to_string(),
+                                )
+                            } else if by_reference && lost.swap(false, Ordering::SeqCst) {
                                 let message = format!("{} `client_notes#0`: send the schema", wire::UNKNOWN_SCHEMA);
                                 (
                                     "400 Bad Request",
@@ -784,5 +816,23 @@ mod tests {
             assert_eq!(Note::find(&lazy, id).await.unwrap(), None);
         }
         assert!(bodies.lock().unwrap()[11..].iter().all(|b| whole(b)));
+
+        // The server is set back to a version from before references. A statement sent by
+        // reference ran nothing: it goes again, whole, and so does everything after it.
+        older.store(true, Ordering::SeqCst);
+        let from = bodies.lock().unwrap().len();
+        assert_eq!(Note::find(&db, 9).await.unwrap(), None);
+        assert_eq!(Note::find(&db, 10).await.unwrap(), None);
+        let sent = bodies.lock().unwrap()[from..].to_vec();
+        let kinds: Vec<bool> = sent.iter().map(|b| whole(b)).collect();
+        assert_eq!(kinds, [false, true, true], "{sent:#?}");
+        // A batch by reference is refused once (it did nothing); the next one goes whole.
+        let other = NuageDb::connect(&url, "token").await.unwrap();
+        assert_eq!(Note::find(&other, 11).await.unwrap(), None);
+        let batch = || other.batch().fetch(Query::FindByKey { table: Note::SCHEMA, key: &key });
+        let refused = batch().run().await.unwrap_err();
+        assert!(wire::is_reference_unread(&refused), "{refused}");
+        assert_eq!(batch().run().await.unwrap().len(), 1);
+        assert!(whole(bodies.lock().unwrap().last().unwrap()));
     }
 }
