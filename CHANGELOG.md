@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-14
+
+### Added
+- **`NuageAdmin`** (feature `nuage`, native and WebAssembly): the management API of a Nuage
+  DB server, `/api/apps`, from Rust. `NuageAdmin::new(url, admin_token)` (or
+  `NuageAdmin::from_env()`, from `NUAGE_URL` and `NUAGE_ADMIN_TOKEN`), then
+  `create_app(name, description)`: a new application with its own encrypted database, its
+  token, and `env()`, the two lines to paste in its configuration (`NUAGE_URL`,
+  `NUAGE_TOKEN`). `apps()`, `app(name)`, `new_token(name, read_only)` and
+  `revoke_token(name, id)` do the rest. A name already taken is `Error::UniqueViolation`; a
+  wrong management token, a `NuageError` whose `is_unauthorized()` is true. `Debug` never
+  shows a token. Needs a Nuage DB server of 0.4.2 or later, with `NUAGE_ADMIN_TOKEN` set.
+
+### Changed
+- The Nuage DB guide (`docs/*/nuage.md`): the server installs on any computer (Linux,
+  macOS, Windows, cargo, Docker) with the backups where you choose, and applications are made
+  in one command (`nuage apps create`, `paquets nuage create`, `NuageAdmin`) rather than in
+  the console only.
+
 ## [0.2.2] - 2026-11-14
 
 ### Changed
