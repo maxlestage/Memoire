@@ -2,7 +2,7 @@
 //!
 //! A client sends the statement itself (its AST, with the schemas of the
 //! tables it uses), never SQL; the server evaluates it with Memoire's own
-//! engine and answers rows. Shared by the client ([`NuageDb`](super::NuageDb))
+//! engine and answers rows. Shared by the client (`NuageDb`)
 //! and the server (the `nuage` crate).
 //!
 //! | Request | Body | Answer |

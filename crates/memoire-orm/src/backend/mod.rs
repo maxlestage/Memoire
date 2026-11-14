@@ -19,7 +19,7 @@ pub mod sqlite;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
-#[cfg(feature = "nuage")]
+#[cfg(feature = "nuage-wire")]
 pub mod nuage;
 
 #[cfg(feature = "mysql")]
