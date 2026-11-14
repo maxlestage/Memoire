@@ -16,8 +16,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reference (it restarted) says so and gets the statement again with its schemas whole.
   Batches (`db.batch()`) name their schemas the same way. Nothing changes with a server or a
   client that does not know references: schemas travel whole, as before.
+- A reference names one schema and no other: its fingerprint is half a SHA-256 of every
+  field of the description, so that no client of a server can write another schema that
+  answers to the reference of someone else's table; were two different schemas ever
+  described under one reference, the server would answer it as unknown from then on.
+- A client that was sending references to a server then set back to a version from before
+  them goes back to whole schemas: the statement refused (it ran nothing) is sent again,
+  whole; a batch is refused once and the next one goes whole.
 - `nuage::wire`: `query_to_json_with` (how each schema is written), `schema_ref`,
-  `is_unknown_schema`; `SchemaCache::schema` also takes a reference.
+  `is_unknown_schema`, `is_reference_unread`; `SchemaCache::schema` also takes a reference.
 
 ## [0.2.1] - 2026-11-13
 

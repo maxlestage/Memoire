@@ -331,69 +331,84 @@ pub fn is_unknown_schema(e: &Error) -> bool {
     matches!(e, Error::Unsupported(m) if m.starts_with(UNKNOWN_SCHEMA))
 }
 
+/// `true` for what a server from before references answers to one: it took
+/// the reference for a description without a name, and ran nothing. Only a
+/// server set back to such a version says this to a client that was sending
+/// references: the client goes back to whole schemas.
+pub fn is_reference_unread(e: &Error) -> bool {
+    matches!(e, Error::Conversion(m) if m.contains("schema `name`"))
+}
+
 /// A short reference to a schema, the same for the client that describes it
 /// and the server that read its description: the table's name and a
 /// fingerprint of everything [`schema_to_json`] says about it. A client sends
 /// a schema whole once, then this in its place (see [`query_to_json_with`]):
 /// a statement no longer carries the description of its tables each time.
+///
+/// The fingerprint is half a SHA-256: a reference names one schema, and
+/// nobody can write another schema that answers to it.
 pub fn schema_ref(t: &TableSchema) -> String {
-    // FNV-1a, 64 bits, over every field, each one delimited.
-    struct Fnv(u64);
-    impl Fnv {
-        fn bytes(&mut self, b: &[u8]) {
-            for byte in b.iter().chain(&[0xFF]) {
-                self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01B3);
-            }
+    // Every field, each one with its length or of a fixed size: two schemas
+    // that differ never give the same bytes.
+    struct Fields(Vec<u8>);
+    impl Fields {
+        fn number(&mut self, n: usize) {
+            self.0.extend_from_slice(&(n as u64).to_le_bytes());
         }
         fn text(&mut self, s: &str) {
-            self.bytes(s.as_bytes());
+            self.number(s.len());
+            self.0.extend_from_slice(s.as_bytes());
         }
         fn opt(&mut self, s: Option<&str>) {
             match s {
                 Some(s) => {
-                    self.bytes(&[1]);
+                    self.0.push(1);
                     self.text(s);
                 }
-                None => self.bytes(&[0]),
+                None => self.0.push(0),
             }
         }
-        fn number(&mut self, n: usize) {
-            self.bytes(&(n as u64).to_le_bytes());
-        }
     }
-    let mut h = Fnv(0xCBF2_9CE4_8422_2325);
-    h.text(t.name);
-    h.number(t.primary_key);
-    h.number(t.columns.len());
+    let mut f = Fields(Vec::with_capacity(64 + 96 * t.columns.len()));
+    f.text(t.name);
+    f.number(t.primary_key);
+    f.number(t.columns.len());
     for c in t.columns {
-        h.text(c.name);
-        h.text(c.field);
-        h.text(type_name(c.kind));
+        f.text(c.name);
+        f.text(c.field);
+        f.text(type_name(c.kind));
         let flags = [c.nullable, c.primary_key, c.auto_increment, c.unique, c.indexed, c.fulltext];
-        h.bytes(&flags.map(u8::from));
-        h.opt(c.sql_type);
-        h.opt(c.default);
+        f.0.extend_from_slice(&flags.map(u8::from));
+        f.opt(c.sql_type);
+        f.opt(c.default);
         match &c.references {
             Some(r) => {
-                h.bytes(&[1]);
-                h.text(r.table);
-                h.text(r.column);
-                h.opt(r.on_delete);
-                h.opt(r.on_update);
+                f.0.push(1);
+                f.text(r.table);
+                f.text(r.column);
+                f.opt(r.on_delete);
+                f.opt(r.on_update);
             }
-            None => h.bytes(&[0]),
+            None => f.0.push(0),
         }
     }
-    h.number(t.indexes.len());
+    f.number(t.indexes.len());
     for ix in t.indexes {
-        h.text(ix.name);
-        h.bytes(&[u8::from(ix.unique)]);
-        h.number(ix.columns.len());
+        f.text(ix.name);
+        f.0.push(u8::from(ix.unique));
+        f.number(ix.columns.len());
         for c in ix.columns {
-            h.number(*c);
+            f.number(*c);
         }
     }
-    format!("{}#{:016x}", t.name, h.0)
+    let digest = super::sha256::sha256(&f.0);
+    let mut reference = String::with_capacity(t.name.len() + 33);
+    reference.push_str(t.name);
+    reference.push('#');
+    for byte in &digest[..16] {
+        reference.push_str(&format!("{byte:02x}"));
+    }
+    reference
 }
 
 /// Schemas and names received from clients, made `'static` once and shared
@@ -403,8 +418,10 @@ pub fn schema_ref(t: &TableSchema) -> String {
 /// the server's memory without bound.
 pub struct SchemaCache {
     schemas: Mutex<HashMap<String, &'static TableSchema>>,
-    /// The schemas kept, by their [reference](schema_ref).
-    refs: Mutex<HashMap<String, &'static TableSchema>>,
+    /// The schemas kept, by their [reference](schema_ref). `None`: two
+    /// different schemas were described under this reference, and it is
+    /// answered as unknown from then on (their clients send them whole).
+    refs: Mutex<HashMap<String, Option<&'static TableSchema>>>,
     names: Mutex<HashSet<&'static str>>,
     max_schemas: usize,
 }
@@ -474,6 +491,7 @@ impl SchemaCache {
                 .map_err(|_| bad("poisoned cache"))?
                 .get(reference)
                 .copied()
+                .flatten()
                 .ok_or_else(|| Error::Unsupported(format!("{UNKNOWN_SCHEMA} `{reference}`: send the schema")));
         }
         let key = j.to_string();
@@ -551,7 +569,15 @@ impl SchemaCache {
         }));
         schemas.insert(key, schema);
         drop(schemas);
-        self.refs.lock().map_err(|_| bad("poisoned cache"))?.insert(schema_ref(schema), schema);
+        let mut refs = self.refs.lock().map_err(|_| bad("poisoned cache"))?;
+        let held = refs.entry(schema_ref(schema)).or_insert(Some(schema));
+        // The same schema written another way keeps its reference. Another
+        // schema under it (which a reference should never allow) and the
+        // reference names none: a statement never runs on a schema its client
+        // did not describe.
+        if held.is_some_and(|h| !std::ptr::eq(h, schema) && schema_to_json(h) != schema_to_json(schema)) {
+            *held = None;
+        }
         Ok(schema)
     }
 }
@@ -1065,6 +1091,28 @@ mod tests {
             query_to_json_with(&Query::InsertRow { table: P::SCHEMA, values: &values }, &|t| json!(schema_ref(t)));
         let OwnedQuery::InsertRow(t, v) = query_from_json(&short.unwrap(), &cache).unwrap() else { panic!() };
         assert_eq!((t.name, v), ("wire_posts", values));
+        // 128 bits of SHA-256 after the name: nobody writes another schema with the same reference.
+        let reference = schema_ref(P::SCHEMA);
+        let (name, digest) = reference.split_once('#').unwrap();
+        assert_eq!((name, digest.len()), ("wire_posts", 32));
+        assert!(digest.bytes().all(|b| b.is_ascii_hexdigit()));
+        // The same schema described in other words (a field the server does not read) keeps its reference.
+        let mut reworded = schema_to_json(P::SCHEMA);
+        reworded["note"] = json!("from another client");
+        let again = cache.schema(&reworded).unwrap();
+        assert_eq!(schema_ref(again), reference);
+        assert!(cache.schema(&json!(reference)).is_ok());
+        // Were two different schemas ever described under one reference, it would name
+        // neither: each client is told to send its own, whole.
+        let other = SchemaCache::default();
+        let users = other.schema(&schema_to_json(U::SCHEMA)).unwrap();
+        other.refs.lock().unwrap().insert(reference.clone(), Some(users));
+        other.schema(&schema_to_json(P::SCHEMA)).unwrap();
+        assert!(is_unknown_schema(&other.schema(&json!(reference)).unwrap_err()));
+        other.schema(&reworded).unwrap();
+        assert!(is_unknown_schema(&other.schema(&json!(reference)).unwrap_err()), "for good");
+        assert!(is_reference_unread(&Error::Conversion("invalid Nuage DB message: schema `name`".into())));
+        assert!(!is_reference_unread(&Error::Conversion("invalid Nuage DB message: schema columns".into())));
         // A server that never saw the schema says so, in a way the client recognizes.
         let fresh = SchemaCache::default();
         let err =

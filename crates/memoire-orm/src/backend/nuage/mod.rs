@@ -21,6 +21,7 @@ use serde_json::{Value as Json, json};
 
 use crate::error::{Error, Result};
 
+mod sha256;
 pub mod wire;
 
 #[cfg(feature = "nuage")]
