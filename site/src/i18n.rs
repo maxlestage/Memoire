@@ -130,7 +130,7 @@ pub struct Texts {
     pub footer_ecosystem: &'static str,
     pub footer_ecosystem_text: &'static str,
     pub footer_here: &'static str,
-    pub footer_projects: [&'static str; 5],
+    pub footer_projects: [&'static str; 6],
     /// The signature: "Designed and built by", then where it was made.
     pub footer_by: &'static str,
     pub footer_crafted: &'static str,
@@ -377,7 +377,7 @@ static EN: Texts = Texts {
 
     fp_title: "Features",
     fp_subtitle: "Everything Memoire ORM gives you, explained simply.",
-    backends_title: "One API, six backends",
+    backends_title: "One API, seven backends",
     backends_subtitle: "SQL or NoSQL: pick the storage that fits, your models stay the same.",
     backends: &EN_BACKENDS,
 
@@ -397,13 +397,14 @@ static EN: Texts = Texts {
     footer_deploy: "Deploy on Heroku",
     footer_license: "License",
     footer_ecosystem: "Ecosystem",
-    footer_ecosystem_text: "Five Rust projects by one author, made to work together: from the front end to the database.",
+    footer_ecosystem_text: "Six Rust projects by one author, made to work together: from the front end to the database.",
     footer_here: "You are here",
     footer_projects: [
         "Front-end: components, SSR, WebAssembly islands, 3D",
         "Express-style web server, HTTP/3",
         "Security middlewares for Vitesse & tower",
         "Async, type-safe ORM, SQL & NoSQL",
+        "The database of Memoire, in Rust: on disk, branches, backups",
         "The full-stack framework that unites them",
     ],
     footer_by: "Designed & built by",
@@ -654,7 +655,7 @@ static FR: Texts = Texts {
 
     fp_title: "Fonctionnalités",
     fp_subtitle: "Tout ce que Memoire ORM vous apporte, expliqué simplement.",
-    backends_title: "Une API, six bases",
+    backends_title: "Une API, sept bases",
     backends_subtitle: "SQL ou NoSQL : choisissez le stockage adapté, vos modèles ne changent pas.",
     backends: &FR_BACKENDS,
 
@@ -674,13 +675,14 @@ static FR: Texts = Texts {
     footer_deploy: "Déployer sur Heroku",
     footer_license: "Licence",
     footer_ecosystem: "Écosystème",
-    footer_ecosystem_text: "Cinq projets Rust d'un même auteur, faits pour travailler ensemble : du front-end à la base de données.",
+    footer_ecosystem_text: "Six projets Rust d'un même auteur, faits pour travailler ensemble : du front-end à la base de données.",
     footer_here: "Vous êtes ici",
     footer_projects: [
         "Front-end : composants, SSR, îlots WebAssembly, 3D",
         "Serveur web façon Express, HTTP/3",
         "Middlewares de sécurité pour Vitesse et tower",
         "ORM asynchrone typé, SQL et NoSQL",
+        "La base de Memoire, en Rust : sur disque, branches, sauvegardes",
         "Le framework full-stack qui les réunit",
     ],
     footer_by: "Conçu et développé par",
@@ -923,7 +925,7 @@ static ES: Texts = Texts {
 
     fp_title: "Funciones",
     fp_subtitle: "Todo lo que te ofrece Memoire ORM, explicado de forma sencilla.",
-    backends_title: "Una API, seis bases de datos",
+    backends_title: "Una API, siete bases de datos",
     backends_subtitle: "SQL o NoSQL: elige el almacenamiento que te convenga, tus modelos no cambian.",
     backends: &ES_BACKENDS,
 
@@ -943,13 +945,14 @@ static ES: Texts = Texts {
     footer_deploy: "Desplegar en Heroku",
     footer_license: "Licencia",
     footer_ecosystem: "Ecosistema",
-    footer_ecosystem_text: "Cinco proyectos Rust de un mismo autor, hechos para trabajar juntos: del front-end a la base de datos.",
+    footer_ecosystem_text: "Seis proyectos Rust de un mismo autor, hechos para trabajar juntos: del front-end a la base de datos.",
     footer_here: "Estás aquí",
     footer_projects: [
         "Front-end: componentes, SSR, islas WebAssembly, 3D",
         "Servidor web estilo Express, HTTP/3",
         "Middlewares de seguridad para Vitesse y tower",
         "ORM asíncrono tipado, SQL y NoSQL",
+        "La base de Memoire, en Rust: en disco, ramas, copias de seguridad",
         "El framework full-stack que los une",
     ],
     footer_by: "Diseñado y desarrollado por",

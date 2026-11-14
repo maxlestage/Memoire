@@ -730,9 +730,29 @@ body.has-cursor .cursor-ring {
 }
 
 .navbar.scrolled::before {
-  background: color-mix(in srgb, var(--bg) 68%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* The glass does not wait for the script: if it never runs (an old copy in a cache,
+   JavaScript off), the bar still turns opaque once the page scrolls, with a
+   scroll-driven animation where the browser has them. Phones always have it (see
+   max-width: 900px). */
+@keyframes navbar-glass {
+  to {
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .navbar:not(.scrolled)::before {
+    animation: navbar-glass linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 40px;
+  }
 }
 
 .nav-inner {
@@ -3948,6 +3968,14 @@ html:not(.motion) .bar-fill {
   .nav-actions > .lang-switch,
   .nav-github {
     display: none;
+  }
+
+  /* On phones and tablets the bar always has its background: the page never shows
+     through the logo and the buttons, whatever the script does. */
+  .navbar::before {
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
   }
 
   .nav-actions {
