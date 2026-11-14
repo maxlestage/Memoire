@@ -185,7 +185,7 @@ With `NUAGE_PUBLIC_STATUS=true`, requests without credentials get a public subse
 
 ## How it works
 
-- **Pages on disk.** Tables and indexes live in one file, a B-tree store ([redb](https://docs.rs/redb), pure Rust) with a bounded page cache (`NUAGE_CACHE_MB`, by default an eighth of the memory, 8 to 512 MiB). The data is not limited by memory, and the file grows with it.
+- **Pages on disk.** Tables and indexes live in one file of B-tree pages that Nuage DB writes itself (copy-on-write, a checksum on each node, pure Rust), with a bounded page cache (`NUAGE_CACHE_MB`, by default an eighth of the memory, 8 to 512 MiB). The data is not limited by memory, and the file grows with it.
 - **Write-ahead log.** Each commit is appended to the log and synced to disk (`fsync`) before it is applied. A checkpoint, every 30 seconds or 16 MiB of log, makes the page store durable and starts a new log segment. After a crash, the next start replays what the last checkpoint missed. Log records carry a CRC-32 and pages a checksum: damage is detected, and a record torn by the crash is dropped.
 - **Statements.** The engine reads only the rows a statement needs: primary-key and index lookups read the matching rows, other filters stream the table in chunks, `LIMIT` stops early and `ORDER BY ... LIMIT n` keeps the best `n` rows while streaming; `COUNT(*)` reads a counter. Memoire's own evaluator then runs the statement on those rows, so Nuage DB behaves exactly like the in-memory engine.
 - **Upkeep.** A background thread runs the checkpoints, ships the backups and compacts the file when a quarter of it is free space.
