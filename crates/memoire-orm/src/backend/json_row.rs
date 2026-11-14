@@ -26,22 +26,14 @@ pub(crate) fn field(v: &Value) -> String {
     }
 }
 
-fn hex(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 2);
-    for byte in b {
-        s.push_str(&format!("{byte:02x}"));
-    }
-    s
-}
+use crate::backend::hex::encode as hex;
 
 fn unhex(s: &str) -> Result<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return Err(Error::Conversion("invalid hex string".into()));
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| Error::Conversion(format!("invalid hex: {e}"))))
-        .collect()
+    // A pair that is not hexadecimal is what `u8::from_str_radix` called an invalid digit.
+    crate::backend::hex::decode(s).ok_or_else(|| Error::Conversion("invalid hex: invalid digit found in string".into()))
 }
 
 pub(crate) fn encode_value(v: &Value) -> serde_json::Value {
@@ -109,13 +101,19 @@ pub(crate) fn decode_value(kind: ColumnType, j: serde_json::Value) -> Result<Val
     })
 }
 
+/// The JSON text of `j`, the same as `j.to_string()` writes, two to three
+/// times faster (`Display` goes through `fmt` for every piece).
+fn text(j: &serde_json::Value) -> String {
+    serde_json::to_string(j).unwrap_or_else(|_| j.to_string())
+}
+
 #[cfg_attr(not(feature = "redis"), allow(dead_code))]
 pub(crate) fn encode_row(schema: &TableSchema, row: &[Value]) -> String {
     let mut map = serde_json::Map::with_capacity(row.len());
     for (c, v) in schema.columns.iter().zip(row) {
         map.insert(c.name.to_owned(), encode_value(v));
     }
-    serde_json::Value::Object(map).to_string()
+    text(&serde_json::Value::Object(map))
 }
 
 pub(crate) fn decode_row(schema: &TableSchema, json: &str) -> Result<Vec<Value>> {
@@ -134,7 +132,7 @@ pub(crate) fn encode_row_named(columns: &[String], row: &[Value]) -> String {
     for (c, v) in columns.iter().zip(row) {
         map.insert(c.clone(), encode_value(v));
     }
-    serde_json::Value::Object(map).to_string()
+    text(&serde_json::Value::Object(map))
 }
 
 #[cfg(test)]

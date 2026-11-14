@@ -47,7 +47,7 @@ postgres-tls = ["postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:webp
 ## small HTTP/1.1 client (hyper + rustls, requires Tokio).
 ## The protocol of Nuage DB alone (`nuage::wire`, `nuage::Branch`), with no network
 ## dependency: what the embedded engine of the `nuage` crate needs. Pure Rust.
-nuage-wire = ["dep:serde_json"]
+nuage-wire = ["dep:serde", "dep:serde_json"]
 nuage = [
     "nuage-wire", "dep:tokio", "tokio?/net", "tokio?/time", "dep:hyper", "hyper?/client", "hyper?/http1",
     "dep:hyper-util", "dep:http-body-util", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots",

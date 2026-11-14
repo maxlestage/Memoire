@@ -124,3 +124,31 @@ Reopening the file (replaying 20 000 rows and rebuilding the indexes) takes
 36 to 39 ms. With `StorageOptions::sync(true)` an insert waits for the disk:
 130 to 190 µs on this machine's disk.
 
+
+## Nuage DB protocol (JSON)
+
+Measured on 2026-11-14 with a timing loop (medians of 3 runs, the previous
+version and this one back to back) on the same kind of machine, Rust 1.99.
+Rows have 6 columns (two integers, two texts, a float and 16 bytes).
+
+| Operation | Before (0.2.1) | Now | Speed-up |
+|---|---:|---:|---:|
+| Write a filtered, sorted `SELECT`, schema by reference, to bytes (client) | 9.1 µs | **4.1 µs** | **×2.2** |
+| The same, schema whole | 46 µs | **26 µs** | **×1.8** |
+| `wire::rows_to_json`, 1 000 rows (what a server answers) | 1.02 ms | **0.44 ms** | **×2.3** |
+| Read 1 000 rows of an answer and decode them into structs (client) | 1.53 ms | **0.88 ms** | **×1.7** |
+| Read a statement whose schema comes whole (server) | 14.5 µs | **11.7 µs** | ×1.2 |
+| Read a statement whose schema comes by reference (server) | 4.1 µs | 4.1 µs | ×1.0 |
+| 16 bytes to hexadecimal / back | 978 / 110 ns | **103 / 54 ns** | **×9.5 / ×2.0** |
+
+Statements and rows were built with `json!`, which serializes again into a new
+copy every value that is already JSON, so a statement was copied once per level
+of nesting; they are now built in place (the text is the same, field order
+included). The client reads the rows of an answer straight from its text
+(`wire::rows_from_slice`) instead of building the JSON tree, then the rows.
+
+JSON text is also written with `serde_json::to_string` rather than through
+`Display`, the same text two to three times faster: `web::LocalStorageDb`
+`insert_many` of 1 000 rows into `MemoryStorage` went from 3.28 ms to 1.97 ms,
+and a `json` value in the `MemoryDb` file format (`evaluator::encode_value`)
+from 530 ns to 177 ns.

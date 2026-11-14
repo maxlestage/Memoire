@@ -4,7 +4,7 @@ members = ["crates/memoire-orm", "crates/memoire-orm-derive"]
 exclude = ["site"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.95"
 license-file = "LICENSE"
@@ -13,8 +13,8 @@ repository = "https://github.com/maxlestage/Memoire"
 authors = ["Maxime Nathan Lestage"]
 
 [workspace.dependencies]
-memoire-orm-derive = { version = "=0.2.1", path = "crates/memoire-orm-derive" }
-memoire-orm = { version = "=0.2.1", path = "crates/memoire-orm", default-features = false }
+memoire-orm-derive = { version = "=0.2.2", path = "crates/memoire-orm-derive" }
+memoire-orm = { version = "=0.2.2", path = "crates/memoire-orm", default-features = false }
 
 [profile.bench]
 debug = false
