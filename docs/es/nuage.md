@@ -143,7 +143,7 @@ let db = NuageDb::connect(&tienda.url, &tienda.token).await?;
 
 ## Almacén clave-valor
 
-Junto a su base, cada aplicación tiene un **almacén clave-valor en memoria**, que se usa como Redis: una caché delante de todo lo lento, sesiones, contadores, límites de peticiones, cerrojos. Nada toca el disco, así que una lectura o una escritura cuesta un viaje de ida y vuelta; un reinicio del servidor lo vacía, y lo que debe sobrevivir va en la base. Desde Rust, `NuageKv` (función `nuage`, en nativo y en WebAssembly):
+Junto a su base, cada aplicación tiene un **almacén clave-valor en memoria**: una caché delante de todo lo lento, sesiones, contadores, límites de peticiones, cerrojos. Nada toca el disco, así que una lectura o una escritura cuesta un viaje de ida y vuelta; un reinicio del servidor lo vacía, y lo que debe sobrevivir va en la base. Desde Rust, `NuageKv` (función `nuage`, en nativo y en WebAssembly):
 
 ```rust
 use std::time::Duration;
@@ -163,9 +163,9 @@ if kv.incr_by(&format!("limite:{ip}"), 1, Some(Duration::from_secs(60))).await? 
 if kv.set_if_absent("cerrojo:informe", "yo", Some(Duration::from_secs(30))).await? { /* el trabajo */ }
 ```
 
-`get`, `set`, `set_json` y `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefijo)` y `clear` hacen el resto; `command(&["SET", "k", "v", "EX", "60"])` envía cualquier comando de Redis (textos y contadores: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`…), y `pipeline` varios en un viaje. Cada aplicación tiene su propio almacén (su token lo elige; un token de solo lectura lee), limitado en memoria (`NUAGE_KV_MB`): pasado el límite, el servidor retira las claves caducadas y luego las menos usadas recientemente.
+`get`, `set`, `set_json` y `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefijo)` y `clear` hacen el resto; `command(&["SET", "k", "v", "EX", "60"])` envía cualquier comando por su nombre (textos y contadores: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`…), y `pipeline` varios en un viaje. Cada aplicación tiene su propio almacén (su token lo elige; un token de solo lectura lee), limitado en memoria (`NUAGE_KV_MB`): pasado el límite, el servidor retira las claves caducadas y luego las menos usadas recientemente.
 
-Los demás lenguajes usan `/v1/kv` por HTTP, o su propio cliente Redis: con `NUAGE_REDIS_PORT=6379` el servidor habla el protocolo Redis, un token como contraseña (`redis://default:<token>@db.example.com:6379`). Un alojamiento que solo abre un puerto (Heroku) tiene solo la API HTTP. Requiere un servidor Nuage DB 0.4.4 o posterior.
+Los demás lenguajes usan `/v1/kv` por HTTP, o el puerto del almacén: con `NUAGE_KV_PORT=6379` el servidor responde en una conexión que sigue abierta, por el protocolo que hablan los clientes Redis; el cliente Redis de un lenguaje se conecta así tal cual, un token como contraseña (`redis://default:<token>@db.example.com:6379`). Un alojamiento que solo abre un puerto (Heroku) tiene solo la API HTTP. Requiere un servidor Nuage DB 0.4.5 o posterior (0.4.4 para `NuageKv` solo).
 
 ## SQL
 

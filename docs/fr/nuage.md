@@ -143,7 +143,7 @@ let db = NuageDb::connect(&boutique.url, &boutique.token).await?;
 
 ## Stockage clé-valeur
 
-À côté de sa base, chaque application a un **stockage clé-valeur en mémoire**, qui s'utilise comme Redis : un cache devant tout ce qui est lent, des sessions, des compteurs, des limites de débit, des verrous. Rien ne touche le disque, une lecture ou une écriture coûte donc un aller-retour ; un redémarrage du serveur le vide, et ce qui doit survivre va dans la base. Depuis Rust, `NuageKv` (fonction `nuage`, en natif et en WebAssembly) :
+À côté de sa base, chaque application a un **stockage clé-valeur en mémoire** : un cache devant tout ce qui est lent, des sessions, des compteurs, des limites de débit, des verrous. Rien ne touche le disque, une lecture ou une écriture coûte donc un aller-retour ; un redémarrage du serveur le vide, et ce qui doit survivre va dans la base. Depuis Rust, `NuageKv` (fonction `nuage`, en natif et en WebAssembly) :
 
 ```rust
 use std::time::Duration;
@@ -163,9 +163,9 @@ if kv.incr_by(&format!("debit:{ip}"), 1, Some(Duration::from_secs(60))).await? >
 if kv.set_if_absent("verrou:rapport", "moi", Some(Duration::from_secs(30))).await? { /* le travail */ }
 ```
 
-`get`, `set`, `set_json` et `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(préfixe)` et `clear` font le reste ; `command(&["SET", "k", "v", "EX", "60"])` envoie n'importe quelle commande de Redis (textes et compteurs : `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`…), et `pipeline` plusieurs en un aller-retour. Chaque application a son propre stockage (son jeton le choisit ; un jeton en lecture seule lit), borné en mémoire (`NUAGE_KV_MB`) : au-delà, le serveur retire les clés expirées, puis les moins récemment utilisées.
+`get`, `set`, `set_json` et `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(préfixe)` et `clear` font le reste ; `command(&["SET", "k", "v", "EX", "60"])` envoie n'importe quelle commande par son nom (textes et compteurs : `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`…), et `pipeline` plusieurs en un aller-retour. Chaque application a son propre stockage (son jeton le choisit ; un jeton en lecture seule lit), borné en mémoire (`NUAGE_KV_MB`) : au-delà, le serveur retire les clés expirées, puis les moins récemment utilisées.
 
-Les autres langages utilisent `/v1/kv` en HTTP, ou leur propre client Redis : avec `NUAGE_REDIS_PORT=6379`, le serveur parle le protocole Redis, un jeton comme mot de passe (`redis://default:<jeton>@db.example.com:6379`). Un hébergeur qui n'ouvre qu'un port (Heroku) n'a que l'API HTTP. Demande un serveur Nuage DB 0.4.4 ou plus récent.
+Les autres langages utilisent `/v1/kv` en HTTP, ou le port du stockage : avec `NUAGE_KV_PORT=6379`, le serveur répond sur une connexion qui reste ouverte, par le protocole que parlent les clients Redis ; le client Redis d'un langage s'y connecte donc tel quel, un jeton comme mot de passe (`redis://default:<jeton>@db.example.com:6379`). Un hébergeur qui n'ouvre qu'un port (Heroku) n'a que l'API HTTP. Demande un serveur Nuage DB 0.4.5 ou plus récent (0.4.4 pour `NuageKv` seul).
 
 ## SQL
 

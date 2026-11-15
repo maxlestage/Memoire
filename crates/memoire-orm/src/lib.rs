@@ -91,7 +91,7 @@
 //! | `redis` | | Redis backend (`RedisDb`, requires Tokio) |
 //! | `redis-tls` | | TLS for Redis (`rediss://`) |
 //! | `mongodb` | | MongoDB backend (`MongoDb`, requires Tokio) |
-//! | `nuage` | | Client of a Nuage DB server (`NuageDb`), of its key-value store (`NuageKv`: a cache, counters, locks, the way Redis is used) and of its management API (`NuageAdmin`: applications and tokens), also on wasm32 |
+//! | `nuage` | | Client of a Nuage DB server (`NuageDb`), of its key-value store (`NuageKv`: a cache, counters, locks) and of its management API (`NuageAdmin`: applications and tokens), also on wasm32 |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |

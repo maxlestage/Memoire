@@ -143,7 +143,7 @@ let db = NuageDb::connect(&shop.url, &shop.token).await?;
 
 ## Key-value store
 
-Next to its database, each application has a **key-value store in memory**, the way Redis is used: a cache in front of anything slow, sessions, counters, rate limits, locks. Nothing touches the disk, so a read or a write costs one round trip; a restart of the server empties it, and what must survive goes in the database. From Rust, `NuageKv` (feature `nuage`, native and WebAssembly):
+Next to its database, each application has a **key-value store in memory**: a cache in front of anything slow, sessions, counters, rate limits, locks. Nothing touches the disk, so a read or a write costs one round trip; a restart of the server empties it, and what must survive goes in the database. From Rust, `NuageKv` (feature `nuage`, native and WebAssembly):
 
 ```rust
 use std::time::Duration;
@@ -163,9 +163,9 @@ if kv.incr_by(&format!("rate:{ip}"), 1, Some(Duration::from_secs(60))).await? > 
 if kv.set_if_absent("lock:report", "me", Some(Duration::from_secs(30))).await? { /* the work */ }
 ```
 
-`get`, `set`, `set_json` and `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefix)` and `clear` do the rest; `command(&["SET", "k", "v", "EX", "60"])` sends any command of Redis (strings and counters: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`...), and `pipeline` several in one round trip. Each application has its own store (its token picks it; a read-only token reads), bounded in memory (`NUAGE_KV_MB`): past the limit the server drops the keys that expired, then the least recently used ones.
+`get`, `set`, `set_json` and `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefix)` and `clear` do the rest; `command(&["SET", "k", "v", "EX", "60"])` sends any command by its name (strings and counters: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`...), and `pipeline` several in one round trip. Each application has its own store (its token picks it; a read-only token reads), bounded in memory (`NUAGE_KV_MB`): past the limit the server drops the keys that expired, then the least recently used ones.
 
-Other languages use `/v1/kv` over HTTP, or their own Redis client: with `NUAGE_REDIS_PORT=6379` the server speaks the Redis protocol, a token as the password (`redis://default:<token>@db.example.com:6379`). A host that opens one port only (Heroku) has the HTTP API alone. Needs a Nuage DB server of 0.4.4 or later.
+Other languages use `/v1/kv` over HTTP, or the store's own port: with `NUAGE_KV_PORT=6379` the server answers on a socket that stays open, over the wire Redis clients speak, so a language's Redis client connects as it is, a token as the password (`redis://default:<token>@db.example.com:6379`). A host that opens one port only (Heroku) has the HTTP API alone. Needs a Nuage DB server of 0.4.5 or later (0.4.4 for `NuageKv` alone).
 
 ## SQL
 
