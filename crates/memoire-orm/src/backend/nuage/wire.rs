@@ -159,6 +159,89 @@ pub fn rows_to_json(rows: &[Vec<Value>]) -> Json {
     Json::Array(rows.iter().map(|r| Json::Array(r.iter().map(value_to_json).collect())).collect())
 }
 
+/// The answer to a `fetch`, `{"rows": [[<value>, ...], ...]}`, written
+/// straight as its text: the same bytes as serializing
+/// `{"rows": rows_to_json(rows)}`, without building that JSON first (no
+/// allocation per value, nothing to drop afterwards). What a server sends.
+pub fn rows_to_vec(rows: &[Vec<Value>]) -> Vec<u8> {
+    // A guess at the size: most answers are a few short rows.
+    let mut out = Vec::with_capacity(16 + rows.len() * rows.first().map_or(0, |r| r.len() * 12));
+    out.extend_from_slice(b"{\"rows\":[");
+    for (i, row) in rows.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        out.push(b'[');
+        for (j, value) in row.iter().enumerate() {
+            if j > 0 {
+                out.push(b',');
+            }
+            write_value(&mut out, value);
+        }
+        out.push(b']');
+    }
+    out.extend_from_slice(b"]}");
+    out
+}
+
+/// A value as the text of [`value_to_json`].
+fn write_value(out: &mut Vec<u8>, v: &Value) {
+    use std::io::Write as _;
+    // Writing to a `Vec` cannot fail, and none of these values fails to serialize.
+    fn json<T: serde::Serialize + ?Sized>(out: &mut Vec<u8>, v: &T) {
+        let _ = serde_json::to_writer(&mut *out, v);
+    }
+    fn tagged(out: &mut Vec<u8>, tag: &str, text: std::fmt::Arguments<'_>) {
+        let _ = write!(out, "{{\"{tag}\":\"{text}\"}}");
+    }
+    match v {
+        Value::Null => out.extend_from_slice(b"null"),
+        Value::Bool(true) => out.extend_from_slice(b"true"),
+        Value::Bool(false) => out.extend_from_slice(b"false"),
+        Value::I32(i) => {
+            let _ = write!(out, "{{\"i32\":{i}}}");
+        }
+        Value::I64(i) => {
+            let _ = write!(out, "{i}");
+        }
+        Value::F64(f) if f.is_finite() => {
+            out.extend_from_slice(b"{\"f64\":");
+            json(out, f);
+            out.push(b'}');
+        }
+        Value::F64(f) => {
+            let name = if f.is_nan() {
+                "NaN"
+            } else if *f > 0.0 {
+                "Infinity"
+            } else {
+                "-Infinity"
+            };
+            tagged(out, "f64", format_args!("{name}"));
+        }
+        Value::Text(s) => json(out, s.as_str()),
+        Value::Bytes(b) => tagged(out, "bytes", format_args!("{}", hex(b))),
+        #[cfg(feature = "uuid")]
+        Value::Uuid(u) => tagged(out, "uuid", format_args!("{u}")),
+        #[cfg(feature = "chrono")]
+        Value::Timestamp(t) => tagged(out, "ts", format_args!("{}", t.format("%Y-%m-%dT%H:%M:%S%.f"))),
+        #[cfg(feature = "chrono")]
+        Value::TimestampTz(t) => {
+            tagged(out, "tstz", format_args!("{}", t.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)));
+        }
+        #[cfg(feature = "chrono")]
+        Value::Date(d) => tagged(out, "date", format_args!("{d}")),
+        #[cfg(feature = "chrono")]
+        Value::Time(t) => tagged(out, "time", format_args!("{}", t.format("%H:%M:%S%.f"))),
+        #[cfg(feature = "json")]
+        Value::Json(j) => {
+            out.extend_from_slice(b"{\"json\":");
+            json(out, j);
+            out.push(b'}');
+        }
+    }
+}
+
 /// Rows read from JSON arrays.
 pub fn rows_from_json(j: &Json) -> Result<Vec<Vec<Value>>> {
     j.as_array()
@@ -1585,6 +1668,54 @@ mod tests {
                 (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{text}"),
                 (a, b) => panic!("{text}: {a:?} / {b:?}"),
             }
+        }
+    }
+
+    /// `rows_to_vec` writes the bytes that serializing `{"rows": rows_to_json(rows)}`
+    /// writes, for every kind of value, and `rows_from_slice` reads them back.
+    #[test]
+    fn rows_written_straight_as_text() {
+        #[cfg_attr(not(any(feature = "json", feature = "chrono", feature = "uuid")), allow(unused_mut))]
+        let mut row = vec![
+            Value::Null,
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::I32(i32::MIN),
+            Value::I32(7),
+            Value::I64(i64::MIN),
+            Value::I64(i64::MAX),
+            Value::F64(-0.0),
+            Value::F64(1.5),
+            Value::F64(1e300),
+            Value::F64(0.1 + 0.2),
+            Value::F64(f64::INFINITY),
+            Value::F64(f64::NEG_INFINITY),
+            Value::F64(f64::NAN),
+            Value::Text(String::new()),
+            Value::Text("é \" \\ \n \u{1} \u{1F600} </script>".into()),
+            Value::Bytes(Vec::new()),
+            Value::Bytes(vec![0, 1, 254, 255]),
+        ];
+        #[cfg(feature = "json")]
+        row.push(Value::Json(json!({"a": [1, {"b": null}], "c": "d\"e", "f": 1.25})));
+        #[cfg(feature = "uuid")]
+        row.push(Value::Uuid(uuid::Uuid::from_u128(42)));
+        #[cfg(feature = "chrono")]
+        {
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+            let time = chrono::NaiveTime::from_hms_micro_opt(7, 8, 9, 120_000).unwrap();
+            row.push(Value::Date(date));
+            row.push(Value::Time(time));
+            row.push(Value::Time(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
+            row.push(Value::Timestamp(date.and_time(time)));
+            row.push(Value::TimestampTz(date.and_time(time).and_utc()));
+        }
+        for rows in [vec![], vec![vec![]], vec![row.clone()], vec![row.clone(), vec![Value::I64(1)], row]] {
+            let expected = serde_json::to_vec(&json!({ "rows": rows_to_json(&rows) })).unwrap();
+            let written = rows_to_vec(&rows);
+            assert_eq!(String::from_utf8_lossy(&written), String::from_utf8_lossy(&expected));
+            // `NaN` is not equal to itself: compare what the values say.
+            assert_eq!(format!("{:?}", rows_from_slice(&written).unwrap()), format!("{rows:?}"));
         }
     }
 

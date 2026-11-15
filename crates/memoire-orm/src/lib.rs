@@ -91,7 +91,7 @@
 //! | `redis` | | Redis backend (`RedisDb`, requires Tokio) |
 //! | `redis-tls` | | TLS for Redis (`rediss://`) |
 //! | `mongodb` | | MongoDB backend (`MongoDb`, requires Tokio) |
-//! | `nuage` | | Client of a Nuage DB server (`NuageDb`), and of its management API (`NuageAdmin`: applications and tokens), also on wasm32 |
+//! | `nuage` | | Client of a Nuage DB server (`NuageDb`), of its key-value store (`NuageKv`: a cache, counters, locks, the way Redis is used) and of its management API (`NuageAdmin`: applications and tokens), also on wasm32 |
 //! | `chrono` | | `chrono` date and time types |
 //! | `uuid` | | `uuid::Uuid` |
 //! | `json` | | `serde_json::Value` and [`Json<T>`](crate::Json) columns |
@@ -173,7 +173,7 @@ pub use backend::mysql::{MySqlPool, MySqlTransaction};
 #[cfg_attr(docsrs, doc(cfg(feature = "nuage-wire")))]
 pub use backend::nuage;
 #[cfg(feature = "nuage")]
-pub use backend::nuage::{NuageAdmin, NuageDb, NuageTransaction};
+pub use backend::nuage::{NuageAdmin, NuageDb, NuageKv, NuageTransaction};
 #[cfg(feature = "postgres")]
 pub use backend::postgres::{PgPool, PgTransaction};
 #[cfg(feature = "redis")]
@@ -203,7 +203,7 @@ pub mod prelude {
         params,
     };
     #[cfg(feature = "nuage")]
-    pub use crate::{NuageAdmin, NuageDb};
+    pub use crate::{NuageAdmin, NuageDb, NuageKv};
 }
 
 /// Runs a future to completion on the current thread.

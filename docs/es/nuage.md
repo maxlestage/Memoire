@@ -141,6 +141,32 @@ let db = NuageDb::connect(&tienda.url, &tienda.token).await?;
 
 `apps()`, `app(nombre)`, `new_token(nombre, read_only)` y `revoke_token(nombre, id)` hacen el resto; un nombre ya usado es `Error::UniqueViolation`, un token de gestión incorrecto una `NuageError` cuyo `is_unauthorized()` es verdadero. La misma API responde en `/api/apps` por HTTP, para cualquier lenguaje ([su descripción](https://github.com/maxlestage/Nuage/blob/master/crates/nuage/openapi.json)), y el botón **New application** de la consola lo hace a mano. Guarda el token de gestión con los secretos del servidor, nunca en una aplicación ni en una página.
 
+## Almacén clave-valor
+
+Junto a su base, cada aplicación tiene un **almacén clave-valor en memoria**, que se usa como Redis: una caché delante de todo lo lento, sesiones, contadores, límites de peticiones, cerrojos. Nada toca el disco, así que una lectura o una escritura cuesta un viaje de ida y vuelta; un reinicio del servidor lo vacía, y lo que debe sobrevivir va en la base. Desde Rust, `NuageKv` (función `nuage`, en nativo y en WebAssembly):
+
+```rust
+use std::time::Duration;
+use memoire_orm::prelude::*;
+
+let kv = NuageKv::from_env()?; // NUAGE_URL, NUAGE_TOKEN; o db.kv(), sobre las conexiones de la base
+kv.set_for("session:42", "ada", Duration::from_secs(1800)).await?;
+let usuario = kv.get_string("session:42").await?; // Some("ada")
+
+// Una caché en una llamada: leída, o calculada y guardada cinco minutos.
+let informe: Vec<Venta> = kv.remember("informe", Duration::from_secs(300), || informe_de_ventas(&db)).await?;
+
+// 100 peticiones por minuto y por visitante: el contador y su ventana, en un viaje.
+if kv.incr_by(&format!("limite:{ip}"), 1, Some(Duration::from_secs(60))).await? > 100 { /* 429 */ }
+
+// Un solo trabajador a la vez: un cerrojo que se libera solo tras 30 segundos.
+if kv.set_if_absent("cerrojo:informe", "yo", Some(Duration::from_secs(30))).await? { /* el trabajo */ }
+```
+
+`get`, `set`, `set_json` y `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefijo)` y `clear` hacen el resto; `command(&["SET", "k", "v", "EX", "60"])` envía cualquier comando de Redis (textos y contadores: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`…), y `pipeline` varios en un viaje. Cada aplicación tiene su propio almacén (su token lo elige; un token de solo lectura lee), limitado en memoria (`NUAGE_KV_MB`): pasado el límite, el servidor retira las claves caducadas y luego las menos usadas recientemente.
+
+Los demás lenguajes usan `/v1/kv` por HTTP, o su propio cliente Redis: con `NUAGE_REDIS_PORT=6379` el servidor habla el protocolo Redis, un token como contraseña (`redis://default:<token>@db.example.com:6379`). Un alojamiento que solo abre un puerto (Heroku) tiene solo la API HTTP. Requiere un servidor Nuage DB 0.4.4 o posterior.
+
 ## SQL
 
 Nuage DB habla SQL: `POST /v1/sql` desde cualquier lenguaje, la pestaña **Consulta** de la consola, y `Embedded::sql` en Rust. `SELECT` con uniones, `GROUP BY`, `HAVING`, `UNION`, subconsultas, `CASE` y las funciones habituales; `INSERT ... ON CONFLICT`, `UPDATE`, `DELETE`, `RETURNING`; `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE ... ADD COLUMN`, `DROP`. Los parámetros (`?` o `$1`) nunca se interpretan como SQL. Varias sentencias en una petición se ejecutan en una sola transacción.
