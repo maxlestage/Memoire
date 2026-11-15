@@ -28,7 +28,8 @@ pub mod wire;
 mod client;
 #[cfg(feature = "nuage")]
 pub use client::{
-    AppInfo, BatchResult, NewApp, NewToken, NuageAdmin, NuageBatch, NuageBuilder, NuageDb, NuageTransaction, TokenInfo,
+    AppInfo, BatchResult, NewApp, NewToken, NuageAdmin, NuageBatch, NuageBuilder, NuageDb, NuageKv, NuageTransaction,
+    TokenInfo,
 };
 
 pub use wire::NuageError;

@@ -141,6 +141,32 @@ let db = NuageDb::connect(&shop.url, &shop.token).await?;
 
 `apps()`, `app(name)`, `new_token(name, read_only)` and `revoke_token(name, id)` do the rest; a name already taken is `Error::UniqueViolation`, a wrong management token a `NuageError` whose `is_unauthorized()` is true. The same API answers `/api/apps` over HTTP, for any language ([its description](https://github.com/maxlestage/Nuage/blob/master/crates/nuage/openapi.json)), and the console's **New application** button does it by hand. Keep the management token with the server's secrets, never in an application or a page.
 
+## Key-value store
+
+Next to its database, each application has a **key-value store in memory**, the way Redis is used: a cache in front of anything slow, sessions, counters, rate limits, locks. Nothing touches the disk, so a read or a write costs one round trip; a restart of the server empties it, and what must survive goes in the database. From Rust, `NuageKv` (feature `nuage`, native and WebAssembly):
+
+```rust
+use std::time::Duration;
+use memoire_orm::prelude::*;
+
+let kv = NuageKv::from_env()?; // NUAGE_URL, NUAGE_TOKEN; or db.kv(), over the database's connections
+kv.set_for("session:42", "ada", Duration::from_secs(1800)).await?;
+let user = kv.get_string("session:42").await?; // Some("ada")
+
+// A cache in one call: read, or computed and kept five minutes.
+let report: Vec<Sale> = kv.remember("report", Duration::from_secs(300), || sales_report(&db)).await?;
+
+// 100 requests a minute for each visitor: the counter and its window, in one round trip.
+if kv.incr_by(&format!("rate:{ip}"), 1, Some(Duration::from_secs(60))).await? > 100 { /* 429 */ }
+
+// One worker at a time: a lock that frees itself after 30 seconds.
+if kv.set_if_absent("lock:report", "me", Some(Duration::from_secs(30))).await? { /* the work */ }
+```
+
+`get`, `set`, `set_json` and `get_json`, `delete`, `exists`, `expire`, `persist`, `ttl`, `keys(prefix)` and `clear` do the rest; `command(&["SET", "k", "v", "EX", "60"])` sends any command of Redis (strings and counters: `GET`, `SET`, `DEL`, `INCR`, `EXPIRE`, `TTL`, `MGET`...), and `pipeline` several in one round trip. Each application has its own store (its token picks it; a read-only token reads), bounded in memory (`NUAGE_KV_MB`): past the limit the server drops the keys that expired, then the least recently used ones.
+
+Other languages use `/v1/kv` over HTTP, or their own Redis client: with `NUAGE_REDIS_PORT=6379` the server speaks the Redis protocol, a token as the password (`redis://default:<token>@db.example.com:6379`). A host that opens one port only (Heroku) has the HTTP API alone. Needs a Nuage DB server of 0.4.4 or later.
+
 ## SQL
 
 Nuage DB speaks SQL: `POST /v1/sql` from any language, the console's **Query** tab, and `Embedded::sql` in Rust. `SELECT` with joins, `GROUP BY`, `HAVING`, `UNION`, subqueries, `CASE` and the usual functions; `INSERT ... ON CONFLICT`, `UPDATE`, `DELETE`, `RETURNING`; `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE ... ADD COLUMN`, `DROP`. Parameters (`?` or `$1`) are never parsed as SQL. Several statements in one request run in one transaction.

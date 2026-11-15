@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-15
+
+### Added
+- **`NuageKv`** (feature `nuage`, native and WebAssembly): the key-value store of a Nuage DB
+  application, in the server's memory, the way Redis is used. `NuageKv::new(url, token)`,
+  `NuageKv::from_env()` or `db.kv()` (over the database's connections), then `get`,
+  `get_string`, `set`, `set_for` (an expiry), `set_if_absent` (a lock), `delete`, `exists`,
+  `incr`, `incr_by` (with the window of a counter it creates: a rate limit in one round trip),
+  `expire`, `persist`, `ttl`, `keys(prefix)`, `clear`; `get_json`, `set_json` and `remember`
+  (a cache in one call: the value kept, or else computed and kept for a time); `command`
+  (any command of Redis) and `pipeline` (several in one round trip). `Debug` never shows the
+  token. Needs a Nuage DB server of 0.4.4 or later.
+- `wire::rows_to_vec`: the answer to a `fetch` written straight as its text, the bytes that
+  serializing `{"rows": rows_to_json(rows)}` gives, without building that JSON first (tested
+  byte for byte on every kind of value). What a Nuage DB server answers with.
+
+### Changed
+- The Nuage DB guide (`docs/*/nuage.md`) has a **Key-value store** section.
+
 ## [0.2.3] - 2026-11-14
 
 ### Added

@@ -43,6 +43,10 @@ use wasm::Transport;
 mod admin;
 pub use admin::{AppInfo, NewApp, NewToken, NuageAdmin, TokenInfo};
 
+#[path = "kv.rs"]
+mod kv;
+pub use kv::NuageKv;
+
 /// An HTTP answer, whatever the transport.
 pub(crate) struct HttpResponse {
     pub status: u16,
