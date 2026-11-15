@@ -6,17 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-15
+
+### Changed
+- `NuageKv` and the Nuage DB guide (`docs/*/nuage.md`) describe the key-value store by what
+  it does (a cache, counters, locks) rather than by another product's name, and the guide
+  names the setting of its port as Nuage DB 0.4.5 does: `NUAGE_KV_PORT` (it was
+  `NUAGE_REDIS_PORT` in 0.4.4). Nothing changes in the code: the same methods, the same
+  requests.
+
 ## [0.2.4] - 2026-11-15
 
 ### Added
 - **`NuageKv`** (feature `nuage`, native and WebAssembly): the key-value store of a Nuage DB
-  application, in the server's memory, the way Redis is used. `NuageKv::new(url, token)`,
+  application, in the server's memory. `NuageKv::new(url, token)`,
   `NuageKv::from_env()` or `db.kv()` (over the database's connections), then `get`,
   `get_string`, `set`, `set_for` (an expiry), `set_if_absent` (a lock), `delete`, `exists`,
   `incr`, `incr_by` (with the window of a counter it creates: a rate limit in one round trip),
   `expire`, `persist`, `ttl`, `keys(prefix)`, `clear`; `get_json`, `set_json` and `remember`
   (a cache in one call: the value kept, or else computed and kept for a time); `command`
-  (any command of Redis) and `pipeline` (several in one round trip). `Debug` never shows the
+  (any command by its name) and `pipeline` (several in one round trip). `Debug` never shows the
   token. Needs a Nuage DB server of 0.4.4 or later.
 - `wire::rows_to_vec`: the answer to a `fetch` written straight as its text, the bytes that
   serializing `{"rows": rows_to_json(rows)}` gives, without building that JSON first (tested
