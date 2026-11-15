@@ -1,5 +1,5 @@
 //! `NuageKv`: the key-value store of a Nuage DB application, in memory on the
-//! server, the way Redis is used: a cache, sessions, counters, rate limits,
+//! server: a cache, sessions, counters, rate limits,
 //! locks.
 //!
 //! ```no_run
@@ -225,7 +225,8 @@ impl NuageKv {
         answer.get("deleted").and_then(Json::as_u64).ok_or_else(|| bad_answer("`deleted`"))
     }
 
-    /// One command of Redis, its name first: `kv.command(&["SET", "k", "v",
+    /// One command, its name first (`GET`, `SET`, `DEL`, `INCR`,
+    /// `EXPIRE`, `TTL`, `MGET`...): `kv.command(&["SET", "k", "v",
     /// "EX", "60"])`. Its answer as JSON: text, a number, `null` for nothing,
     /// a list. A command the server refuses is an [`Error::Validation`].
     pub async fn command<A: AsRef<str>>(&self, args: &[A]) -> Result<Json> {
