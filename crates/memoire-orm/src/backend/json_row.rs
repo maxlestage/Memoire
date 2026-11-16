@@ -116,12 +116,114 @@ pub(crate) fn encode_row(schema: &TableSchema, row: &[Value]) -> String {
     text(&serde_json::Value::Object(map))
 }
 
+/// A row read from its JSON object: each column from the field of its name
+/// (the last one, when a name is repeated), `NULL` when it has none.
+///
+/// The fields are read straight into their columns, without building the
+/// object first (a map, with a copy of every name).
 pub(crate) fn decode_row(schema: &TableSchema, json: &str) -> Result<Vec<Value>> {
-    let mut obj = match serde_json::from_str(json).map_err(Error::conversion)? {
-        serde_json::Value::Object(o) => o,
-        _ => return Err(Error::Conversion(format!("row of `{}` is not a JSON object", schema.name))),
+    use serde::de::DeserializeSeed as _;
+    let mut de = serde_json::Deserializer::from_str(json);
+    let fields = row::Fields(schema).deserialize(&mut de).and_then(|f| de.end().map(|()| f));
+    let Some(fields) = fields.map_err(Error::conversion)? else {
+        return Err(Error::Conversion(format!("row of `{}` is not a JSON object", schema.name)));
     };
-    schema.columns.iter().map(|c| decode_value(c.kind, obj.remove(c.name).unwrap_or(serde_json::Value::Null))).collect()
+    schema.columns.iter().zip(fields).map(|(c, j)| decode_value(c.kind, j.unwrap_or(serde_json::Value::Null))).collect()
+}
+
+/// [`decode_row`]'s reader: the fields of a row's object, by column. Every
+/// value is read as JSON, those of fields that are no column too, so that the
+/// same texts are accepted and refused as when the object was built whole.
+mod row {
+    use std::borrow::Cow;
+    use std::fmt;
+
+    use serde::Deserialize;
+    use serde::de::value::SeqAccessDeserializer;
+    use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
+    use serde_json::Value as Json;
+
+    use crate::schema::TableSchema;
+
+    /// The value of each column, `None` for anything else than an object.
+    pub(super) struct Fields<'s>(pub(super) &'s TableSchema);
+
+    type Found = Option<Vec<Option<Json>>>;
+
+    impl<'de> DeserializeSeed<'de> for Fields<'_> {
+        type Value = Found;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Found, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    /// A field name, borrowed from the text when it holds no escape.
+    struct Name<'de>(Cow<'de, str>);
+
+    impl<'de> Deserialize<'de> for Name<'de> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_str(NameVisitor)
+        }
+    }
+
+    struct NameVisitor;
+
+    impl<'de> Visitor<'de> for NameVisitor {
+        type Value = Name<'de>;
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a field name")
+        }
+        fn visit_borrowed_str<E>(self, s: &'de str) -> Result<Name<'de>, E> {
+            Ok(Name(Cow::Borrowed(s)))
+        }
+        fn visit_str<E>(self, s: &str) -> Result<Name<'de>, E> {
+            Ok(Name(Cow::Owned(s.to_owned())))
+        }
+        fn visit_string<E>(self, s: String) -> Result<Name<'de>, E> {
+            Ok(Name(Cow::Owned(s)))
+        }
+    }
+
+    impl<'de> Visitor<'de> for Fields<'_> {
+        type Value = Found;
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a row")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Found, A::Error> {
+            let columns = self.0.columns;
+            let mut values: Vec<Option<Json>> = vec![None; columns.len()];
+            while let Some(Name(name)) = map.next_key::<Name<'de>>()? {
+                let value: Json = map.next_value()?;
+                // The first column of that name, as `Map::remove` found it.
+                if let Some(i) = columns.iter().position(|c| c.name == name) {
+                    values[i] = Some(value);
+                }
+            }
+            Ok(Some(values))
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Found, A::Error> {
+            Json::deserialize(SeqAccessDeserializer::new(seq))?;
+            Ok(None)
+        }
+        fn visit_bool<E>(self, _: bool) -> Result<Found, E> {
+            Ok(None)
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<Found, E> {
+            Ok(None)
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<Found, E> {
+            Ok(None)
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<Found, E> {
+            Ok(None)
+        }
+        fn visit_str<E>(self, _: &str) -> Result<Found, E> {
+            Ok(None)
+        }
+        fn visit_unit<E>(self) -> Result<Found, E> {
+            Ok(None)
+        }
+    }
 }
 
 /// [`encode_row`] with the column names given (rows read back from storage
@@ -138,6 +240,71 @@ pub(crate) fn encode_row_named(columns: &[String], row: &[Value]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `decode_row` answers what parsing the object whole, then taking each
+    /// column's field out of it, answered: row or error, message included.
+    #[test]
+    fn rows_read_straight_into_their_columns() {
+        use crate::model::Model;
+        fn old(schema: &TableSchema, json: &str) -> Result<Vec<Value>> {
+            let mut obj = match serde_json::from_str(json).map_err(Error::conversion)? {
+                serde_json::Value::Object(o) => o,
+                _ => return Err(Error::Conversion(format!("row of `{}` is not a JSON object", schema.name))),
+            };
+            schema
+                .columns
+                .iter()
+                .map(|c| decode_value(c.kind, obj.remove(c.name).unwrap_or(serde_json::Value::Null)))
+                .collect()
+        }
+        #[derive(memoire_orm_derive::Model)]
+        #[memoire(table = "t")]
+        #[allow(dead_code)]
+        struct Row {
+            id: i64,
+            name: Option<String>,
+            age: Option<i32>,
+            score: f64,
+            data: Vec<u8>,
+            on: bool,
+        }
+        let rows = [
+            r#"{"id": 1, "name": "Ada", "age": 36, "score": 1.5, "data": "00ff", "on": true}"#,
+            r#"{"data": "0a", "score": "2.5", "age": 99999999999, "name": null, "id": -1, "on": 0}"#,
+            r#"{}"#,
+            r#" {"id": 1} "#,
+            r#"{"id": 1, "id": 2, "name": "a", "name": 3}"#,
+            r#"{"other": [1, {"x": "\ud800"}], "id": 7}"#,
+            r#"{"other": "\ud800", "id": 7}"#,
+            r#"{"name": "\ud800"}"#,
+            r#"{"id": 5, "na\"me": "x", "name": "aé\n"}"#,
+            r#"{"id": 1.0, "age": true, "score": "x"}"#,
+            r#"{"id": [1], "name": {"a": 1}}"#,
+            r#"{"data": "abc"}"#,
+            r#"{"data": "zz"}"#,
+            r#"{"data": 1}"#,
+            r#"{"id": 1e400}"#,
+            r#"{"id": 18446744073709551615}"#,
+            "[1, 2]",
+            "[1, }",
+            "7",
+            "\"row\"",
+            "null",
+            "",
+            "{",
+            r#"{"id": 1} trailing"#,
+            r#"{"id": 1, "x": }"#,
+            r#"{"id": 1 "x": 2}"#,
+            r#"{1: 1}"#,
+        ];
+        for json in rows {
+            match (decode_row(Row::SCHEMA, json), old(Row::SCHEMA, json)) {
+                (Ok(a), Ok(b)) => assert_eq!(a, b, "{json}"),
+                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{json}"),
+                (a, b) => panic!("{json}: {a:?} / {b:?}"),
+            }
+        }
+    }
 
     #[test]
     fn hex_round_trip() {

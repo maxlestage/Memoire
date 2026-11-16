@@ -548,7 +548,7 @@ impl Pending {
             }
         }
         let mut t = Table::new(schema, version);
-        t.rows.reserve(self.live);
+        t.reserve(self.live);
         for row in self.rows.iter().flatten() {
             t.insert(map.iter().map(|m| m.map_or(Value::Null, |i| row[i].clone())).collect(), false)?;
         }

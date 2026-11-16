@@ -32,7 +32,7 @@ mysql = ["dep:mysql_async", "dep:async-lock"]
 mysql-tls = ["mysql", "mysql_async/default-rustls-ring"]
 ## Redis backend (redis-rs, requires Tokio). Rows are JSON documents in hashes;
 ## queries are evaluated by the in-memory engine.
-redis = ["memory", "dep:redis", "dep:serde_json", "dep:async-lock"]
+redis = ["memory", "dep:redis", "dep:serde", "dep:serde_json", "dep:async-lock"]
 ## TLS for Redis (`rediss://` URLs; append `#insecure` for self-signed certificates
 ## such as Heroku Key-Value Store).
 redis-tls = ["redis", "redis/tokio-rustls-comp", "redis/tls-rustls-webpki-roots", "redis/tls-rustls-insecure", "dep:rustls"]

@@ -152,3 +152,24 @@ JSON text is also written with `serde_json::to_string` rather than through
 `insert_many` of 1 000 rows into `MemoryStorage` went from 3.28 ms to 1.97 ms,
 and a `json` value in the `MemoryDb` file format (`evaluator::encode_value`)
 from 530 ns to 177 ns.
+
+## Room made before inserting, rows read straight from JSON (0.2.6)
+
+Measured on 2026-11-16, the previous version (0.2.5) and this one back to back,
+medians of 3 runs, same kind of machine, Rust 1.99; rows of 6 columns (two
+integers, two texts, a float and 16 bytes).
+
+| Operation | Before (0.2.5) | Now | Speed-up |
+|---|---:|---:|---:|
+| `insert_many` of 1 000 rows into `MemoryDb` (criterion, `memory/insert_many_1000`) | 241 µs | **181 µs** | **×1.3** |
+| One Redis / browser-storage row read from its JSON (`json_row::decode_row`) | 827 ns | **445 ns** | **×1.9** |
+| Open a 5 000-row `LocalStorageDb` table (`MemoryStorage`) and count with a filter | 7.03 ms | **5.26 ms** | **×1.3** |
+| `wire::rows_from_slice`, 1 000 rows (client) | 0.68 ms | **0.51 ms** | **×1.3** |
+| `wire::rows_to_vec`, 1 000 rows (what a server answers) | 185 µs | **107 µs** | **×1.7** |
+
+The unique indexes and the typed copies of numeric columns now take the room
+for all the rows of an `insert_many` (or of a table rebuilt from rows) before
+the first one, instead of rehashing as they grow. A row's JSON object is read
+field by field into its columns, without the map and the copy of every field
+name; a typed value of the Nuage DB protocol (`{"i32": 7}`) without its
+one-field object. The rest of the criterion suite moves by noise only.

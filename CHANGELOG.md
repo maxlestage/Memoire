@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-16
+
+### Changed
+- **`insert_many` makes room before it inserts.** The primary-key and `unique` indexes and
+  the typed copies of numeric columns grew row by row, rehashing the indexes again and
+  again; they now take the room for all the rows first (also when a table is rebuilt from
+  rows: every query of the Redis backend, a `MemoryDb` or `LocalStorageDb` table loaded).
+  `insert_many` of 1,000 rows into `MemoryDb`: 241 µs → 181 µs (criterion,
+  `memory/insert_many_1000`). An `index` column (not unique) still grows with its keys,
+  which can be far fewer than the rows. Same rows, same errors, same rollback.
+- **Rows of the Redis backend and of browser storage are read straight into their
+  columns** (`json_row::decode_row`), without building the JSON object first (a map, and
+  a copy of every field name): 445 ns per row instead of 827 ns (×1.9). Opening a
+  5,000-row `LocalStorageDb` table from `MemoryStorage` and counting with a filter:
+  7.03 ms → 5.26 ms. Same rows, same errors, messages included (tested against the
+  previous reader on valid and broken rows: repeated fields, unknown fields, escaped
+  names, lone surrogates, trailing text, values that are not objects). The `redis` feature
+  now names `serde`, which `serde_json` already brought: no new crate.
+- **Nuage DB protocol:** a typed value of an answer (`{"i32": 7}`, `{"f64": 1.5}`,
+  `{"bytes": "00ff"}`) is read without building its one-field object, and
+  `wire::rows_to_vec` writes integers and bytes without the formatting machinery (the
+  same bytes, tested). 1,000 rows read by `wire::rows_from_slice`: 0.68 ms → 0.51 ms
+  (×1.3); written by `wire::rows_to_vec` (what a server answers): 185 µs → 107 µs (×1.7).
+- The times above are medians of 3 runs (timing loops, or criterion for
+  `insert_many`), before and after back to back, on an Intel Xeon @ 2.80 GHz with Rust
+  1.99 (Linux), on rows of 6 columns (two integers, two texts, a float, 16 bytes). The
+  rest of the criterion suite (`benches/orm.rs`) moves by noise only.
+
 ## [0.2.5] - 2026-11-15
 
 ### Changed
