@@ -259,6 +259,16 @@ impl Index {
             Entries::Multi(g) => g.clear(),
         }
     }
+
+    /// Room for `additional` more rows, before inserting them, for a unique
+    /// index (each row it files takes an entry; growing as they come rehashes
+    /// it again and again). A non-unique index may hold far fewer keys than
+    /// rows (a `bool` column), so it grows with its keys.
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        if let Entries::Unique(t) = &mut self.entries {
+            t.reserve(additional, |&(h, _)| h);
+        }
+    }
 }
 
 /// Word index of a `#[memoire(fulltext)]` column: for each word (by hash),

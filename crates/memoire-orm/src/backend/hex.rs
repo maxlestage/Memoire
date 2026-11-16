@@ -6,12 +6,18 @@ const DIGITS: &[u8; 16] = b"0123456789abcdef";
 /// `bytes` in lower-case hexadecimal.
 pub(crate) fn encode(bytes: &[u8]) -> String {
     let mut out = Vec::with_capacity(bytes.len() * 2);
+    encode_into(bytes, &mut out);
+    // Only ASCII digits were written.
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// `bytes` in lower-case hexadecimal, appended to `out`.
+pub(crate) fn encode_into(bytes: &[u8], out: &mut Vec<u8>) {
+    out.reserve(bytes.len() * 2);
     for &b in bytes {
         out.push(DIGITS[usize::from(b >> 4)]);
         out.push(DIGITS[usize::from(b & 0x0f)]);
     }
-    // Only ASCII digits were written.
-    String::from_utf8(out).unwrap_or_default()
 }
 
 fn digit(c: u8) -> Option<u8> {
@@ -47,6 +53,9 @@ mod tests {
         let all: Vec<u8> = (0..=255).collect();
         let text = encode(&all);
         assert_eq!(text, all.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        let mut appended = b"x".to_vec();
+        encode_into(&all, &mut appended);
+        assert_eq!(appended, [b"x", text.as_bytes()].concat());
         assert_eq!(decode(&text).unwrap(), all);
         assert_eq!(decode(&text.to_uppercase()).unwrap(), all);
         assert_eq!(decode("").unwrap(), Vec::<u8>::new());

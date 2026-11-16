@@ -114,43 +114,46 @@ pub fn value_from_json(j: &Json) -> Result<Value> {
         Json::String(s) => Value::Text(s.clone()),
         Json::Object(map) if map.len() == 1 => {
             let (tag, v) = map.iter().next().ok_or_else(|| bad("empty value"))?;
-            let text = || v.as_str().ok_or_else(|| bad(format!("`{tag}` value")));
-            match tag.as_str() {
-                "i32" => Value::I32(v.as_i64().and_then(|i| i32::try_from(i).ok()).ok_or_else(|| bad("i32"))?),
-                "f64" => Value::F64(match v {
-                    Json::String(s) if s == "NaN" => f64::NAN,
-                    Json::String(s) if s == "Infinity" => f64::INFINITY,
-                    Json::String(s) if s == "-Infinity" => f64::NEG_INFINITY,
-                    _ => v.as_f64().ok_or_else(|| bad("f64"))?,
-                }),
-                "bytes" => Value::Bytes(unhex(text()?)?),
-                #[cfg(feature = "uuid")]
-                "uuid" => Value::Uuid(uuid::Uuid::parse_str(text()?).map_err(|_| bad("uuid"))?),
-                #[cfg(feature = "chrono")]
-                "ts" => Value::Timestamp(
-                    chrono::NaiveDateTime::parse_from_str(text()?, "%Y-%m-%dT%H:%M:%S%.f").map_err(|_| bad("ts"))?,
-                ),
-                #[cfg(feature = "chrono")]
-                "tstz" => Value::TimestampTz(
-                    chrono::DateTime::parse_from_rfc3339(text()?).map_err(|_| bad("tstz"))?.with_timezone(&chrono::Utc),
-                ),
-                #[cfg(feature = "chrono")]
-                "date" => Value::Date(text()?.parse().map_err(|_| bad("date"))?),
-                #[cfg(feature = "chrono")]
-                "time" => {
-                    Value::Time(chrono::NaiveTime::parse_from_str(text()?, "%H:%M:%S%.f").map_err(|_| bad("time"))?)
-                }
-                #[cfg(feature = "json")]
-                "json" => Value::Json(v.clone()),
-                // Without the feature, the value stays readable as text.
-                #[allow(unreachable_patterns)]
-                "json" => Value::Text(v.to_string()),
-                #[allow(unreachable_patterns)]
-                "uuid" | "ts" | "tstz" | "date" | "time" => Value::Text(text()?.to_owned()),
-                other => return Err(bad(format!("unknown value type `{other}`"))),
-            }
+            tagged_from_json(tag, v)?
         }
         other => return Err(bad(format!("value `{other}`"))),
+    })
+}
+
+/// The value of a typed value `{tag: v}`, as [`value_from_json`] reads it.
+fn tagged_from_json(tag: &str, v: &Json) -> Result<Value> {
+    let text = || v.as_str().ok_or_else(|| bad(format!("`{tag}` value")));
+    Ok(match tag {
+        "i32" => Value::I32(v.as_i64().and_then(|i| i32::try_from(i).ok()).ok_or_else(|| bad("i32"))?),
+        "f64" => Value::F64(match v {
+            Json::String(s) if s == "NaN" => f64::NAN,
+            Json::String(s) if s == "Infinity" => f64::INFINITY,
+            Json::String(s) if s == "-Infinity" => f64::NEG_INFINITY,
+            _ => v.as_f64().ok_or_else(|| bad("f64"))?,
+        }),
+        "bytes" => Value::Bytes(unhex(text()?)?),
+        #[cfg(feature = "uuid")]
+        "uuid" => Value::Uuid(uuid::Uuid::parse_str(text()?).map_err(|_| bad("uuid"))?),
+        #[cfg(feature = "chrono")]
+        "ts" => Value::Timestamp(
+            chrono::NaiveDateTime::parse_from_str(text()?, "%Y-%m-%dT%H:%M:%S%.f").map_err(|_| bad("ts"))?,
+        ),
+        #[cfg(feature = "chrono")]
+        "tstz" => Value::TimestampTz(
+            chrono::DateTime::parse_from_rfc3339(text()?).map_err(|_| bad("tstz"))?.with_timezone(&chrono::Utc),
+        ),
+        #[cfg(feature = "chrono")]
+        "date" => Value::Date(text()?.parse().map_err(|_| bad("date"))?),
+        #[cfg(feature = "chrono")]
+        "time" => Value::Time(chrono::NaiveTime::parse_from_str(text()?, "%H:%M:%S%.f").map_err(|_| bad("time"))?),
+        #[cfg(feature = "json")]
+        "json" => Value::Json(v.clone()),
+        // Without the feature, the value stays readable as text.
+        #[allow(unreachable_patterns)]
+        "json" => Value::Text(v.to_string()),
+        #[allow(unreachable_patterns)]
+        "uuid" | "ts" | "tstz" | "date" | "time" => Value::Text(text()?.to_owned()),
+        other => return Err(bad(format!("unknown value type `{other}`"))),
     })
 }
 
@@ -198,12 +201,13 @@ fn write_value(out: &mut Vec<u8>, v: &Value) {
         Value::Null => out.extend_from_slice(b"null"),
         Value::Bool(true) => out.extend_from_slice(b"true"),
         Value::Bool(false) => out.extend_from_slice(b"false"),
+        // Integers through `serde_json` (`itoa`): the digits of `Display`, without `fmt`.
         Value::I32(i) => {
-            let _ = write!(out, "{{\"i32\":{i}}}");
+            out.extend_from_slice(b"{\"i32\":");
+            json(out, i);
+            out.push(b'}');
         }
-        Value::I64(i) => {
-            let _ = write!(out, "{i}");
-        }
+        Value::I64(i) => json(out, i),
         Value::F64(f) if f.is_finite() => {
             out.extend_from_slice(b"{\"f64\":");
             json(out, f);
@@ -220,7 +224,11 @@ fn write_value(out: &mut Vec<u8>, v: &Value) {
             tagged(out, "f64", format_args!("{name}"));
         }
         Value::Text(s) => json(out, s.as_str()),
-        Value::Bytes(b) => tagged(out, "bytes", format_args!("{}", hex(b))),
+        Value::Bytes(b) => {
+            out.extend_from_slice(b"{\"bytes\":\"");
+            crate::backend::hex::encode_into(b, out);
+            out.extend_from_slice(b"\"}");
+        }
         #[cfg(feature = "uuid")]
         Value::Uuid(u) => tagged(out, "uuid", format_args!("{u}")),
         #[cfg(feature = "chrono")]
@@ -278,10 +286,12 @@ pub(crate) fn read_rows(body: &[u8]) -> Result<Result<Vec<Vec<Value>>>> {
 /// such first, as when it was parsed whole before its rows were read.
 mod rows {
     use serde::Deserialize;
-    use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
+    use std::borrow::Cow;
+
+    use serde::de::value::SeqAccessDeserializer;
     use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 
-    use super::{Json, bad, value_from_json};
+    use super::{Json, Map, bad, tagged_from_json, value_from_json};
     use crate::error::Error;
     use crate::value::Value;
 
@@ -437,6 +447,34 @@ mod rows {
         not_an_array!("row", Result<Vec<Value>, Error>);
     }
 
+    /// The first key of an object, borrowed from the text when it holds no
+    /// escape.
+    struct Tag<'de>(Cow<'de, str>);
+
+    impl<'de> Deserialize<'de> for Tag<'de> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_str(TagVisitor)
+        }
+    }
+
+    struct TagVisitor;
+
+    impl<'de> Visitor<'de> for TagVisitor {
+        type Value = Tag<'de>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a key")
+        }
+        fn visit_borrowed_str<E>(self, s: &'de str) -> Result<Tag<'de>, E> {
+            Ok(Tag(Cow::Borrowed(s)))
+        }
+        fn visit_str<E>(self, s: &str) -> Result<Tag<'de>, E> {
+            Ok(Tag(Cow::Owned(s.to_owned())))
+        }
+        fn visit_string<E>(self, s: String) -> Result<Tag<'de>, E> {
+            Ok(Tag(Cow::Owned(s)))
+        }
+    }
+
     /// One value, as [`value_from_json`] reads it; objects (tagged values)
     /// and arrays are built as JSON and handed to it.
     struct ValueSeed;
@@ -475,9 +513,25 @@ mod rows {
         fn visit_string<E>(self, s: String) -> Result<Self::Value, E> {
             Ok(Ok(Value::Text(s)))
         }
-        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-            let j = Json::deserialize(MapAccessDeserializer::new(map))?;
-            Ok(value_from_json(&j))
+        /// A typed value, `{"i32": 7}`, is read without building its object
+        /// (a map allocated, its key copied, both dropped right away); any
+        /// other object is built whole and read as before.
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let Some(Tag(tag)) = map.next_key::<Tag<'de>>()? else {
+                return Ok(value_from_json(&Json::Object(Map::new())));
+            };
+            let value: Json = map.next_value()?;
+            let Some(key) = map.next_key::<String>()? else {
+                return Ok(tagged_from_json(&tag, &value));
+            };
+            // Several fields (or one repeated, of which JSON keeps the last).
+            let mut object = Map::new();
+            object.insert(tag.into_owned(), value);
+            object.insert(key, map.next_value()?);
+            while let Some((key, value)) = map.next_entry::<String, Json>()? {
+                object.insert(key, value);
+            }
+            Ok(value_from_json(&Json::Object(object)))
         }
         fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
             let j = Json::deserialize(SeqAccessDeserializer::new(seq))?;
@@ -1648,6 +1702,15 @@ mod tests {
             br#"{"rows": [[1], 2]}"#,
             br#"{"rows": [[[1]]]}"#,
             br#"{"rows": [[{"i32": 1, "f64": 2}]]}"#,
+            br#"{"rows": [[{"i32": 1, "i32": 2}, {"i32": 3, "i32": "x"}]]}"#,
+            br#"{"rows": [[{"i32": 1, "a": 2, "b": 3}], [{"a": 1, "a": 2}]]}"#,
+            br#"{"rows": [[{"\u0069\u0033\u0032": 5}, {"i32": [1]}, {"bytes": 5}, {"f64": 1e400}]]}"#,
+            br#"{"rows": [[{"bytes": "\ud800"}]]}"#,
+            br#"{"rows": [[{"i32": 1, "x": }]]}"#,
+            br#"{"rows": [[{"i32": 1 "x": 2}]]}"#,
+            br#"{"rows": [[{"i32": }]]}"#,
+            br#"{"rows": [[{"i32" 1}]]}"#,
+            br#"{"rows": [[{1: 1}]]}"#,
             br#"{"rows": [[{"i32": 99999999999}]]}"#,
             br#"{"rows": [[{"bytes": "abc"}], [{"bytes": "zz"}]]}"#,
             br#"{"rows": [[{"nope": 1}]]}"#,

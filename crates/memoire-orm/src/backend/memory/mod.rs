@@ -122,6 +122,14 @@ impl Mirror {
         }
     }
 
+    fn reserve(&mut self, additional: usize) {
+        match &mut self.data {
+            MirrorData::Int(d) => d.reserve(additional),
+            MirrorData::Float(d) => d.reserve(additional),
+        }
+        self.state.reserve(additional);
+    }
+
     fn set(&mut self, idx: usize, row: &[Value]) {
         self.push(row);
         self.swap_remove(idx);
@@ -146,6 +154,7 @@ impl Mirror {
         }
         self.state.clear();
         self.others = 0;
+        self.reserve(rows.len());
         for row in rows {
             self.push(row);
         }
@@ -289,12 +298,25 @@ impl Table {
         }
         for index in &mut self.indexes {
             index.clear();
+            index.reserve(self.rows.len());
         }
         for w in &mut self.words {
             w.clear();
         }
         for i in 0..self.rows.len() {
             self.index_row(i);
+        }
+    }
+
+    /// Room for `additional` more rows: in the rows, their typed copies and
+    /// the unique indexes (see [`Index::reserve`]).
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        self.rows.reserve(additional);
+        for m in &mut self.mirrors {
+            m.reserve(additional);
+        }
+        for index in &mut self.indexes {
+            index.reserve(additional);
         }
     }
 
@@ -1172,7 +1194,7 @@ fn insert_all(t: &mut Table, rows: impl ExactSizeIterator<Item = Vec<Value>>) ->
     let n = rows.len();
     let snapshot_len = t.rows.len();
     let snapshot_next = t.next_id;
-    t.rows.reserve(n);
+    t.reserve(n);
     for row in rows {
         if let Err(e) = t.insert(row, true) {
             // Roll back the rows inserted by this statement.
