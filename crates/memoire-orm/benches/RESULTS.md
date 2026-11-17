@@ -173,3 +173,22 @@ the first one, instead of rehashing as they grow. A row's JSON object is read
 field by field into its columns, without the map and the copy of every field
 name; a typed value of the Nuage DB protocol (`{"i32": 7}`) without its
 one-field object. The rest of the criterion suite moves by noise only.
+
+## Tables loaded for one statement, indexed on demand (0.2.7)
+
+Measured on 2026-11-17, the previous version (0.2.6) and this one back to back,
+medians of 3 runs (criterion), Intel Xeon @ 2.10 GHz, Rust 1.99; rows of 5
+columns (`users`: a primary key, a `unique` text, a text, an optional integer,
+a float).
+
+| Benchmark | Before (0.2.6) | Now | Speed-up |
+|---|---:|---:|---:|
+| 2 048 rows loaded into `evaluator::Tables`, filtered once (`evaluator/chunk_filter_2048`) | 210 µs | **143 µs** | **×1.5** |
+| 2 048 rows loaded, best 20 by a column (`evaluator/chunk_order_limit_2048`) | 182 µs | **124 µs** | **×1.5** |
+
+A table built from rows for one statement (the Nuage DB engine's chunks, every
+query of the Redis and MongoDB backends) files its primary-key and `unique`
+indexes when the statement first looks a key up or changes a row, and copies
+a numeric column when a scan or a sort first reads it; before, it did all of
+it on load, for statements that mostly only scan. The rest of the criterion
+suite, `MemoryDb` included, moves by noise only.
