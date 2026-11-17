@@ -111,6 +111,21 @@ fn drive(
     Ok(())
 }
 
+/// The branch-free loop of [`drive_mirror`]: writes the position of every row
+/// to `out` and moves on when the row passes; returns how many passed. Out of
+/// line, so that its few registers do not depend on the function scanning
+/// (inlined into the large `Term::apply`, the constant compared could end up
+/// read from the stack at every row).
+#[inline(never)]
+fn full_pass<T: Copy>(out: &mut [u32], state: &[u8], data: &[T], test: &impl Fn(T) -> bool) -> usize {
+    let mut kept = 0;
+    for (i, (&st, &x)) in state.iter().zip(data).enumerate() {
+        out[kept] = i as u32;
+        kept += usize::from((st == MIRROR_VALUE) & test(x));
+    }
+    kept
+}
+
 /// [`drive`] over a typed column copy; a full scan walks the arrays in step.
 #[inline(always)]
 fn drive_mirror<T: Copy>(
@@ -126,12 +141,7 @@ fn drive_mirror<T: Copy>(
         // the cursor moves on when the row passes.
         let start = sel.len();
         sel.resize(start + state.len(), 0);
-        let out = &mut sel[start..];
-        let mut kept = 0;
-        for (i, (&st, &x)) in state.iter().zip(data).enumerate() {
-            out[kept] = i as u32;
-            kept += usize::from((st == MIRROR_VALUE) & test(x));
-        }
+        let kept = full_pass(&mut sel[start..], state, data, &test);
         sel.truncate(start + kept);
         return Ok(());
     }
@@ -195,7 +205,7 @@ impl<'a> Term<'a> {
         // Typed column copy: `$x` is the value, `$test` decides.
         macro_rules! on_mirror {
             ($m:expr, $data:expr, |$x:ident| $test:expr) => {
-                drive_mirror(sel, all, ($data.as_slice(), $m.state.as_slice(), $m.others), |$x| $test, general)
+                drive_mirror(sel, all, ($data.as_slice(), $m.state.as_slice(), $m.others), move |$x| $test, general)
             };
         }
         // Rows: `$get` extracts the value (`None`: general path).

@@ -148,6 +148,39 @@ fn memory(c: &mut Criterion) {
     g.finish();
 }
 
+/// `evaluator::Tables` as an engine that keeps its rows elsewhere uses it (the
+/// Nuage DB engine): a chunk of 2,048 rows loaded for one statement, filtered
+/// once, or its best rows kept for `ORDER BY ... LIMIT`.
+fn evaluator(c: &mut Criterion) {
+    use memoire_orm::Query;
+    use memoire_orm::evaluator::{self, Tables};
+
+    let mut g = c.benchmark_group("evaluator");
+    let chunk: Vec<Vec<Value>> = (0..2048)
+        .map(|i| {
+            let mut u = sample(i);
+            u.id = i + 1;
+            u.to_values()
+        })
+        .collect();
+    let filter = User::query().filter(User::AGE.between(20, 40) & User::SCORE.gt(100.0)).into_ast();
+    let best = User::query().order_by(User::SCORE.desc()).limit(20).into_ast();
+    for (name, ast) in [("chunk_filter_2048", &filter), ("chunk_order_limit_2048", &best)] {
+        g.bench_function(name, |b| {
+            b.iter_batched(
+                || chunk.clone(),
+                |rows| {
+                    let mut t = Tables::new();
+                    t.insert(User::SCHEMA, rows, 2048);
+                    black_box(evaluator::fetch(&t, Query::Select(ast)).unwrap())
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+    g.finish();
+}
+
 const RAW_INSERT: &str =
     "INSERT INTO \"users\" (\"email\", \"name\", \"age\", \"score\") VALUES (?, ?, ?, ?) RETURNING \"id\"";
 const RAW_FIND: &str = "SELECT \"id\", \"email\", \"name\", \"age\", \"score\" FROM \"users\" WHERE \"id\" = ?";
@@ -312,5 +345,5 @@ fn relations(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, sql_rendering, memory, sqlite, relations);
+criterion_group!(benches, sql_rendering, memory, evaluator, sqlite, relations);
 criterion_main!(benches);

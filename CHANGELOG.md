@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-17
+
+### Changed
+- **Tables loaded for one statement index only what the statement uses.** A table built
+  from rows (`evaluator::Tables::insert`, and every query of the Redis and MongoDB
+  backends) filed every row into its primary-key and `unique` indexes, and copied every
+  numeric column, before the statement ran; a statement that only scans (a range filter,
+  `ORDER BY ... LIMIT`) used none of the indexes and one or two of the copies. The indexes
+  are now filed when the statement first looks a key up or changes a row, and each copy
+  when a scan or a sort first reads it, from the same rows: the same answers, errors and
+  order (tested against tables filed at load time, through inserts, updates, deletes and
+  lookups). A chunk of 2,048 rows loaded and filtered once (what the Nuage DB engine does
+  for a SQL filter on a range): 210 µs → 143 µs (×1.5, criterion,
+  `evaluator/chunk_filter_2048`); its best 20 rows by a column
+  (`evaluator/chunk_order_limit_2048`): 182 µs → 124 µs (×1.5).
+- The branch-free loop of a scan on a numeric column runs out of line, so the constant it
+  compares stays in a register whatever the size of the function scanning (it was read
+  from memory at every row once that function grew). Same rows.
+- The times above are medians of 3 runs, before and after back to back, on an Intel Xeon
+  @ 2.10 GHz with Rust 1.99 (Linux). The rest of the criterion suite (`benches/orm.rs`,
+  `MemoryDb` included) moves by noise only.
+
 ## [0.2.6] - 2026-11-16
 
 ### Changed

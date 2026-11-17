@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::{Mutex, RwLock};
 
@@ -161,15 +161,98 @@ impl Mirror {
     }
 }
 
+/// The typed copy of a numeric column. For a table built from rows for one
+/// statement it is made when a scan or a sort first reads it: it depends on
+/// the rows only (`Mirror::rebuild`), so the rows changed before are simply
+/// not copied until then.
+#[derive(Clone)]
+struct MirrorSlot {
+    col: usize,
+    copy: OnceLock<Mirror>,
+}
+
+/// The hash indexes of a table: the primary key first, then `unique` columns
+/// and unique multi-column indexes, then `index` columns and the other
+/// multi-column indexes.
+///
+/// Those of a table built from rows for one statement ([`Table::from_rows`])
+/// are filed on first use, from the rows as they were loaded: a statement that
+/// only scans (a range filter, `ORDER BY ... LIMIT`) never pays for them. Every
+/// method of [`Table`] that reads or changes an index goes through
+/// [`Indexes::get`] or [`Indexes::get_mut`], so they are filed before any row
+/// changes and hold exactly what filing them at load time would have.
+#[derive(Clone)]
+struct Indexes {
+    /// The indexes, once filed (from the start for the tables of a `MemoryDb`).
+    built: OnceLock<Vec<Index>>,
+    /// The empty indexes to file, while `built` is empty.
+    plan: Vec<Index>,
+}
+
+impl Indexes {
+    fn built(list: Vec<Index>) -> Self {
+        Indexes { built: OnceLock::from(list), plan: Vec::new() }
+    }
+
+    fn deferred(plan: Vec<Index>) -> Self {
+        Indexes { built: OnceLock::new(), plan }
+    }
+
+    /// What is indexed (the entries may not be filed yet).
+    fn defs(&self) -> &[Index] {
+        self.built.get().map_or(&self.plan, |list| list)
+    }
+
+    /// Files every row of `rows`, in order, into the empty indexes `list`.
+    fn file(mut list: Vec<Index>, rows: &[Vec<Value>]) -> Vec<Index> {
+        for index in &mut list {
+            index.reserve(rows.len());
+            for i in 0..rows.len() {
+                index.insert(rows, i);
+            }
+        }
+        list
+    }
+
+    /// The indexes of `rows` (the table's rows), filed if they are not yet.
+    #[inline]
+    fn get(&self, rows: &[Vec<Value>]) -> &[Index] {
+        match self.built.get() {
+            Some(list) => list,
+            None => self.file_now(rows),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn file_now(&self, rows: &[Vec<Value>]) -> &[Index] {
+        self.built.get_or_init(|| Self::file(self.plan.clone(), rows))
+    }
+
+    /// [`Indexes::get`], to change them.
+    #[inline]
+    fn get_mut(&mut self, rows: &[Vec<Value>]) -> &mut Vec<Index> {
+        if self.built.get().is_none() {
+            self.file_now_mut(rows);
+        }
+        self.built.get_mut().expect("indexes filed above")
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn file_now_mut(&mut self, rows: &[Vec<Value>]) {
+        let list = Self::file(std::mem::take(&mut self.plan), rows);
+        self.built = OnceLock::from(list);
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Table {
     pub(crate) schema: &'static TableSchema,
     pub(crate) rows: Vec<Vec<Value>>,
-    /// The primary key first, then `unique` columns and unique multi-column
-    /// indexes, then `index` columns and the other multi-column indexes.
-    indexes: Vec<Index>,
+    indexes: Indexes,
     /// Typed copies of the numeric columns.
-    mirrors: Vec<Mirror>,
+    mirrors: Vec<MirrorSlot>,
     /// Word indexes of the `fulltext` columns.
     words: Vec<WordIndex>,
     pub(crate) next_id: i64,
@@ -183,15 +266,23 @@ impl Table {
     pub(crate) fn from_rows(schema: &'static TableSchema, rows: Vec<Vec<Value>>, last_id: i64) -> Self {
         let mut t = Table::new(schema, 0);
         // Built for one statement: the `index` columns' indexes would rarely pay
-        // for themselves (scans are fast); keep those that enforce uniqueness.
-        t.indexes.retain(|i| i.unique);
+        // for themselves (scans are fast); keep those that enforce uniqueness,
+        // filed only if the statement uses them (see `Indexes`).
+        let mut plan = std::mem::take(t.indexes.built.get_mut().expect("a new table's indexes are filed"));
+        plan.retain(|i| i.unique);
+        t.indexes = Indexes::deferred(plan);
         t.words.clear();
         t.rows = rows;
-        t.rebuild_indexes();
+        for m in &mut t.mirrors {
+            m.copy = OnceLock::new();
+        }
         t.next_id = last_id.saturating_add(1).max(1);
-        for i in 0..t.rows.len() {
-            let key = t.rows[i][schema.primary_key].clone();
-            t.bump_next_id(&key);
+        for row in &t.rows {
+            if let Some(k) = row[schema.primary_key].as_i64()
+                && k >= t.next_id
+            {
+                t.next_id = k.saturating_add(1);
+            }
         }
         t
     }
@@ -218,8 +309,15 @@ impl Table {
         Table {
             schema,
             rows: Vec::new(),
-            indexes,
-            mirrors: schema.columns.iter().enumerate().filter_map(|(i, c)| Mirror::for_column(i, c.kind)).collect(),
+            indexes: Indexes::built(indexes),
+            mirrors: schema
+                .columns
+                .iter()
+                .enumerate()
+                .filter_map(|(i, c)| {
+                    Mirror::for_column(i, c.kind).map(|m| MirrorSlot { col: i, copy: OnceLock::from(m) })
+                })
+                .collect(),
             words: schema
                 .columns
                 .iter()
@@ -233,8 +331,30 @@ impl Table {
     }
 
     /// The typed copy of column `col`, if it is numeric.
+    #[inline]
     pub(crate) fn mirror(&self, col: usize) -> Option<&Mirror> {
-        self.mirrors.iter().find(|m| m.col == col)
+        let slot = self.mirrors.iter().find(|m| m.col == col)?;
+        Some(match slot.copy.get() {
+            Some(m) => m,
+            None => self.make_mirror(slot),
+        })
+    }
+
+    /// Makes the typed copy of `slot` (kept out of line: scans inline
+    /// [`Table::mirror`]).
+    #[cold]
+    #[inline(never)]
+    fn make_mirror<'t>(&'t self, slot: &'t MirrorSlot) -> &'t Mirror {
+        slot.copy.get_or_init(|| {
+            let mut m = Mirror::for_column(slot.col, self.schema.columns[slot.col].kind).expect("a numeric column");
+            m.rebuild(&self.rows);
+            m
+        })
+    }
+
+    /// The typed copies made so far, to keep in step with the rows.
+    fn mirrors_mut(mirrors: &mut [MirrorSlot]) -> impl Iterator<Item = &mut Mirror> {
+        mirrors.iter_mut().filter_map(|m| m.copy.get_mut())
     }
 
     fn name(&self) -> &'static str {
@@ -246,9 +366,14 @@ impl Table {
         Error::UniqueViolation { table: self.name().to_owned(), column: names.join(", ") }
     }
 
+    /// The indexes, filed.
+    fn indexes(&self) -> &[Index] {
+        self.indexes.get(&self.rows)
+    }
+
     /// The single-column index of `col`.
     fn index(&self, col: usize) -> Option<&Index> {
-        self.indexes.iter().find(|i| i.single() == Some(col))
+        self.indexes().iter().find(|i| i.single() == Some(col))
     }
 
     /// The row holding `value` in the primary key or a `unique` column.
@@ -262,7 +387,7 @@ impl Table {
     }
 
     fn has_index(&self, col: usize) -> bool {
-        self.index(col).is_some()
+        self.indexes.defs().iter().any(|i| i.single() == Some(col))
     }
 
     fn check_row(&self, row: &[Value]) -> Result<()> {
@@ -270,7 +395,7 @@ impl Table {
     }
 
     fn index_row(&mut self, idx: usize) {
-        for index in &mut self.indexes {
+        for index in self.indexes.get_mut(&self.rows) {
             index.insert(&self.rows, idx);
         }
         for w in &mut self.words {
@@ -279,7 +404,7 @@ impl Table {
     }
 
     fn unindex_row(&mut self, idx: usize) {
-        for index in &mut self.indexes {
+        for index in self.indexes.get_mut(&self.rows) {
             index.remove(&self.rows, idx);
         }
         for w in &mut self.words {
@@ -293,10 +418,10 @@ impl Table {
     }
 
     fn rebuild_indexes(&mut self) {
-        for m in &mut self.mirrors {
+        for m in Self::mirrors_mut(&mut self.mirrors) {
             m.rebuild(&self.rows);
         }
-        for index in &mut self.indexes {
+        for index in self.indexes.get_mut(&self.rows) {
             index.clear();
             index.reserve(self.rows.len());
         }
@@ -312,10 +437,10 @@ impl Table {
     /// the unique indexes (see [`Index::reserve`]).
     pub(crate) fn reserve(&mut self, additional: usize) {
         self.rows.reserve(additional);
-        for m in &mut self.mirrors {
+        for m in Self::mirrors_mut(&mut self.mirrors) {
             m.reserve(additional);
         }
-        for index in &mut self.indexes {
+        for index in self.indexes.get_mut(&self.rows) {
             index.reserve(additional);
         }
     }
@@ -340,7 +465,7 @@ impl Table {
         // Each indexed value is hashed once: for the unique check, then to file it.
         const HASHED: usize = 8;
         let mut hashes = [None::<u64>; HASHED];
-        for (k, index) in self.indexes.iter().enumerate() {
+        for (k, index) in self.indexes().iter().enumerate() {
             let Some(h) = index.row_hash(&row) else { continue };
             if index.unique && index.find_row_hashed(&self.rows, &row, h).is_some() {
                 return Err(self.violation(index));
@@ -352,11 +477,11 @@ impl Table {
         let key = row[pk].clone();
         self.bump_next_id(&key);
         let idx = self.rows.len();
-        for m in &mut self.mirrors {
+        for m in Self::mirrors_mut(&mut self.mirrors) {
             m.push(&row);
         }
         self.rows.push(row);
-        for (k, index) in self.indexes.iter_mut().enumerate() {
+        for (k, index) in self.indexes.get_mut(&self.rows).iter_mut().enumerate() {
             match hashes.get(k) {
                 Some(Some(h)) => index.insert_hashed(idx, *h),
                 Some(None) => {} // NULL: not indexed
@@ -388,16 +513,16 @@ impl Table {
             self.check_row(row)?;
         }
         // Indexes one of whose columns changes in at least one row.
-        let touched: Vec<usize> = (0..self.indexes.len())
+        let touched: Vec<usize> = (0..self.indexes().len())
             .filter(|&k| {
-                let cols = &self.indexes[k].cols;
+                let cols = &self.indexes()[k].cols;
                 changes.iter().any(|(i, row)| cols.iter().any(|&c| !eval::key_eq(&self.rows[*i][c], &row[c])))
             })
             .collect();
-        if touched.iter().any(|&k| self.indexes[k].unique) {
+        if touched.iter().any(|&k| self.indexes()[k].unique) {
             let changed: Set<usize> = changes.iter().map(|(i, _)| *i).collect();
-            for &k in touched.iter().filter(|&&k| self.indexes[k].unique) {
-                let index = &self.indexes[k];
+            for &k in touched.iter().filter(|&&k| self.indexes()[k].unique) {
+                let index = &self.indexes()[k];
                 let mut seen: Set<Vec<Key>> = Set::default();
                 for (_, row) in &changes {
                     let Some(h) = index.row_hash(row) else { continue };
@@ -420,7 +545,7 @@ impl Table {
             .collect();
         for &k in &touched {
             for (idx, _) in &changes {
-                self.indexes[k].remove(&self.rows, *idx);
+                self.indexes.get_mut(&self.rows)[k].remove(&self.rows, *idx);
             }
         }
         for &k in &words_touched {
@@ -434,7 +559,7 @@ impl Table {
         let mut written = Vec::with_capacity(if reindex { changes.len() } else { 0 });
         for (idx, row) in changes {
             self.bump_next_id(&row[pk]);
-            for m in &mut self.mirrors {
+            for m in Self::mirrors_mut(&mut self.mirrors) {
                 m.set(idx, &row);
             }
             self.rows[idx] = row;
@@ -444,7 +569,7 @@ impl Table {
         }
         for &k in &touched {
             for &idx in &written {
-                self.indexes[k].insert(&self.rows, idx);
+                self.indexes.get_mut(&self.rows)[k].insert(&self.rows, idx);
             }
         }
         for &k in &words_touched {
@@ -463,6 +588,8 @@ impl Table {
         idxs.dedup();
         let n = idxs.len() as u64;
         if idxs.len() > 16 && idxs.len() * 4 > self.rows.len() {
+            // Filed (if they are not yet) from the rows as they were, then rebuilt.
+            self.indexes.get_mut(&self.rows);
             let mut kill = vec![false; self.rows.len()];
             for i in idxs {
                 kill[i] = true;
@@ -479,12 +606,12 @@ impl Table {
                 self.unindex_row(idx);
                 let last = self.rows.len() - 1;
                 self.rows.swap_remove(idx);
-                for m in &mut self.mirrors {
+                for m in Self::mirrors_mut(&mut self.mirrors) {
                     m.swap_remove(idx);
                 }
                 if idx != last {
                     // The former last row moved to `idx`.
-                    for index in &mut self.indexes {
+                    for index in self.indexes.get_mut(&self.rows) {
                         index.moved(&self.rows, last, idx);
                     }
                     for w in &mut self.words {
@@ -671,12 +798,12 @@ fn composite_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
             _ => {}
         }
     }
-    if !table.indexes.iter().any(|i| i.cols.len() > 1) {
+    if !table.indexes.defs().iter().any(|i| i.cols.len() > 1) {
         return None;
     }
     let mut pinned = Vec::new();
     pins(filter, table.name(), &mut pinned);
-    table.indexes.iter().filter(|i| i.cols.len() > 1).find_map(|index| {
+    table.indexes().iter().filter(|i| i.cols.len() > 1).find_map(|index| {
         let values: Option<Vec<&Value>> =
             index.cols.iter().map(|c| pinned.iter().find(|(p, _)| p == c).map(|(_, v)| *v)).collect();
         values.map(|v| index.find_all_values(&table.rows, &v))
@@ -1661,7 +1788,7 @@ mod tests {
 
     /// Indexes and typed copies must always describe the rows exactly.
     fn assert_consistent(t: &Table) {
-        for index in &t.indexes {
+        for index in t.indexes() {
             let probe = |row: &[Value]| -> Vec<Value> { index.cols.iter().map(|&c| row[c].clone()).collect() };
             let mut keys: Vec<Vec<Value>> =
                 t.rows.iter().map(|r| probe(r)).filter(|k| k.iter().all(|v| !v.is_null())).collect();
@@ -1683,7 +1810,7 @@ mod tests {
                 assert_eq!(w.candidates(std::slice::from_ref(&word)), expected, "word index, {word}");
             }
         }
-        for m in &t.mirrors {
+        for m in t.mirrors.iter().filter_map(|m| m.copy.get()) {
             let mut fresh = m.clone();
             fresh.rebuild(&t.rows);
             assert_eq!(fresh.state, m.state, "mirror {} states", m.col);
@@ -1745,5 +1872,91 @@ mod tests {
         }
         assert_consistent(&t);
         assert!(t.rows.len() > 10);
+    }
+
+    /// A table built from rows files its indexes and copies its numeric
+    /// columns when a statement first uses them: what it answers and holds
+    /// must be the same as if they had been made at load time.
+    #[test]
+    fn loaded_tables_answer_as_if_filed_at_load() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let row = |id: i64, r: &mut dyn FnMut(u64) -> u64| {
+            vec![
+                Value::I64(id),
+                if r(4) == 0 { Value::Null } else { Value::Text(format!("c{}", r(300))) },
+                if r(5) == 0 { Value::Null } else { Value::I32(r(6) as i32) },
+                match r(8) {
+                    0 => Value::Null,
+                    1 => Value::I64(3), // another type than the column's
+                    _ => Value::F64(r(100) as f64 / 4.0),
+                },
+                Value::Null,
+            ]
+        };
+        for round in 0..60u64 {
+            let n = rnd(80) as i64;
+            // Unique codes may repeat in loaded rows: they are kept as they are.
+            let rows: Vec<Vec<Value>> = (1..=n).map(|id| row(id, &mut rnd)).collect();
+            let mut lazy = Table::from_rows(C::SCHEMA, rows.clone(), 0);
+            let mut eager = Table::from_rows(C::SCHEMA, rows, 0);
+            eager.indexes();
+            for col in 0..C::SCHEMA.columns.len() {
+                eager.mirror(col);
+            }
+            let probe = |t: &Table, col: usize| t.mirror(col).map(|m| (m.state.clone(), m.others));
+            for _ in 0..rnd(6) {
+                match rnd(5) {
+                    0 => {
+                        let r = row(0, &mut rnd);
+                        let a = lazy.insert(r.clone(), true).map_err(|e| e.to_string());
+                        let b = eager.insert(r, true).map_err(|e| e.to_string());
+                        assert_eq!(a, b, "round {round}: insert");
+                    }
+                    1 if !lazy.rows.is_empty() => {
+                        let i = rnd(lazy.rows.len() as u64) as usize;
+                        let mut r = row(0, &mut rnd);
+                        r[0] = lazy.rows[i][0].clone();
+                        let a = lazy.replace_rows(vec![(i, r.clone())]).map_err(|e| e.to_string());
+                        let b = eager.replace_rows(vec![(i, r)]).map_err(|e| e.to_string());
+                        assert_eq!(a, b, "round {round}: replace");
+                    }
+                    2 if !lazy.rows.is_empty() => {
+                        let len = lazy.rows.len() as u64;
+                        let idxs: Vec<usize> = if rnd(2) == 0 {
+                            (0..1 + rnd(3)).map(|_| rnd(len) as usize).collect()
+                        } else {
+                            (0..lazy.rows.len()).filter(|i| i % 2 == 0).collect()
+                        };
+                        assert_eq!(lazy.remove_rows(idxs.clone()), eager.remove_rows(idxs), "round {round}: remove");
+                    }
+                    3 => assert_eq!(probe(&lazy, 3), probe(&eager, 3), "round {round}: copy of `weight`"),
+                    _ => {
+                        let id = Value::I64(rnd(n as u64 + 4) as i64);
+                        assert_eq!(lazy.lookup(0, &id), eager.lookup(0, &id), "round {round}: lookup {id:?}");
+                    }
+                }
+                assert_eq!(lazy.rows, eager.rows, "round {round}");
+                assert_eq!(lazy.next_id, eager.next_id, "round {round}");
+            }
+            assert_consistent(&lazy);
+            for col in 0..C::SCHEMA.columns.len() {
+                assert_eq!(probe(&lazy, col), probe(&eager, col), "round {round}: copy of column {col}");
+            }
+            for r in &eager.rows {
+                for col in [0, 1] {
+                    assert_eq!(
+                        lazy.lookup(col, &r[col]).map(|i| &lazy.rows[i][col]),
+                        eager.lookup(col, &r[col]).map(|i| &eager.rows[i][col]),
+                        "round {round}: lookup in column {col}"
+                    );
+                }
+            }
+        }
     }
 }
