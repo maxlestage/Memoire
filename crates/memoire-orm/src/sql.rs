@@ -462,7 +462,13 @@ fn expr_kind(e: &Expr) -> Option<ColumnType> {
 pub fn render<'a>(query: &Query<'a>, d: Dialect) -> Result<Rendered<'a>> {
     match *query {
         Query::Select(s) => {
-            let mut w = Writer::new(d, 128);
+            // The column lists, plus room for a filter, an order and a limit:
+            // most statements are written without growing the string.
+            let columns = match &s.projection {
+                Projection::Tables(tables) => tables.iter().map(|t| t.sql(d).columns.len()).sum(),
+                Projection::Exprs(_) => 0,
+            };
+            let mut w = Writer::new(d, 192 + columns);
             w.select(s);
             Ok(Rendered { sql: Cow::Owned(w.sql), params: w.params })
         }

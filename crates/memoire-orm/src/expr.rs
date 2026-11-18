@@ -253,13 +253,21 @@ impl<M, T: SqlType> Column<M, T> {
 /// Escapes `%`, `_` and `\` so a user string matches literally inside a
 /// [`like`](Column::like) pattern: `User::NAME.like(format!("{}%", escape_like(input)))`.
 pub fn escape_like(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
+    like_pattern("", s, "")
+}
+
+/// `before`, `s` escaped by [`escape_like`], then `after`, in one string
+/// (the patterns of `contains`, `starts_with`...).
+fn like_pattern(before: &str, s: &str, after: &str) -> String {
+    let mut out = String::with_capacity(before.len() + s.len() + after.len() + 2);
+    out.push_str(before);
     for c in s.chars() {
         if matches!(c, '%' | '_' | '\\') {
             out.push('\\');
         }
         out.push(c);
     }
+    out.push_str(after);
     out
 }
 
@@ -298,22 +306,22 @@ impl<M, T: SqlType<Base = String>> Column<M, T> {
 
     /// The column contains `needle` (wildcards in `needle` are escaped).
     pub fn contains(self, needle: impl AsRef<str>) -> Expr {
-        self.like_expr(format!("%{}%", escape_like(needle.as_ref())), false, false, true)
+        self.like_expr(like_pattern("%", needle.as_ref(), "%"), false, false, true)
     }
 
     /// Case-insensitive [`contains`](Self::contains).
     pub fn icontains(self, needle: impl AsRef<str>) -> Expr {
-        self.like_expr(format!("%{}%", escape_like(needle.as_ref())), true, false, true)
+        self.like_expr(like_pattern("%", needle.as_ref(), "%"), true, false, true)
     }
 
     /// The column starts with `prefix`.
     pub fn starts_with(self, prefix: impl AsRef<str>) -> Expr {
-        self.like_expr(format!("{}%", escape_like(prefix.as_ref())), false, false, true)
+        self.like_expr(like_pattern("", prefix.as_ref(), "%"), false, false, true)
     }
 
     /// The column ends with `suffix`.
     pub fn ends_with(self, suffix: impl AsRef<str>) -> Expr {
-        self.like_expr(format!("%{}", escape_like(suffix.as_ref())), false, false, true)
+        self.like_expr(like_pattern("%", suffix.as_ref(), ""), false, false, true)
     }
 
     /// Full-text search: every word of `query` appears in the column as a whole

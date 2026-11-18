@@ -580,6 +580,111 @@ impl Table {
         Ok(n)
     }
 
+    /// [`Table::replace_rows`] for rows that change in a few columns only (an
+    /// `UPDATE ... SET`): each change holds the row's position and the new
+    /// values of `cols`, in that order (for a column named twice, the last
+    /// one wins). The rows are changed in place, so the columns that keep
+    /// their value are not copied.
+    ///
+    /// Same result as `replace_rows` on the whole new rows: when a row would
+    /// be invalid or a `unique` index would change, the whole rows are built
+    /// and handed to it (the checks and their errors are its own). Otherwise
+    /// no check can fail, and the steps below are those of `replace_rows`,
+    /// skipping only what a column that keeps its value leaves as it is: an
+    /// index key (`key_eq` is reflexive) and its typed copy.
+    fn patch_rows(&mut self, cols: &[usize], changes: Vec<(usize, Vec<Value>)>) -> Result<u64> {
+        if changes.is_empty() {
+            return Ok(0);
+        }
+        // The new value of column `c`, if the change sets it.
+        fn new_value<'v>(cols: &[usize], vals: &'v [Value], c: usize) -> Option<&'v Value> {
+            cols.iter().rposition(|&x| x == c).map(|p| &vals[p])
+        }
+        let schema = self.schema;
+        let valid = changes.iter().all(|(i, vals)| {
+            let old = &self.rows[*i];
+            old.len() == schema.columns.len()
+                && schema.columns.iter().enumerate().all(|(c, def)| {
+                    let v = new_value(cols, vals, c).unwrap_or(&old[c]);
+                    !v.is_null() || def.nullable || def.auto_increment
+                })
+        });
+        let touched: Vec<usize> = (0..self.indexes().len())
+            .filter(|&k| {
+                let index_cols = &self.indexes()[k].cols;
+                changes.iter().any(|(i, vals)| {
+                    index_cols
+                        .iter()
+                        .any(|&c| new_value(cols, vals, c).is_some_and(|v| !eval::key_eq(&self.rows[*i][c], v)))
+                })
+            })
+            .collect();
+        if !valid || touched.iter().any(|&k| self.indexes()[k].unique) {
+            let rows = changes
+                .into_iter()
+                .map(|(i, vals)| {
+                    let mut row = self.rows[i].clone();
+                    for (&c, v) in cols.iter().zip(vals) {
+                        row[c] = v;
+                    }
+                    (i, row)
+                })
+                .collect();
+            return self.replace_rows(rows);
+        }
+        let words_touched: Vec<usize> = (0..self.words.len())
+            .filter(|&k| {
+                let col = self.words[k].col;
+                changes.iter().any(|(i, vals)| {
+                    let old = &self.rows[*i][col];
+                    *old != *new_value(cols, vals, col).unwrap_or(old)
+                })
+            })
+            .collect();
+        for &k in &touched {
+            for (idx, _) in &changes {
+                self.indexes.get_mut(&self.rows)[k].remove(&self.rows, *idx);
+            }
+        }
+        for &k in &words_touched {
+            for (idx, _) in &changes {
+                self.words[k].remove(&self.rows, *idx);
+            }
+        }
+        let pk = schema.primary_key;
+        let n = changes.len() as u64;
+        let reindex = !touched.is_empty() || !words_touched.is_empty();
+        let mut written = Vec::with_capacity(if reindex { changes.len() } else { 0 });
+        for (idx, vals) in changes {
+            let row = &mut self.rows[idx];
+            for (&c, v) in cols.iter().zip(vals) {
+                row[c] = v;
+            }
+            if let Some(k) = row[pk].as_i64()
+                && k >= self.next_id
+            {
+                self.next_id = k.saturating_add(1);
+            }
+            for m in Self::mirrors_mut(&mut self.mirrors).filter(|m| cols.contains(&m.col)) {
+                m.set(idx, &self.rows[idx]);
+            }
+            if reindex {
+                written.push(idx);
+            }
+        }
+        for &k in &touched {
+            for &idx in &written {
+                self.indexes.get_mut(&self.rows)[k].insert(&self.rows, idx);
+            }
+        }
+        for &k in &words_touched {
+            for &idx in &written {
+                self.words[k].insert(&self.rows, idx);
+            }
+        }
+        Ok(n)
+    }
+
     pub(crate) fn remove_rows(&mut self, mut idxs: Vec<usize>) -> u64 {
         if idxs.is_empty() {
             return 0;
@@ -1266,22 +1371,24 @@ fn update(state: &mut State, u: &UpdateAst) -> Result<u64> {
         return Ok(0);
     }
     let layout = [table.name()];
+    // Only the new values of the columns set, not a copy of each row.
+    let cols: Vec<usize> = u.sets.iter().map(|(col, _)| *col).collect();
     let mut changes = Vec::with_capacity(idxs.len());
     for i in idxs {
         let old = &table.rows[i];
         let parts = [Some(old.as_slice())];
         let ctx = Ctx { layout: &layout, parts: &parts, group: None };
-        let mut new = old.clone();
+        let mut new = Vec::with_capacity(u.sets.len());
         for (col, e) in &u.sets {
-            let slot = new
-                .get_mut(*col)
-                .ok_or_else(|| Error::Conversion(format!("column index {col} out of range for `{}`", u.table.name)))?;
-            *slot = eval(e, &ctx)?.into_owned();
+            if *col >= old.len() {
+                return Err(Error::Conversion(format!("column index {col} out of range for `{}`", u.table.name)));
+            }
+            new.push(eval(e, &ctx)?.into_owned());
         }
         changes.push((i, new));
     }
     let idxs: Vec<usize> = if state.journal.is_some() { changes.iter().map(|(i, _)| *i).collect() } else { Vec::new() };
-    let n = state.table_mut(u.table.name)?.replace_rows(changes)?;
+    let n = state.table_mut(u.table.name)?.patch_rows(&cols, changes)?;
     if let (Some(j), Some(t)) = (state.journal.as_mut(), state.tables.get(u.table.name)) {
         j.extend(idxs.iter().map(|&i| persist::Record::Put { table: u.table.name.to_owned(), row: t.rows[i].clone() }));
     }
@@ -1872,6 +1979,104 @@ mod tests {
         }
         assert_consistent(&t);
         assert!(t.rows.len() > 10);
+    }
+
+    /// [`C`] with no unique column but its key, so that most changes take the
+    /// in-place path of `patch_rows`.
+    #[derive(Model, Debug, Clone)]
+    #[memoire(table = "patched", index(weight, code))]
+    struct D {
+        id: i64,
+        #[memoire(index)]
+        code: Option<String>,
+        #[memoire(index)]
+        group: Option<i32>,
+        weight: Option<f64>,
+        #[memoire(fulltext)]
+        note: Option<String>,
+    }
+
+    /// `patch_rows` (an `UPDATE` changing rows in place) must give exactly
+    /// what `replace_rows` gives with the whole new rows: the same answer or
+    /// error, rows, next key, indexes, word index and typed copies.
+    #[test]
+    fn patched_rows_match_replaced_rows() {
+        let mut seed = 0x51af_d7ed_558c_cd03u64;
+        let mut rnd = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        // A value for column `c` (sometimes NULL, sometimes another type).
+        let value = |c: usize, r: &mut dyn FnMut(u64) -> u64| match (c, r(7)) {
+            (_, 0) => Value::Null,
+            (0, _) => Value::I64(r(60) as i64),
+            (1, 1) => Value::I64(r(3) as i64),
+            (1, _) => Value::Text(format!("c{}", r(120))),
+            (2, _) => Value::I32(r(6) as i32),
+            (3, 1) => Value::F64(f64::NAN),
+            (3, _) => Value::F64(r(40) as f64 / 4.0),
+            (_, 1) => Value::F64(f64::NAN),
+            _ => Value::Text(format!("W{} w{}, w{}!", r(12), r(12), r(12))),
+        };
+        let width = C::SCHEMA.columns.len();
+        for round in 0..600u64 {
+            let schema = if round % 2 == 0 { C::SCHEMA } else { D::SCHEMA };
+            let n = 1 + rnd(40) as i64;
+            let rows: Vec<Vec<Value>> = (1..=n)
+                .map(|id| {
+                    let mut r: Vec<Value> = (0..width).map(|c| value(c, &mut rnd)).collect();
+                    r[0] = Value::I64(id);
+                    r
+                })
+                .collect();
+            let mut a = if rnd(2) == 0 {
+                Table::from_rows(schema, rows, 0)
+            } else {
+                let mut t = Table::new(schema, 0);
+                for r in rows {
+                    let _ = t.insert(r, false); // may hit a unique index
+                }
+                t
+            };
+            if a.rows.is_empty() {
+                continue;
+            }
+            if rnd(2) == 0 {
+                a.mirror(2);
+                a.mirror(3);
+            }
+            let mut b = a.clone();
+            for step in 0..4 {
+                let cols: Vec<usize> = (0..1 + rnd(3)).map(|_| rnd(width as u64) as usize).collect();
+                let mut idxs: Vec<usize> = (0..1 + rnd(4)).map(|_| rnd(a.rows.len() as u64) as usize).collect();
+                idxs.sort_unstable();
+                idxs.dedup();
+                let changes: Vec<(usize, Vec<Value>)> =
+                    idxs.iter().map(|&i| (i, cols.iter().map(|&c| value(c, &mut rnd)).collect())).collect();
+                let whole: Vec<(usize, Vec<Value>)> = changes
+                    .iter()
+                    .map(|(i, vals)| {
+                        let mut row = b.rows[*i].clone();
+                        for (&c, v) in cols.iter().zip(vals) {
+                            row[c] = v.clone();
+                        }
+                        (*i, row)
+                    })
+                    .collect();
+                let got = a.patch_rows(&cols, changes).map_err(|e| e.to_string());
+                let want = b.replace_rows(whole).map_err(|e| e.to_string());
+                assert_eq!(got, want, "round {round}, step {step}: {cols:?} on {idxs:?}");
+                assert_eq!(format!("{:?}", a.rows), format!("{:?}", b.rows), "round {round}, step {step}");
+                assert_eq!(a.next_id, b.next_id, "round {round}, step {step}");
+                assert_consistent(&a);
+                for col in 0..width {
+                    let probe = |t: &Table| t.mirror(col).map(|m| (m.state.clone(), m.others));
+                    assert_eq!(probe(&a), probe(&b), "round {round}, step {step}: copy of column {col}");
+                }
+            }
+        }
     }
 
     /// A table built from rows files its indexes and copies its numeric
