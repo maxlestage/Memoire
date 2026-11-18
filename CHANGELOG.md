@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-18
+
+### Changed
+- **`update_many` on `MemoryDb` changes the rows in place.** Each matching row was
+  copied whole (its texts included), the copy changed, then put back; only the new
+  values of the columns set are now computed, and written into the row. When the
+  change touches a `unique` index or would break a `NOT NULL` column, the whole rows
+  are built and checked as before, so the answers, errors and rollback are the same
+  (tested against the previous path on random tables, with and without unique
+  indexes, word indexes and typed copies, values of another type and `NaN`
+  included). Also for the tables of the Nuage DB engine (`evaluator::Tables`).
+  An `UPDATE ... SET score = score + 1 WHERE age = 7` on 10,000 rows (111 match):
+  26.9 µs → 19.9 µs (−26%, criterion, `memory/update_where_10k`).
+- **SQL text is written with fewer allocations** (PostgreSQL, SQLite, MySQL /
+  MariaDB). A `SELECT` starts with room for its column lists and the usual clauses,
+  so its string rarely grows; `contains`, `icontains`, `starts_with` and
+  `ends_with` build their escaped `LIKE` pattern in one string instead of two and
+  the formatting machinery. A query with a filter on two columns, an order and a
+  limit, built and rendered: 362 ns → 283 ns (−22%, criterion,
+  `sql_render/select_filter_order_limit`). The same SQL text, the same patterns.
+- **MySQL / MariaDB rows are read without a copy of each column's description**
+  (it was cloned for every value, an atomic counter up and down). 1,000 rows of 6
+  columns fetched from MariaDB 11 on the same machine: client CPU time 630 µs →
+  581 µs (−8%, medians of 10 runs). Same values.
+- The times above are medians of 3 runs (criterion) unless stated, before and after
+  back to back, on an Intel Xeon @ 2.10 GHz with Rust 1.99 (Linux). The rest of the
+  criterion suite (`benches/orm.rs`) moves by noise only (the raw `rusqlite`
+  baselines, which no Memoire code runs, moved as much).
+
 ## [0.2.7] - 2026-11-17
 
 ### Changed

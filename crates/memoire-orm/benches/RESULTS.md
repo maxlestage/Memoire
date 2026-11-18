@@ -192,3 +192,21 @@ indexes when the statement first looks a key up or changes a row, and copies
 a numeric column when a scan or a sort first reads it; before, it did all of
 it on load, for statements that mostly only scan. The rest of the criterion
 suite, `MemoryDb` included, moves by noise only.
+
+## Updates in place, SQL text with fewer allocations (0.2.8)
+
+Measured on 2026-11-18, the previous version (0.2.7) and this one back to back,
+medians of 3 runs (criterion), Intel Xeon @ 2.10 GHz, Rust 1.99; the `users`
+rows of the suite (5 columns).
+
+| Benchmark | Before (0.2.7) | Now | Speed-up |
+|---|---:|---:|---:|
+| `UPDATE ... SET score = score + 1 WHERE age = 7`, 10 000 rows, 111 match (`memory/update_where_10k`) | 26.9 µs | **19.9 µs** | **×1.35** |
+| A query with two filters, an order and a limit, built and rendered (`sql_render/select_filter_order_limit`) | 362 ns | **283 ns** | **×1.28** |
+| 1 000 rows of 6 columns fetched from MariaDB 11 (client CPU time, medians of 10 runs, outside the suite) | 630 µs | **581 µs** | **×1.08** |
+
+`update_many` on `MemoryDb` writes the new values of the columns it sets into
+the rows instead of copying every row whole; a `SELECT` is written into a
+string sized for its column lists, and `contains` builds its `LIKE` pattern in
+one string; a MySQL row no longer clones its column description for every
+value. The rest of the criterion suite moves by noise only.

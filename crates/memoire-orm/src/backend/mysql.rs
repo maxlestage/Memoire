@@ -209,14 +209,15 @@ impl RowSource for MyRow {
     }
 
     fn take(&mut self, index: usize) -> Result<Value> {
+        // Taken first, then the column read in place (no copy of it): past the
+        // last column there is nothing to take.
+        let v: MyValue = self.0.take(index).unwrap_or(MyValue::NULL);
         let col = self
             .0
             .columns_ref()
             .get(index)
-            .cloned()
             .ok_or_else(|| Error::Conversion(format!("column index {index} out of range")))?;
-        let v: MyValue = self.0.take(index).unwrap_or(MyValue::NULL);
-        from_mysql(v, &col)
+        from_mysql(v, col)
     }
 
     fn is_null(&self, index: usize) -> bool {
