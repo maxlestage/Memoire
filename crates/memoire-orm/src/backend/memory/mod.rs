@@ -873,7 +873,12 @@ fn index_candidates(filter: &Expr, table: &Table) -> Option<Vec<usize>> {
         },
         Expr::InList { expr, list, negated: false } => {
             let col = indexed_col(expr)?;
-            let mut out: Vec<usize> = list.iter().flat_map(|v| table.lookup_all(col, v).unwrap_or_default()).collect();
+            let mut out: Vec<usize> = Vec::new();
+            if let Some(index) = table.index(col) {
+                for v in list {
+                    index.extend_all_values(&table.rows, &[v], &mut out);
+                }
+            }
             out.sort_unstable();
             out.dedup();
             Some(out)
@@ -940,6 +945,8 @@ pub(crate) enum Selected<'a> {
         order: Vec<usize>,
         /// `(slot in the row, width)` of each projected table.
         columns: Vec<(usize, usize)>,
+        /// Single table: the position in the table of each row of `rows`.
+        positions: Option<Vec<u32>>,
     },
     Values(Vec<Vec<Value>>),
 }
@@ -948,7 +955,7 @@ impl Selected<'_> {
     pub(crate) fn into_values(self) -> Vec<Vec<Value>> {
         match self {
             Selected::Values(v) => v,
-            Selected::Tables { rows, order, columns } => {
+            Selected::Tables { rows, order, columns, .. } => {
                 let width = columns.iter().map(|c| c.1).sum();
                 order
                     .into_iter()
@@ -971,7 +978,7 @@ impl Selected<'_> {
     pub(crate) fn decode<O: FromRow>(self) -> Result<Vec<O>> {
         match self {
             Selected::Values(v) => decode(v),
-            Selected::Tables { rows, order, columns } => {
+            Selected::Tables { rows, order, columns, .. } => {
                 order.into_iter().map(|i| O::from_row(&mut PartsRow::new(rows.get(i), &columns), 0)).collect()
             }
         }
@@ -1264,7 +1271,7 @@ fn select<'a>(state: &'a State, ast: &SelectAst) -> Result<Selected<'a>> {
         let columns =
             ts.iter().map(|t| Ok((slot_of(&layout, t.name)?, t.columns.len()))).collect::<Result<Vec<_>>>()?;
         let order = order.into_iter().skip(offset).take(take).collect();
-        return Ok(Selected::Tables { rows, order, columns });
+        return Ok(Selected::Tables { rows, order, columns, positions: single });
     }
 
     if ast.distinct {
@@ -1545,6 +1552,30 @@ pub(crate) fn fetch(state: &State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
         }
         _ => Err(Error::Unsupported("statement does not return rows".into())),
     }
+}
+
+/// [`fetch`], the rows moved out of `state` when they are whole rows of one
+/// table (unless the table is shared with another `State`): the same rows, in
+/// the same order, without a copy of their values.
+pub(crate) fn fetch_owned(mut state: State, q: &Query<'_>) -> Result<Vec<Vec<Value>>> {
+    let (name, positions) = match *q {
+        Query::Select(s) => match select(&state, s)? {
+            Selected::Tables { order, columns, positions: Some(sel), .. } if matches!(columns[..], [(0, _)]) => {
+                (s.from.name, order.into_iter().map(|i| sel[i] as usize).collect::<Vec<_>>())
+            }
+            other => return Ok(other.into_values()),
+        },
+        Query::FindByKey { table, key } => {
+            (table.name, state.table(table.name)?.lookup(table.primary_key, key).into_iter().collect())
+        }
+        _ => return fetch(&state, q),
+    };
+    let Some(table) = state.tables.get_mut(name) else { return Err(Error::NoSuchTable(name.to_owned())) };
+    Ok(match Arc::get_mut(table) {
+        // Each position appears once: every row is taken at most once.
+        Some(t) => positions.into_iter().map(|p| std::mem::take(&mut t.rows[p])).collect(),
+        None => positions.into_iter().map(|p| table.rows[p].clone()).collect(),
+    })
 }
 
 /// [`fetch`] decoded into `O`, straight from the stored rows when whole rows

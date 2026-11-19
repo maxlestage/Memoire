@@ -210,3 +210,22 @@ the rows instead of copying every row whole; a `SELECT` is written into a
 string sized for its column lists, and `contains` builds its `LIKE` pattern in
 one string; a MySQL row no longer clones its column description for every
 value. The rest of the criterion suite moves by noise only.
+
+## Rows moved out of loaded tables, index lookups without allocation (0.2.9)
+
+Measured on 2026-11-19, the previous version (0.2.8) and this one back to back,
+medians of 3 runs (criterion), Intel Xeon @ 2.10 GHz, Rust 1.99; the `users`
+rows of the suite (5 columns).
+
+| Benchmark | Before | Now | Speed-up |
+|---|---:|---:|---:|
+| 2 048 rows loaded into `evaluator::Tables`, filtered once: `fetch` → `fetch_owned` (`evaluator/chunk_filter_2048[_owned]`) | 158.5 µs | **118.2 µs** | **×1.34** |
+| The same, every row matching (`evaluator/chunk_filter_all_2048[_owned]`) | 231.6 µs | **44.2 µs** | **×5.2** |
+| `id IN (...)` with 100 keys, 10 000 rows (`memory/filter_in_pk_100_10k`) | 21.4 µs | **19.6 µs** | **×1.09** |
+
+`evaluator::fetch_owned` moves the matching rows out of tables loaded for one
+statement instead of copying them (and dropping the originals); for a few rows
+(`evaluator/chunk_order_limit_2048_owned`, best 20) it is no faster than
+`fetch`. Index lookups walk the rows filed under a key without a boxed
+iterator, and an `IN` list adds each value's rows to one list. The rest of the
+criterion suite moves by noise only.

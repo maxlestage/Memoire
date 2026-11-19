@@ -66,10 +66,32 @@ impl Group {
         }
     }
 
-    fn iter(&self) -> Box<dyn Iterator<Item = u32> + '_> {
+    fn iter(&self) -> Under<'_> {
         match self {
-            Group::One(r) => Box::new(std::iter::once(*r)),
-            Group::Many(set) => Box::new(set.iter().copied()),
+            Group::One(r) => Under::One(Some(*r)),
+            Group::Many(set) => Under::Many(set.iter()),
+        }
+    }
+}
+
+/// The rows filed under one key hash (see [`Index::under`]), without a boxed
+/// iterator (an allocation per lookup).
+enum Under<'a> {
+    /// Entries of a unique index whose hash is the one probed.
+    Unique(hashbrown::hash_table::IterHash<'a, (u64, u32)>, u64),
+    One(Option<u32>),
+    Many(hashbrown::hash_set::Iter<'a, u32>),
+}
+
+impl Iterator for Under<'_> {
+    type Item = u32;
+
+    #[inline]
+    fn next(&mut self) -> Option<u32> {
+        match self {
+            Under::Unique(it, h) => it.find(|&&(eh, _)| eh == *h).map(|&(_, r)| r),
+            Under::One(r) => r.take(),
+            Under::Many(it) => it.next().copied(),
         }
     }
 }
@@ -143,12 +165,12 @@ impl Index {
     }
 
     /// Rows filed under hash `h` (all of them for a non-unique index).
-    fn under(&self, h: u64) -> Box<dyn Iterator<Item = u32> + '_> {
+    fn under(&self, h: u64) -> Under<'_> {
         match &self.entries {
-            Entries::Unique(t) => Box::new(t.iter_hash(h).filter(move |&&(eh, _)| eh == h).map(|&(_, r)| r)),
+            Entries::Unique(t) => Under::Unique(t.iter_hash(h), h),
             Entries::Multi(g) => match g.get(&h) {
                 Some(group) => group.iter(),
-                None => Box::new(std::iter::empty()),
+                None => Under::One(None),
             },
         }
     }
@@ -193,6 +215,17 @@ impl Index {
         let mut out: Vec<usize> = self.under(h).filter(|&r| matches(r)).map(|r| r as usize).collect();
         out.sort_unstable();
         out
+    }
+
+    /// Appends to `out` every row whose key equals `values`, in no particular
+    /// order.
+    pub(crate) fn extend_all_values(&self, rows: &[Vec<Value>], values: &[&Value], out: &mut Vec<usize>) {
+        if values.len() != self.cols.len() || values.iter().any(|v| v.is_null()) {
+            return;
+        }
+        let h = self.hash_values(values.iter().copied());
+        let matches = |r: u32| self.cols.iter().zip(values).all(|(&c, v)| key_eq(&rows[r as usize][c], v));
+        out.extend(self.under(h).filter(|&r| matches(r)).map(|r| r as usize));
     }
 
     /// Indexes row `row` (already stored in `rows`).
