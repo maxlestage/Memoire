@@ -109,6 +109,16 @@ fn memory(c: &mut Criterion) {
         })
     });
 
+    // `id IN (...)` with 100 keys: one primary-key lookup per value.
+    g.bench_function("filter_in_pk_100_10k", |b| {
+        let mut i = 0;
+        b.iter(|| {
+            i = (i + 1) % 97;
+            let ids: Vec<i64> = (0..100).map(|k| (k * 97 + i) % 10_000 + 1).collect();
+            black_box(block_on(User::query().filter(User::ID.is_in(ids)).all(&db)).unwrap())
+        })
+    });
+
     g.bench_function("update_where_10k", |b| {
         b.iter(|| {
             let n = block_on(
@@ -165,7 +175,11 @@ fn evaluator(c: &mut Criterion) {
         .collect();
     let filter = User::query().filter(User::AGE.between(20, 40) & User::SCORE.gt(100.0)).into_ast();
     let best = User::query().order_by(User::SCORE.desc()).limit(20).into_ast();
-    for (name, ast) in [("chunk_filter_2048", &filter), ("chunk_order_limit_2048", &best)] {
+    // A filter every row passes: the whole chunk comes back.
+    let all = User::query().filter(User::SCORE.ge(0.0)).into_ast();
+    for (name, ast) in
+        [("chunk_filter_2048", &filter), ("chunk_order_limit_2048", &best), ("chunk_filter_all_2048", &all)]
+    {
         g.bench_function(name, |b| {
             b.iter_batched(
                 || chunk.clone(),
@@ -173,6 +187,18 @@ fn evaluator(c: &mut Criterion) {
                     let mut t = Tables::new();
                     t.insert(User::SCHEMA, rows, 2048);
                     black_box(evaluator::fetch(&t, Query::Select(ast)).unwrap())
+                },
+                BatchSize::SmallInput,
+            )
+        });
+        // The same, the matching rows moved out of the tables (`fetch_owned`).
+        g.bench_function(format!("{name}_owned"), |b| {
+            b.iter_batched(
+                || chunk.clone(),
+                |rows| {
+                    let mut t = Tables::new();
+                    t.insert(User::SCHEMA, rows, 2048);
+                    black_box(evaluator::fetch_owned(t, Query::Select(ast)).unwrap())
                 },
                 BatchSize::SmallInput,
             )

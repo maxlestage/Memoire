@@ -6,6 +6,37 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-19
+
+### Added
+- **`evaluator::fetch_owned`: the rows of a statement moved out of the tables
+  instead of copied.** It consumes the `Tables` and answers what `fetch` answers;
+  when the statement returns whole rows of one table (`SELECT *` with any filter,
+  order, limit and offset, or a lookup by primary key), each row comes out of the
+  table as it is, without a copy of its values (texts and bytes included) and
+  without dropping the original. Any other statement (joins, `DISTINCT`, chosen
+  columns, aggregates), and tables shared with a clone, give copies, as `fetch`
+  does. Made for an engine that loads chunks of its own rows for one statement and
+  keeps those that match (the Nuage DB engine). Tested against `fetch` on random
+  tables and statements (`NaN` and values of another type included, shared and
+  unshared tables, missing tables). A chunk of 2,048 rows loaded and filtered
+  once: 158.5 µs → 118.2 µs (−25%, criterion, `evaluator/chunk_filter_2048_owned`
+  against `evaluator/chunk_filter_2048`); when every row matches: 231.6 µs →
+  44.2 µs (×5.2, `evaluator/chunk_filter_all_2048_owned`). For a few rows
+  (`ORDER BY ... LIMIT 20` of a chunk) it is no faster than `fetch` (135.7 µs
+  against 133.5 µs): keep `fetch` there.
+
+### Changed
+- **Index lookups no longer allocate an iterator.** Finding the rows filed under a
+  key (a non-unique index, every row of a key, a hash join) boxed its iterator, an
+  allocation per lookup; an `IN (...)` list on an indexed column also built a list
+  per value before joining them. `User::query().filter(User::ID.is_in(ids))` with
+  100 keys on a 10,000-row `MemoryDb`: 21.4 µs → 19.6 µs (−9%, criterion,
+  `memory/filter_in_pk_100_10k`, new). The same rows, in the same order.
+- The times above are medians of 3 runs (criterion), before and after back to
+  back, on an Intel Xeon @ 2.10 GHz with Rust 1.99 (Linux). The rest of the
+  criterion suite (`benches/orm.rs`) moves by noise only.
+
 ## [0.2.8] - 2026-11-18
 
 ### Changed
